@@ -1,3 +1,7 @@
+import asyncio
+from pathlib import Path
+from typing import AsyncIterator
+
 from .config import AutumnConfig
 from .interaction import UserInteraction
 from .api.interfaces import A1, A2, A3
@@ -10,42 +14,63 @@ from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
 from .components.checker import Checker
+from .components.agent import Agent
+from .components.skill import Skill
+from .components.tool import Tool
+from .components.mcp import MCPClient
+from .components.mcp_bridge import mcp_to_tools
 from ..plugins.loader import PluginLoader
 
 
 class Autumn:
     """秋/Autumn — Multi-Model Collaborative Workflow Framework.
 
-    Usage:
+    Quick start:
         async with Autumn(config) as autumn:
             result = await autumn.process(user_input)
 
-        # Stream output:
+        # Stream chunks:
         async for chunk in autumn.stream(user_input):
             print(chunk, end="", flush=True)
 
         # With CLI interaction:
-        from autumn.core.interaction import CLIInteraction
+        from autumn import CLIInteraction
         async with Autumn(config, interaction=CLIInteraction()) as autumn:
-            result = await autumn.process(user_input)
+            ...
+
+        # Auto-load plugins from directories:
+        Autumn(config, plugin_dirs=["./my_plugins"])
+
+        # Attach an MCP server:
+        client = StdioMCPClient(["python", "-m", "my_mcp_server"])
+        await autumn.add_mcp(client)
     """
 
-    def __init__(self, config: AutumnConfig, interaction: UserInteraction | None = None):
+    def __init__(
+        self,
+        config: AutumnConfig,
+        interaction: UserInteraction | None = None,
+        plugin_dirs: list[str | Path] | None = None,
+    ):
         self.config = config
         self.plugins = PluginLoader()
+        self._mcp_clients: list[MCPClient] = []
         self._build(config, interaction)
+
+        for d in (plugin_dirs or []):
+            self.plugins.load_from_directory(d)
 
     def _build(self, config: AutumnConfig, interaction: UserInteraction | None) -> None:
         self.a1 = A1(config.a1)
         self.a2 = A2(config.a2)
         self.a3 = A3(config.a3)
 
-        shared_backend = HybridBackend(SQLiteBackend(config.storage.db_path + ".shared"))
-        shared = SharedZone(shared_backend)
+        db = config.storage.db_path
+        shared = SharedZone(HybridBackend(SQLiteBackend(db + ".shared")))
 
-        self.mom2 = Mom2(HybridBackend(SQLiteBackend(config.storage.db_path + ".mom2")), shared)
-        self.mom3 = Mom3(HybridBackend(SQLiteBackend(config.storage.db_path + ".mom3")), shared)
-        self.mom1 = Mom1(HybridBackend(SQLiteBackend(config.storage.db_path + ".mom1")), self.mom2, self.mom3)
+        self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), shared)
+        self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), shared)
+        self.mom1 = Mom1(HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3)
 
         p = config.prompts
         self.wp2 = WP2Tas(self.a2, self.mom2, system_prompt=p.wp2_task)
@@ -61,19 +86,65 @@ class Autumn:
         self.wp2.checker = Checker("wp2", self.a2, eval_prompt=p.wp2_checker)
         self.wp3.checker = Checker("wp3", self.a3, eval_prompt=p.wp3_checker)
 
+    # ── public api ────────────────────────────────────────────────────────────
+
     async def process(self, user_input: str) -> str:
+        """Run the full pipeline and return the validated final output."""
         return await self.wp1.process(user_input)
 
-    async def close(self) -> None:
-        await self.a1.close()
-        await self.a2.close()
-        await self.a3.close()
+    async def stream(self, user_input: str, chunk_size: int = 32) -> AsyncIterator[str]:
+        """Run the pipeline and yield the validated output in chunks.
+
+        Because the checker requires the full output before validating, the
+        pipeline runs to completion first; chunks are emitted afterward. This
+        keeps the streaming API consistent for UI consumers without surfacing
+        unvalidated content.
+        """
+        result = await self.process(user_input)
+        for i in range(0, len(result), chunk_size):
+            yield result[i:i + chunk_size]
+            await asyncio.sleep(0)
+
+    # ── plugin & extension api ────────────────────────────────────────────────
+
+    def register_tool(self, tool: Tool) -> None:
+        self.plugins.register(tool.name, tool)
+
+    def register_skill(self, skill: Skill) -> None:
+        self.plugins.register(skill.name, skill)
+
+    def register_agent(self, agent: Agent) -> None:
+        self.plugins.register(agent.name, agent)
+
+    async def add_mcp(self, client: MCPClient) -> list[Tool]:
+        """Connect an MCP server and register all its tools as plugins.
+
+        The client is owned by Autumn after this call: it will be disconnected
+        on close(). Returns the list of registered Tool objects for inspection.
+        """
+        await client.connect()
+        self._mcp_clients.append(client)
+        tools = await mcp_to_tools(client)
+        for tool in tools:
+            self.register_tool(tool)
+        return tools
+
+    # ── lifecycle ─────────────────────────────────────────────────────────────
 
     async def end_session(self) -> None:
         """Clear short-term memory across all Mom areas, preserve long-term."""
         for mom in (self.mom1, self.mom2, self.mom3):
-            if hasattr(mom._backend, "clear_session"):
-                await mom._backend.clear_session()
+            backend = mom._backend
+            if hasattr(backend, "clear_session"):
+                await backend.clear_session()
+
+    async def close(self) -> None:
+        for client in self._mcp_clients:
+            await client.disconnect()
+        self._mcp_clients.clear()
+        await self.a1.close()
+        await self.a2.close()
+        await self.a3.close()
 
     async def __aenter__(self):
         return self

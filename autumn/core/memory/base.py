@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+_HISTORY_KEY = "history"
+_MAX_HISTORY = 50
+
 
 class MemoryBackend(ABC):
     """Abstract storage backend. Implement to plug in a concrete storage system."""
@@ -51,3 +54,16 @@ class MemoryArea:
     async def clear(self) -> None:
         for key in await self.keys():
             await self.delete(key)
+
+    # ── history helpers ──────────────────────────────────────────────────────
+
+    async def append_history(self, entry: dict, max_entries: int = _MAX_HISTORY) -> None:
+        """Append a turn record to history, capped at max_entries (most recent kept)."""
+        history = await self.get(_HISTORY_KEY) or []
+        history.append(entry)
+        if len(history) > max_entries:
+            history = history[-max_entries:]
+        await self.set(_HISTORY_KEY, history)
+
+    async def get_history(self) -> list[dict]:
+        return await self.get(_HISTORY_KEY) or []

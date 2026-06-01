@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Literal
 from .base import WorkspaceBase
 from .wp2 import WP2Tas
@@ -47,14 +48,25 @@ class WP1Tot(WorkspaceBase):
         input_type = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
 
         if input_type == InputType.TASK:
-            return await self._route_task(user_input)
-        return await self._route_mission(user_input)
+            final = await self._route_task(user_input)
+            chosen_route = None
+        else:
+            final, chosen_route = await self._route_mission_returning_route(user_input)
+
+        await self.memory.append_history({
+            "ts": time.time(),
+            "input": user_input,
+            "type": input_type.value,
+            "route": chosen_route.value if chosen_route else None,
+            "output": final,
+        })
+        return final
 
     async def _route_task(self, task_input: str) -> str:
         result = await self.wp2.process(task_input)
         return await self._wp1_check(result)
 
-    async def _route_mission(self, mission_input: str) -> str:
+    async def _route_mission_returning_route(self, mission_input: str) -> tuple[str, MissionRoute]:
         if self.interaction:
             chosen = await self.interaction.ask(
                 "How should I handle this mission?",
@@ -66,7 +78,7 @@ class WP1Tot(WorkspaceBase):
 
         if route == MissionRoute.DIRECT:
             result = await self.wp3.answer_directly(mission_input)
-            return await self._wp1_check(result)
+            return await self._wp1_check(result), route
 
         # Convert path
         task_form = await self.wp3.convert_to_task(mission_input)
@@ -74,7 +86,7 @@ class WP1Tot(WorkspaceBase):
             _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
         if self.checker:
             _, task_form = await self.checker.validate(task_form, self.memory)
-        return await self._route_task(task_form)
+        return await self._route_task(task_form), route
 
     async def _resolve_headless_route(self, mission_input: str) -> MissionRoute:
         if self._headless_route != "auto":
@@ -82,7 +94,6 @@ class WP1Tot(WorkspaceBase):
         return await self._auto_decide_route(mission_input)
 
     async def _auto_decide_route(self, mission_input: str) -> MissionRoute:
-        """A3 autonomously decides whether to answer directly or convert to a task."""
         messages = [
             Message(role=Role.SYSTEM, content=_AUTO_ROUTE_SYSTEM),
             Message(role=Role.USER, content=mission_input),

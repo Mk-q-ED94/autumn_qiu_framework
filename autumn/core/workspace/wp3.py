@@ -1,5 +1,6 @@
+import time
 from .base import WorkspaceBase
-from ..types import Message, Role
+from ..types import Message, MissionRoute, Role
 
 _DEFAULT_DIRECT = (
     "You are a helpful assistant in the Autumn framework. "
@@ -37,14 +38,34 @@ class WP3Mis(WorkspaceBase):
             Message(role=Role.SYSTEM, content=self._direct_system),
             Message(role=Role.USER, content=mission_input),
         ]
-        return await self.api.complete(messages)
+        result = await self.api.complete(messages)
+        await self.memory.append_history({
+            "ts": time.time(),
+            "mission": mission_input,
+            "route": MissionRoute.DIRECT.value,
+            "output": result,
+        })
+        return result
 
     async def convert_to_task(self, mission_input: str) -> str:
         messages = [
             Message(role=Role.SYSTEM, content=self._convert_system),
             Message(role=Role.USER, content=mission_input),
         ]
-        return await self.api.complete(messages)
+        result = await self.api.complete(messages)
+        await self.memory.append_history({
+            "ts": time.time(),
+            "mission": mission_input,
+            "route": MissionRoute.CONVERT.value,
+            "output": result,
+        })
+        # Hand off to the shared zone so WP2 can pick up context if needed.
+        await self.memory.shared.set("handoff", {
+            "original_mission": mission_input,
+            "converted_task": result,
+            "ts": time.time(),
+        })
+        return result
 
     async def process(self, mission_input: str) -> str:
         """Interface compliance. Actual routing is handled by WP1."""

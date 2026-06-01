@@ -1,3 +1,4 @@
+import time
 from .base import WorkspaceBase
 from ..types import Message, Role
 
@@ -24,4 +25,9 @@ class WP2Tas(WorkspaceBase):
         if self.checker:
             _, result = await self.checker.validate(result, self.memory)
 
+        await self.memory.append_history({
+            "ts": time.time(),
+            "task": task_input,
+            "output": result,
+        })
         return result

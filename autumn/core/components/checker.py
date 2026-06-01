@@ -1,5 +1,4 @@
 import json
-import re
 from ..types import Message, Role
 from ..memory.base import MemoryArea
 

@@ -36,6 +36,12 @@ class ModelAPIInterface:
             self._client = httpx.AsyncClient(headers=self._build_headers(), timeout=120.0)
         return self._client
 
+    @property
+    def _completion_endpoint(self) -> str:
+        if self.protocol == Protocol.OPENAI:
+            return f"{self.base_url}/v1/chat/completions"
+        return f"{self.base_url}/v1/messages"
+
     # ── request building ──────────────────────────────────────────────────────
 
     def _build_request(self, messages: list[Message], **kwargs) -> tuple[str, dict]:
@@ -45,7 +51,7 @@ class ModelAPIInterface:
                 "messages": [{"role": m.role.value, "content": m.content} for m in messages],
                 **kwargs,
             }
-            return f"{self.base_url}/v1/chat/completions", payload
+            return self._completion_endpoint, payload
 
         system_content = None
         chat_messages = []
@@ -63,29 +69,35 @@ class ModelAPIInterface:
         }
         if system_content:
             payload["system"] = system_content
-        return f"{self.base_url}/v1/messages", payload
+        return self._completion_endpoint, payload
 
-    # ── completion ────────────────────────────────────────────────────────────
+    # ── retry ────────────────────────────────────────────────────────────────
 
-    async def complete(self, messages: list[Message], **kwargs) -> str:
-        endpoint, payload = self._build_request(messages, **kwargs)
+    async def _post_with_retry(self, endpoint: str, payload: dict) -> dict:
         client = self._get_client()
         last_error: Exception | None = None
-        for attempt, delay in enumerate([0] + _RETRY_DELAYS):
+        for delay in [0] + _RETRY_DELAYS:
             if delay:
                 await asyncio.sleep(delay)
             try:
                 resp = await client.post(endpoint, json=payload)
                 resp.raise_for_status()
-                return self._extract_content(resp.json())
+                return resp.json()
             except httpx.HTTPError as e:
                 last_error = e
         raise last_error  # type: ignore[misc]
 
+    # ── completion ────────────────────────────────────────────────────────────
+
+    async def complete(self, messages: list[Message], **kwargs) -> str:
+        endpoint, payload = self._build_request(messages, **kwargs)
+        data = await self._post_with_retry(endpoint, payload)
+        return self._extract_content(data)
+
     def _extract_content(self, data: dict) -> str:
         if self.protocol == Protocol.OPENAI:
-            return data["choices"][0]["message"]["content"]
-        return next(b["text"] for b in data["content"] if b["type"] == "text")
+            return data["choices"][0]["message"]["content"] or ""
+        return next((b["text"] for b in data["content"] if b["type"] == "text"), "")
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
@@ -113,7 +125,6 @@ class ModelAPIInterface:
         if self.protocol == Protocol.OPENAI:
             delta = obj.get("choices", [{}])[0].get("delta", {})
             return delta.get("content")
-        # Anthropic
         if obj.get("type") == "content_block_delta":
             return obj.get("delta", {}).get("text")
         return None
@@ -125,41 +136,63 @@ class ModelAPIInterface:
         messages: list[Message],
         tools: list[dict],
         **kwargs,
-    ) -> tuple[str | None, list[ToolCall]]:
-        """Returns (text, []) for final answers or (None, tool_calls) for tool invocations."""
-        endpoint, payload = self._build_request(messages, **kwargs)
-        payload["tools"] = tools
-        if self.protocol == Protocol.ANTHROPIC:
-            payload.setdefault("max_tokens", 4096)
+    ) -> tuple[str, list[ToolCall]]:
+        """Convenience wrapper over complete_with_tools_raw for simple Message input."""
+        if self.protocol == Protocol.OPENAI:
+            raw = [{"role": m.role.value, "content": m.content} for m in messages]
+            return await self.complete_with_tools_raw(raw, tools, **kwargs)
 
-        client = self._get_client()
-        last_error: Exception | None = None
-        for delay in [0] + _RETRY_DELAYS:
-            if delay:
-                await asyncio.sleep(delay)
-            try:
-                resp = await client.post(endpoint, json=payload)
-                resp.raise_for_status()
-                return self._parse_tool_response(resp.json())
-            except httpx.HTTPError as e:
-                last_error = e
-        raise last_error  # type: ignore[misc]
+        system = None
+        raw = []
+        for m in messages:
+            if m.role == Role.SYSTEM:
+                system = m.content
+            else:
+                raw.append({"role": m.role.value, "content": m.content})
+        return await self.complete_with_tools_raw(raw, tools, system=system, **kwargs)
 
-    def _parse_tool_response(self, data: dict) -> tuple[str | None, list[ToolCall]]:
+    async def complete_with_tools_raw(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system: str | None = None,
+        **kwargs,
+    ) -> tuple[str, list[ToolCall]]:
+        """Like complete_with_tools but accepts pre-formatted provider-specific messages.
+
+        Returns (text, tool_calls). Both may be non-empty (text = reasoning, tool_calls = actions).
+        Empty tool_calls means the model is done.
+        """
+        if self.protocol == Protocol.OPENAI:
+            payload = {"model": self.model, "messages": messages, "tools": tools, **kwargs}
+        else:
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "max_tokens": kwargs.pop("max_tokens", 4096),
+                **kwargs,
+            }
+            if system:
+                payload["system"] = system
+
+        data = await self._post_with_retry(self._completion_endpoint, payload)
+        return self._parse_tool_response(data)
+
+    def _parse_tool_response(self, data: dict) -> tuple[str, list[ToolCall]]:
         if self.protocol == Protocol.OPENAI:
             msg = data["choices"][0]["message"]
+            text = msg.get("content") or ""
             raw_calls = msg.get("tool_calls") or []
-            if raw_calls:
-                calls = [
-                    ToolCall(
-                        id=tc["id"],
-                        name=tc["function"]["name"],
-                        arguments=json.loads(tc["function"]["arguments"]),
-                    )
-                    for tc in raw_calls
-                ]
-                return None, calls
-            return msg.get("content", ""), []
+            calls = [
+                ToolCall(
+                    id=tc["id"],
+                    name=tc["function"]["name"],
+                    arguments=json.loads(tc["function"]["arguments"]),
+                )
+                for tc in raw_calls
+            ]
+            return text, calls
 
         # Anthropic
         tool_calls = []
@@ -169,20 +202,40 @@ class ModelAPIInterface:
                 tool_calls.append(ToolCall(id=block["id"], name=block["name"], arguments=block["input"]))
             elif block["type"] == "text":
                 text_parts.append(block["text"])
-        if tool_calls:
-            return None, tool_calls
-        return "".join(text_parts), []
+        return "".join(text_parts), tool_calls
 
-    def make_tool_result_messages(
+    def build_assistant_tool_message(self, text: str, tool_calls: list[ToolCall]) -> dict:
+        """Build the assistant turn that issued tool_calls (in provider format)."""
+        if self.protocol == Protocol.OPENAI:
+            return {
+                "role": "assistant",
+                "content": text or None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                    }
+                    for tc in tool_calls
+                ],
+            }
+        # Anthropic
+        content: list[dict] = []
+        if text:
+            content.append({"type": "text", "text": text})
+        for tc in tool_calls:
+            content.append({"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments})
+        return {"role": "assistant", "content": content}
+
+    def build_tool_result_messages(
         self, tool_calls: list[ToolCall], results: list[str]
     ) -> list[dict]:
-        """Build the follow-up messages to append after tool execution."""
+        """Build the tool-result follow-up messages (in provider format)."""
         if self.protocol == Protocol.OPENAI:
             return [
                 {"role": "tool", "tool_call_id": tc.id, "content": result}
                 for tc, result in zip(tool_calls, results)
             ]
-        # Anthropic: single user message containing all tool_result blocks
         return [
             {
                 "role": "user",
