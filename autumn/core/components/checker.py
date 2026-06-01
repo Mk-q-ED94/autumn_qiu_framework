@@ -1,18 +1,98 @@
+import json
+import re
+from ..types import Message, Role
 from ..memory.base import MemoryArea
+
+_MAX_RETRIES = 3
+
+_DEFAULT_EVAL_SYSTEM = """\
+You are a quality checker in the Autumn framework.
+Given an output and optional context from memory, decide if the output is acceptable.
+Respond with ONLY valid JSON: {"ok": true} or {"ok": false, "issues": "brief description"}"""
+
+_CORRECT_SYSTEM = """\
+You are a quality improver in the Autumn framework.
+Rewrite the output to fix the reported issues. Return ONLY the improved output, no explanation."""
 
 
 class Checker:
-    """Output validator for a workspace. Coordinates with the workspace's memory."""
+    """Output validator per workspace.
 
-    def __init__(self, workspace_id: str, api_interface):
+    Validation pipeline (per attempt, up to _MAX_RETRIES):
+      1. Rule check: non-empty, minimum length.
+      2. Model check: call the workspace's API with memory context.
+    On all retries exhausted: return output annotated with [CHECK_FAILED: reason].
+    """
+
+    def __init__(self, workspace_id: str, api_interface, eval_prompt: str | None = None):
         self.workspace_id = workspace_id
         self.api = api_interface
+        self._eval_system = eval_prompt or _DEFAULT_EVAL_SYSTEM
 
     async def validate(self, output: str, memory: MemoryArea) -> tuple[bool, str]:
-        """Validates output against memory context.
+        last_issues = ""
+        for attempt in range(_MAX_RETRIES):
+            # Rule check (fast, free)
+            rule_issues = _rule_check(output)
+            if rule_issues:
+                if attempt < _MAX_RETRIES - 1:
+                    output = await self._correct(output, rule_issues)
+                    continue
+                last_issues = rule_issues
+                break
 
-        Returns (is_valid, output).
-        Passes through by default — validation logic to be defined per workspace.
-        """
-        # TODO: implement validation logic once checker requirements are confirmed
-        return True, output
+            # Model check (uses memory context)
+            ok, model_issues = await self._model_check(output, memory)
+            if ok:
+                return True, output
+            last_issues = model_issues
+            if attempt < _MAX_RETRIES - 1:
+                output = await self._correct(output, model_issues)
+
+        return False, f"[CHECK_FAILED({self.workspace_id}): {last_issues}]\n\n{output}"
+
+    async def _model_check(self, output: str, memory: MemoryArea) -> tuple[bool, str]:
+        context = await _load_context(memory)
+        user_content = f"Output to evaluate:\n{output}"
+        if context:
+            user_content = f"Memory context:\n{context}\n\n{user_content}"
+        messages = [
+            Message(role=Role.SYSTEM, content=self._eval_system),
+            Message(role=Role.USER, content=user_content),
+        ]
+        try:
+            resp = await self.api.complete(messages, max_tokens=128)
+            data = json.loads(resp.strip())
+            if data.get("ok"):
+                return True, ""
+            return False, data.get("issues", "quality check failed")
+        except (json.JSONDecodeError, KeyError):
+            return True, ""  # parse failure → pass through rather than loop forever
+
+    async def _correct(self, output: str, issues: str) -> str:
+        messages = [
+            Message(role=Role.SYSTEM, content=_CORRECT_SYSTEM),
+            Message(role=Role.USER, content=f"Issues: {issues}\n\nOutput to fix:\n{output}"),
+        ]
+        return await self.api.complete(messages)
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _rule_check(output: str) -> str:
+    output = output.strip()
+    if not output:
+        return "output is empty"
+    if len(output) < 10:
+        return "output is too short"
+    return ""
+
+
+async def _load_context(memory: MemoryArea) -> str:
+    """Pull recent conversation history and requirements from memory, if available."""
+    parts = []
+    for key in ["requirements", "history", "context"]:
+        value = await memory.get(key)
+        if value:
+            parts.append(f"{key}: {value}")
+    return "\n".join(parts)

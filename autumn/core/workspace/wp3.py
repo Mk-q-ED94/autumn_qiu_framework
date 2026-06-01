@@ -1,37 +1,47 @@
 from .base import WorkspaceBase
 from ..types import Message, Role
 
+_DEFAULT_DIRECT = (
+    "You are a helpful assistant in the Autumn framework. "
+    "Respond naturally and helpfully to the user's message."
+)
+
+_DEFAULT_CONVERT = (
+    "Convert the following mission into a precise, structured task. "
+    "Output a markdown document with a clear description and a todo list "
+    "of directly executable steps. Be specific and unambiguous."
+)
+
 
 class WP3Mis(WorkspaceBase):
-    """Mission workspace. Provides two operations for WP1 to invoke:
-    - answer_directly: A3 responds naturally (no conversion)
-    - convert_to_task: A3 formats the mission as a structured task for WP2
-    Routing decision lives in WP1, not here.
+    """Mission workspace.
+
+    Exposes two operations (routing decision lives in WP1):
+    - answer_directly: A3 responds naturally.
+    - convert_to_task: A3 reformats the mission as a structured task for WP2.
     """
+
+    def __init__(
+        self,
+        api,
+        memory,
+        direct_prompt: str | None = None,
+        convert_prompt: str | None = None,
+    ):
+        super().__init__(api, memory)
+        self._direct_system = direct_prompt or _DEFAULT_DIRECT
+        self._convert_system = convert_prompt or _DEFAULT_CONVERT
 
     async def answer_directly(self, mission_input: str) -> str:
         messages = [
-            Message(
-                role=Role.SYSTEM,
-                content=(
-                    "You are a helpful assistant in the Autumn framework. "
-                    "Respond naturally and helpfully to the user's message."
-                ),
-            ),
+            Message(role=Role.SYSTEM, content=self._direct_system),
             Message(role=Role.USER, content=mission_input),
         ]
         return await self.api.complete(messages)
 
     async def convert_to_task(self, mission_input: str) -> str:
         messages = [
-            Message(
-                role=Role.SYSTEM,
-                content=(
-                    "Convert the following mission into a precise, structured task. "
-                    "Output a markdown document with a clear description and a todo list "
-                    "of directly executable steps. Be specific and unambiguous."
-                ),
-            ),
+            Message(role=Role.SYSTEM, content=self._convert_system),
             Message(role=Role.USER, content=mission_input),
         ]
         return await self.api.complete(messages)

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import Enum
 from pydantic import BaseModel
 
@@ -24,5 +25,18 @@ class InputType(str, Enum):
 
 
 class MissionRoute(str, Enum):
-    DIRECT = "direct"    # A3 answers the mission directly
-    CONVERT = "convert"  # A3 converts mission to task → WP2
+    DIRECT = "direct"
+    CONVERT = "convert"
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class SelectorResult:
+    input_type: InputType
+    confidence: float
