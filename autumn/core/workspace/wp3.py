@@ -1,33 +1,15 @@
 from .base import WorkspaceBase
-from ..types import Message, MissionRoute, Role
+from ..types import Message, Role
 
 
 class WP3Mis(WorkspaceBase):
-    """Mission workspace. Handles natural conversation; optionally converts missions to tasks for WP2."""
+    """Mission workspace. Provides two operations for WP1 to invoke:
+    - answer_directly: A3 responds naturally (no conversion)
+    - convert_to_task: A3 formats the mission as a structured task for WP2
+    Routing decision lives in WP1, not here.
+    """
 
-    def __init__(self, api, memory, wp2=None):
-        super().__init__(api, memory)
-        self.wp2 = wp2
-
-    async def process(self, mission_input: str) -> str:
-        route = await self._decide_route(mission_input)
-
-        if route == MissionRoute.DIRECT:
-            result = await self._answer_directly(mission_input)
-        else:
-            task_form = await self._convert_to_task(mission_input)
-            result = await self.wp2.process(task_form)
-
-        if self.checker:
-            _, result = await self.checker.validate(result, self.memory)
-
-        return result
-
-    async def _decide_route(self, mission_input: str) -> MissionRoute:
-        # TODO: routing decision mechanism (direct vs convert-to-task) — to be confirmed
-        return MissionRoute.DIRECT
-
-    async def _answer_directly(self, mission_input: str) -> str:
+    async def answer_directly(self, mission_input: str) -> str:
         messages = [
             Message(
                 role=Role.SYSTEM,
@@ -40,15 +22,20 @@ class WP3Mis(WorkspaceBase):
         ]
         return await self.api.complete(messages)
 
-    async def _convert_to_task(self, mission_input: str) -> str:
+    async def convert_to_task(self, mission_input: str) -> str:
         messages = [
             Message(
                 role=Role.SYSTEM,
                 content=(
-                    "Convert the following mission into a precise, structured task description. "
-                    "Output a markdown todo list with clear, directly executable steps."
+                    "Convert the following mission into a precise, structured task. "
+                    "Output a markdown document with a clear description and a todo list "
+                    "of directly executable steps. Be specific and unambiguous."
                 ),
             ),
             Message(role=Role.USER, content=mission_input),
         ]
         return await self.api.complete(messages)
+
+    async def process(self, mission_input: str) -> str:
+        """Interface compliance. Actual routing is handled by WP1."""
+        return await self.answer_directly(mission_input)
