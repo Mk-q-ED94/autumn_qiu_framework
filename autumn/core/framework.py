@@ -5,7 +5,8 @@ from typing import AsyncIterator
 from .config import AutumnConfig
 from .interaction import UserInteraction
 from .api.interfaces import A1, A2, A3
-from .memory.backends import SQLiteBackend, HybridBackend
+from .api.embedding import EmbeddingInterface
+from .memory.backends import SQLiteBackend, HybridBackend, SQLiteVectorStore
 from .memory.shared import SharedZone
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
@@ -71,6 +72,17 @@ class Autumn:
         self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), shared)
         self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), shared)
         self.mom1 = Mom1(HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3)
+
+        self._embedding: EmbeddingInterface | None = None
+        if config.embedding is not None:
+            self._embedding = EmbeddingInterface(config.embedding)
+            for mom, suffix in [
+                (self.mom1, "mom1"),
+                (self.mom2, "mom2"),
+                (self.mom3, "mom3"),
+            ]:
+                store = SQLiteVectorStore(f"{db}.{suffix}.vec")
+                mom.enable_vector(self._embedding, store, auto_index=config.auto_index)
 
         p = config.prompts
         self.wp2 = WP2Tas(self.a2, self.mom2, system_prompt=p.wp2_task)
@@ -145,6 +157,8 @@ class Autumn:
         await self.a1.close()
         await self.a2.close()
         await self.a3.close()
+        if self._embedding is not None:
+            await self._embedding.close()
 
     async def __aenter__(self):
         return self

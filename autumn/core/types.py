@@ -40,3 +40,12 @@ class ToolCall:
 class SelectorResult:
     input_type: InputType
     confidence: float
+
+
+@dataclass
+class SearchResult:
+    """Single result from a semantic vector search."""
+    id: str
+    text: str
+    score: float       # cosine similarity in [0, 1]
+    metadata: dict
