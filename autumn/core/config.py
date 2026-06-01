@@ -1,5 +1,6 @@
+from typing import Literal
 from pydantic import BaseModel
-from .types import Protocol
+from .types import Protocol, MissionRoute
 
 
 class ModelConfig(BaseModel):
@@ -30,3 +31,4 @@ class AutumnConfig(BaseModel):
     a3: ModelConfig
     prompts: WorkspacePrompts = WorkspacePrompts()
     storage: StorageConfig = StorageConfig()
+    headless_mission_route: MissionRoute | Literal["auto"] = "auto"

@@ -54,6 +54,7 @@ class Autumn:
             self.a1, self.mom1, self.wp2, self.wp3,
             interaction=interaction,
             selector_prompt=p.selector,
+            headless_mission_route=config.headless_mission_route,
         )
 
         self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker)
