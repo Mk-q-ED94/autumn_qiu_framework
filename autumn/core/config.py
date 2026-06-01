@@ -3,6 +3,14 @@ from pydantic import BaseModel
 from .types import Protocol, MissionRoute
 
 
+class EmbeddingConfig(BaseModel):
+    """Configuration for a separate embedding model (OpenAI-compatible /v1/embeddings)."""
+    api_key: str
+    base_url: str
+    model: str
+    dimensions: int = 1536
+
+
 class ModelConfig(BaseModel):
     api_key: str
     base_url: str
@@ -32,3 +40,5 @@ class AutumnConfig(BaseModel):
     prompts: WorkspacePrompts = WorkspacePrompts()
     storage: StorageConfig = StorageConfig()
     headless_mission_route: MissionRoute | Literal["auto"] = "auto"
+    embedding: EmbeddingConfig | None = None
+    auto_index: bool = False   # when embedding is set, auto-embed each history entry

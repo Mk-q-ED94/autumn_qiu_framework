@@ -51,7 +51,7 @@ class Checker:
         return False, f"[CHECK_FAILED({self.workspace_id}): {last_issues}]\n\n{output}"
 
     async def _model_check(self, output: str, memory: MemoryArea) -> tuple[bool, str]:
-        context = await _load_context(memory)
+        context = await _load_context(memory, output)
         user_content = f"Output to evaluate:\n{output}"
         if context:
             user_content = f"Memory context:\n{context}\n\n{user_content}"
@@ -87,11 +87,23 @@ def _rule_check(output: str) -> str:
     return ""
 
 
-async def _load_context(memory: MemoryArea) -> str:
-    """Pull recent conversation history and requirements from memory, if available."""
+async def _load_context(memory: MemoryArea, query: str = "") -> str:
+    """Pull requirements and history from memory. Uses semantic search when vector is enabled."""
     parts = []
     for key in ["requirements", "history", "context"]:
         value = await memory.get(key)
         if value:
             parts.append(f"{key}: {value}")
+
+    if query and memory.has_vector:
+        try:
+            results = await memory.search(query, k=3)
+            if results:
+                snippets = "\n".join(
+                    f"- [{r.score:.2f}] {r.text[:300]}" for r in results
+                )
+                parts.append(f"semantic_context:\n{snippets}")
+        except Exception:
+            pass  # vector search is supplementary; never block validation
+
     return "\n".join(parts)
