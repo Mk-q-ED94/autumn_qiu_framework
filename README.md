@@ -39,9 +39,28 @@ A multi-model collaborative workflow framework. Three model API interfaces (A1, 
 
 ## Quick start
 
+```bash
+cp .env.example .env       # fill in A1/A2/A3 keys
+pip install -e .
+```
+
 ```python
 import asyncio
-from autumn import Autumn, AutumnConfig, ModelConfig, Protocol
+from autumn import Autumn, AutumnConfig
+
+async def main():
+    config = AutumnConfig.from_env(env_file=".env")
+    async with Autumn(config) as autumn:
+        result = await autumn.process("帮我写一个周末旅行清单")
+        print(result)
+
+asyncio.run(main())
+```
+
+Prefer building the config in code? Use `ModelConfig` directly:
+
+```python
+from autumn import AutumnConfig, ModelConfig, Protocol
 
 config = AutumnConfig(
     a1=ModelConfig(api_key="...", base_url="https://api.openai.com",
@@ -51,13 +70,6 @@ config = AutumnConfig(
     a3=ModelConfig(api_key="...", base_url="https://api.openai.com",
                    model="gpt-4o", protocol=Protocol.OPENAI),
 )
-
-async def main():
-    async with Autumn(config) as autumn:
-        result = await autumn.process("帮我写一个周末旅行清单")
-        print(result)
-
-asyncio.run(main())
 ```
 
 ## Streaming
@@ -145,6 +157,21 @@ autumn/
 │   └── framework.py  # Autumn (entry point)
 └── plugins/loader.py # PluginLoader
 ```
+
+## HTTP server & desktop client
+
+A FastAPI bridge exposes the framework over HTTP/SSE so any client can drive it.
+The SwiftUI iOS/macOS app under `desktop/` is the reference client.
+
+```bash
+pip install -e ".[server]"
+python -m autumn.server            # listens on 127.0.0.1:8765
+
+# Build & open the desktop app (requires Xcode + XcodeGen on macOS):
+cd desktop && xcodegen generate && open AutumnDesktop.xcodeproj
+```
+
+See [`desktop/README.md`](desktop/README.md) for the full workflow.
 
 ## Development
 

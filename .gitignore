@@ -13,3 +13,5 @@ build/
 .venv/
 venv/
 *.env
+!.env.example
+autumn_memory.db*
