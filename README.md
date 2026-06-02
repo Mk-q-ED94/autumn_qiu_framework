@@ -158,6 +158,21 @@ autumn/
 └── plugins/loader.py # PluginLoader
 ```
 
+## HTTP server & desktop client
+
+A FastAPI bridge exposes the framework over HTTP/SSE so any client can drive it.
+The SwiftUI iOS/macOS app under `desktop/` is the reference client.
+
+```bash
+pip install -e ".[server]"
+python -m autumn.server            # listens on 127.0.0.1:8765
+
+# Build & open the desktop app (requires Xcode + XcodeGen on macOS):
+cd desktop && xcodegen generate && open AutumnDesktop.xcodeproj
+```
+
+See [`desktop/README.md`](desktop/README.md) for the full workflow.
+
 ## Development
 
 ```bash
