@@ -1,38 +1,17 @@
 """Basic end-to-end usage of the Autumn framework.
 
-Set these environment variables before running:
-    A1_API_KEY, A2_API_KEY, A3_API_KEY  (your provider keys)
-    A1_BASE_URL, A2_BASE_URL, A3_BASE_URL  (provider endpoints)
-    A1_MODEL, A2_MODEL, A3_MODEL  (model names)
-    A1_PROTOCOL, A2_PROTOCOL, A3_PROTOCOL  ("openai" or "anthropic")
+Copy `.env.example` to `.env`, fill in your credentials, then run.
 """
 import asyncio
-import os
 
-from autumn import (
-    Autumn, AutumnConfig, ModelConfig, Protocol,
-    CLIInteraction, MissionRoute,
-)
-
-
-def model_from_env(prefix: str) -> ModelConfig:
-    return ModelConfig(
-        api_key=os.environ[f"{prefix}_API_KEY"],
-        base_url=os.environ[f"{prefix}_BASE_URL"],
-        model=os.environ[f"{prefix}_MODEL"],
-        protocol=Protocol(os.environ.get(f"{prefix}_PROTOCOL", "openai")),
-    )
+from autumn import Autumn, AutumnConfig, CLIInteraction
 
 
 async def main():
-    config = AutumnConfig(
-        a1=model_from_env("A1"),
-        a2=model_from_env("A2"),
-        a3=model_from_env("A3"),
-        headless_mission_route="auto",  # A3 decides per-request
-    )
+    # One line replaces ~15 lines of manual ModelConfig construction.
+    # `env_file=` is optional; without it, os.environ is read directly.
+    config = AutumnConfig.from_env(env_file=".env")
 
-    # Interactive mode: CLI prompts on low-confidence classification.
     async with Autumn(config, interaction=CLIInteraction()) as autumn:
         # 1) Direct conversation (mission/direct)
         print("\n[Mission / direct]")
