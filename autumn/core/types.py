@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum
-from pydantic import BaseModel
 
 
 class Protocol(str, Enum):
@@ -14,7 +13,8 @@ class Role(str, Enum):
     ASSISTANT = "assistant"
 
 
-class Message(BaseModel):
+@dataclass
+class Message:
     role: Role
     content: str
 

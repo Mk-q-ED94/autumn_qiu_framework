@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 from .config import AutumnConfig
 from .interaction import UserInteraction
@@ -20,6 +20,7 @@ from .components.skill import Skill
 from .components.tool import Tool
 from .components.mcp import MCPClient
 from .components.mcp_bridge import mcp_to_tools
+from .types import MissionRoute
 from ..plugins.loader import PluginLoader
 
 
@@ -100,11 +101,20 @@ class Autumn:
 
     # ── public api ────────────────────────────────────────────────────────────
 
-    async def process(self, user_input: str) -> str:
+    async def process(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> str:
         """Run the full pipeline and return the validated final output."""
-        return await self.wp1.process(user_input)
+        return await self.wp1.process(user_input, mission_route=mission_route)
 
-    async def stream(self, user_input: str, chunk_size: int = 32) -> AsyncIterator[str]:
+    async def stream(
+        self,
+        user_input: str,
+        chunk_size: int = 32,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> AsyncIterator[str]:
         """Run the pipeline and yield the validated output in chunks.
 
         Because the checker requires the full output before validating, the
@@ -112,7 +122,7 @@ class Autumn:
         keeps the streaming API consistent for UI consumers without surfacing
         unvalidated content.
         """
-        result = await self.process(user_input)
+        result = await self.process(user_input, mission_route=mission_route)
         for i in range(0, len(result), chunk_size):
             yield result[i:i + chunk_size]
             await asyncio.sleep(0)

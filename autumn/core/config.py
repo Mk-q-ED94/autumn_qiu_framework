@@ -1,10 +1,11 @@
 import os
+from dataclasses import dataclass, field
 from typing import Literal
-from pydantic import BaseModel
 from .types import Protocol, MissionRoute
 
 
-class EmbeddingConfig(BaseModel):
+@dataclass
+class EmbeddingConfig:
     """Configuration for a separate embedding model (OpenAI-compatible /v1/embeddings)."""
     api_key: str
     base_url: str
@@ -25,7 +26,8 @@ class EmbeddingConfig(BaseModel):
         )
 
 
-class ModelConfig(BaseModel):
+@dataclass
+class ModelConfig:
     api_key: str
     base_url: str
     model: str
@@ -42,7 +44,8 @@ class ModelConfig(BaseModel):
         )
 
 
-class WorkspacePrompts(BaseModel):
+@dataclass
+class WorkspacePrompts:
     """Override default system prompts for each workspace operation."""
     wp2_task: str | None = None       # A2: task execution
     wp3_direct: str | None = None     # A3: direct mission answer
@@ -53,16 +56,18 @@ class WorkspacePrompts(BaseModel):
     wp3_checker: str | None = None    # WP3 checker evaluation
 
 
-class StorageConfig(BaseModel):
+@dataclass
+class StorageConfig:
     db_path: str = "autumn_memory.db"
 
 
-class AutumnConfig(BaseModel):
+@dataclass
+class AutumnConfig:
     a1: ModelConfig
     a2: ModelConfig
     a3: ModelConfig
-    prompts: WorkspacePrompts = WorkspacePrompts()
-    storage: StorageConfig = StorageConfig()
+    prompts: WorkspacePrompts = field(default_factory=WorkspacePrompts)
+    storage: StorageConfig = field(default_factory=StorageConfig)
     headless_mission_route: MissionRoute | Literal["auto"] = "auto"
     embedding: EmbeddingConfig | None = None
     auto_index: bool = False   # when embedding is set, auto-embed each history entry

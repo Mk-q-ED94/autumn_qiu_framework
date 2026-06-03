@@ -38,7 +38,7 @@ final class ChatViewModel: ObservableObject {
         defer { isStreaming = false }
 
         do {
-            for try await chunk in client.stream(text) {
+            for try await chunk in client.stream(text, route: settings.routeMode) {
                 messages[assistantIndex].text += chunk
             }
             if messages[assistantIndex].text.isEmpty {

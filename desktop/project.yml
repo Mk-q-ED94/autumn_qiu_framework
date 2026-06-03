@@ -17,39 +17,26 @@ settings:
 targets:
   AutumnDesktop:
     type: application
-    platform: iOS
+    platform: macOS
     sources:
       - path: AutumnApp
         excludes:
           - "Resources/Info.plist"
-          - "Resources/AutumnDesktop.entitlements"
     info:
       path: AutumnApp/Resources/Info.plist
       properties:
+        AutumnRepositoryRoot: "$(SRCROOT)/.."
         CFBundleDisplayName: Autumn
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
-        LSRequiresIPhoneOS: false
-        UILaunchScreen:
-          UIColorName: ""
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: true
+        NSPrincipalClass: NSApplication
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        NSLocalNetworkUsageDescription: Autumn 需要本地网络权限连接你本机运行的 Autumn 服务器。
-    entitlements:
-      path: AutumnApp/Resources/AutumnDesktop.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.network.client: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.autumn.desktop
-        TARGETED_DEVICE_FAMILY: "1,2"
-        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator macosx"
-        SUPPORTS_MACCATALYST: NO
-        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_DEBUG_DYLIB: NO
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic

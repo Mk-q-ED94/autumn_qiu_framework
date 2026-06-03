@@ -44,14 +44,21 @@ class WP1Tot(WorkspaceBase):
         self.interaction = interaction
         self._headless_route = headless_mission_route
 
-    async def process(self, user_input: str) -> str:
+    async def process(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> str:
         input_type = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
 
         if input_type == InputType.TASK:
             final = await self._route_task(user_input)
             chosen_route = None
         else:
-            final, chosen_route = await self._route_mission_returning_route(user_input)
+            final, chosen_route = await self._route_mission_returning_route(
+                user_input,
+                mission_route=mission_route,
+            )
 
         await self.memory.append_history({
             "ts": time.time(),
@@ -66,7 +73,11 @@ class WP1Tot(WorkspaceBase):
         result = await self.wp2.process(task_input)
         return await self._wp1_check(result)
 
-    async def _route_mission_returning_route(self, mission_input: str) -> tuple[str, MissionRoute]:
+    async def _route_mission_returning_route(
+        self,
+        mission_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> tuple[str, MissionRoute]:
         if self.interaction:
             chosen = await self.interaction.ask(
                 "How should I handle this mission?",
@@ -74,7 +85,7 @@ class WP1Tot(WorkspaceBase):
             )
             route = MissionRoute(chosen)
         else:
-            route = await self._resolve_headless_route(mission_input)
+            route = await self._resolve_headless_route(mission_input, mission_route)
 
         if route == MissionRoute.DIRECT:
             result = await self.wp3.answer_directly(mission_input)
@@ -88,9 +99,14 @@ class WP1Tot(WorkspaceBase):
             _, task_form = await self.checker.validate(task_form, self.memory)
         return await self._route_task(task_form), route
 
-    async def _resolve_headless_route(self, mission_input: str) -> MissionRoute:
-        if self._headless_route != "auto":
-            return self._headless_route
+    async def _resolve_headless_route(
+        self,
+        mission_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> MissionRoute:
+        route = mission_route if mission_route is not None else self._headless_route
+        if route != "auto":
+            return route
         return await self._auto_decide_route(mission_input)
 
     async def _auto_decide_route(self, mission_input: str) -> MissionRoute:

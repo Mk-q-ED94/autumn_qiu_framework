@@ -1,9 +1,10 @@
 import asyncio
+from dataclasses import dataclass
 from typing import Any, Callable
-from pydantic import BaseModel
 
 
-class ToolParameter(BaseModel):
+@dataclass
+class ToolParameter:
     name: str
     type: str
     description: str
