@@ -3,6 +3,7 @@ import json
 import pytest
 
 from autumn.core.components.agent import Agent
+from autumn.core.components.skill import Skill
 from autumn.core.components.tool import Tool, ToolParameter
 from autumn.core.types import Protocol, ToolCall
 
@@ -83,6 +84,48 @@ async def test_agent_react_loop_executes_tool(protocol):
     # Critical: second call must include the assistant tool_use AND the tool_result
     second_call_msgs = api.message_log[1]
     assert len(second_call_msgs) > 2  # task + assistant tool_use + tool_result
+
+
+async def test_agent_exposes_skill_as_function_and_invokes_it():
+    invoked = {"ctx": None}
+
+    async def handler(ctx):
+        invoked["ctx"] = ctx
+        return "summary text"
+
+    skill = Skill("summarize", "summarize text", handler,
+                  [ToolParameter(name="text", type="string", description="text")])
+
+    api = MockAPI(Protocol.OPENAI, [
+        ("Using skill", [ToolCall(id="s1", name="summarize", arguments={"text": "long input"})]),
+        ("Done summarizing", []),
+    ])
+    agent = Agent("tester", api, skills=[skill])
+    result = await agent.run("Summarize this.")
+    assert result == "Done summarizing"
+    assert invoked["ctx"] == {"text": "long input"}
+
+    # The skill must have been advertised to the model as a function schema
+    # (the MockAPI ignores tools, so assert on what Agent built instead).
+    assert "summarize" in agent.skills
+
+
+async def test_agent_skill_schema_sent_to_model():
+    """Skills should appear in the tool schema list passed to the API."""
+    seen_schemas = {}
+
+    class CapturingAPI(MockAPI):
+        async def complete_with_tools_raw(self, messages, tools, system=None, **kwargs):
+            seen_schemas["tools"] = tools
+            return await super().complete_with_tools_raw(messages, tools, system, **kwargs)
+
+    skill = Skill("translate", "translate text", lambda ctx: "hola")
+    tool = Tool("noop", "noop", lambda: "x", [])
+    api = CapturingAPI(Protocol.OPENAI, [("final", [])])
+    agent = Agent("tester", api, tools=[tool], skills=[skill])
+    await agent.run("...")
+    names = {t["function"]["name"] for t in seen_schemas["tools"]}
+    assert names == {"noop", "translate"}
 
 
 async def test_agent_unknown_tool_returns_error_to_model():

@@ -1,4 +1,4 @@
-from autumn.core.components import Tool, ToolParameter, Selector, Checker
+from autumn.core.components import Tool, ToolParameter, Selector, Checker, Skill
 from autumn.core.components.checker import _rule_check
 from autumn.core.components.mcp_bridge import _schema_to_parameters
 
@@ -27,6 +27,48 @@ def test_tool_anthropic_schema():
     schema = tool.to_anthropic_schema()
     assert schema["name"] == "search"
     assert schema["input_schema"]["required"] == []
+
+
+def test_skill_openai_schema():
+    skill = Skill(
+        name="summarize",
+        description="Summarize text",
+        handler=lambda ctx: ctx,
+        parameters=[ToolParameter(name="text", type="string", description="text to summarize")],
+    )
+    schema = skill.to_openai_schema()
+    assert schema["type"] == "function"
+    assert schema["function"]["name"] == "summarize"
+    assert "text" in schema["function"]["parameters"]["properties"]
+    assert schema["function"]["parameters"]["required"] == ["text"]
+
+
+def test_skill_anthropic_schema():
+    skill = Skill("greet", "Greet someone", lambda ctx: ctx,
+                  [ToolParameter(name="name", type="string", description="who")])
+    schema = skill.to_anthropic_schema()
+    assert schema["name"] == "greet"
+    assert schema["input_schema"]["required"] == ["name"]
+
+
+def test_skill_default_empty_parameters():
+    skill = Skill("ping", "no-arg trigger", lambda ctx: "pong")
+    schema = skill.to_openai_schema()
+    assert schema["function"]["parameters"]["properties"] == {}
+    assert schema["function"]["parameters"]["required"] == []
+
+
+async def test_skill_execute_receives_context():
+    captured = {}
+
+    async def handler(ctx):
+        captured.update(ctx)
+        return "ok"
+
+    skill = Skill("cap", "captures", handler)
+    result = await skill.execute({"a": 1, "b": 2})
+    assert result == "ok"
+    assert captured == {"a": 1, "b": 2}
 
 
 async def test_tool_call_async():
