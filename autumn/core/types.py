@@ -37,6 +37,15 @@ class WorkflowStage:
     detail: str
     workspace: str
     status: str = "completed"
+    kind: str = "stage"   # "stage" = workflow step, "tool" = an agent tool call
+
+
+@dataclass
+class AgentStep:
+    """One tool/skill invocation inside an Agent's ReAct loop."""
+    name: str
+    arguments: dict
+    result: str
 
 
 @dataclass

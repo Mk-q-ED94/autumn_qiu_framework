@@ -12,6 +12,7 @@ _EXPORTS = {
     "MissionRoute": ("autumn.core.types", "MissionRoute"),
     "WorkflowRun": ("autumn.core.types", "WorkflowRun"),
     "WorkflowStage": ("autumn.core.types", "WorkflowStage"),
+    "AgentStep": ("autumn.core.types", "AgentStep"),
     "ToolCall": ("autumn.core.types", "ToolCall"),
     "Message": ("autumn.core.types", "Message"),
     "Role": ("autumn.core.types", "Role"),

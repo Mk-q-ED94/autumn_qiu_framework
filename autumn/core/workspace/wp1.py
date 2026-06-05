@@ -67,7 +67,8 @@ class WP1Tot(WorkspaceBase):
         ))
 
         if input_type == InputType.TASK:
-            result = await self.wp2.process(user_input)
+            result, tool_stages = await self.wp2.process_with_trace(user_input)
+            stages.extend(tool_stages)
             stages.append(WorkflowStage(
                 id="wp2.task",
                 title="A2 执行任务",
@@ -191,7 +192,8 @@ class WP1Tot(WorkspaceBase):
                 workspace="WP1",
             ))
 
-        result = await self.wp2.process(task_form)
+        result, tool_stages = await self.wp2.process_with_trace(task_form)
+        stages.extend(tool_stages)
         stages.append(WorkflowStage(
             id="wp2.task",
             title="A2 执行任务",

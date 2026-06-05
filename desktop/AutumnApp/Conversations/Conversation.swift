@@ -60,7 +60,7 @@ struct PersistableTrace: Codable, Equatable {
         self.output = trace.output
         self.inputType = trace.inputType
         self.route = trace.route
-        self.stages = trace.stages.map(PersistableStage.init)
+        self.stages = trace.stages.map { PersistableStage(from: $0) }
     }
 
     func toWorkflowTrace() -> WorkflowTrace {
@@ -79,6 +79,7 @@ struct PersistableStage: Codable, Equatable {
     let detail: String
     let workspace: String
     let status: String
+    let kind: String
 
     init(from stage: WorkflowStage) {
         self.id = stage.id
@@ -86,9 +87,24 @@ struct PersistableStage: Codable, Equatable {
         self.detail = stage.detail
         self.workspace = stage.workspace
         self.status = stage.status
+        self.kind = stage.kind
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        detail = try c.decode(String.self, forKey: .detail)
+        workspace = try c.decode(String.self, forKey: .workspace)
+        status = try c.decode(String.self, forKey: .status)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, detail, workspace, status, kind
     }
 
     func toWorkflowStage() -> WorkflowStage {
-        WorkflowStage(id: id, title: title, detail: detail, workspace: workspace, status: status)
+        WorkflowStage(id: id, title: title, detail: detail, workspace: workspace, status: status, kind: kind)
     }
 }

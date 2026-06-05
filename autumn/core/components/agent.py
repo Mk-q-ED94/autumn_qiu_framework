@@ -1,7 +1,7 @@
 from .tool import Tool
 from .skill import Skill
 from ..api.base import ModelAPIInterface
-from ..types import Protocol
+from ..types import Protocol, AgentStep
 
 _MAX_STEPS = 10
 _MAX_HISTORY_CONTEXT = 5
@@ -84,7 +84,13 @@ class Agent:
                 system = f"{system}\n\n{ctx}"
         return system
 
-    async def run(self, task: str, memory=None) -> str:
+    async def run(self, task: str, memory=None, steps: list[AgentStep] | None = None) -> str:
+        """Run the ReAct loop and return the final answer.
+
+        If ``steps`` is provided, each tool/skill invocation is appended to it
+        as an :class:`AgentStep` — letting callers surface the agent's actions
+        in a workflow trace without changing the string return value.
+        """
         system = await self._build_system(memory)
         is_openai = self.api.protocol == Protocol.OPENAI
 
@@ -128,6 +134,12 @@ class Agent:
                 except Exception as e:  # noqa: BLE001 — feed error back to model for ReAct recovery
                     result = f"[tool error: {e}]"
                 results.append(str(result))
+                if steps is not None:
+                    steps.append(AgentStep(
+                        name=tc.name,
+                        arguments=dict(tc.arguments),
+                        result=str(result),
+                    ))
 
             msgs.append(self.api.build_assistant_tool_message(text, tool_calls))
             msgs.extend(self.api.build_tool_result_messages(tool_calls, results))

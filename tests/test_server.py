@@ -55,6 +55,14 @@ class _MockAutumn:
                     detail=f"Mission 路由为 {route.value}",
                     workspace="WP3",
                 ),
+                WorkflowStage(
+                    id="wp2.tool.0.search",
+                    title="search",
+                    detail="q=x → ok",
+                    workspace="WP2",
+                    status="completed",
+                    kind="tool",
+                ),
             ],
         )
 
@@ -317,6 +325,16 @@ def test_trace_returns_workflow_run(configured_client):
     assert payload["route"] == "convert"
     assert payload["stages"][0]["id"] == "wp3.route"
     assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert")
+
+
+def test_trace_includes_tool_stage_kind(configured_client):
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 200
+    stages = r.json()["stages"]
+    assert stages[0]["kind"] == "stage"          # default for workflow steps
+    tool_stages = [s for s in stages if s["kind"] == "tool"]
+    assert len(tool_stages) == 1
+    assert tool_stages[0]["title"] == "search"
 
 
 def test_trace_503_when_unconfigured(unconfigured_client):
