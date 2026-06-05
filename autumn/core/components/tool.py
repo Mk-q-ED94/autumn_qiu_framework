@@ -11,6 +11,38 @@ class ToolParameter:
     required: bool = True
 
 
+def _json_schema(parameters: list[ToolParameter]) -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            p.name: {"type": p.type, "description": p.description}
+            for p in parameters
+        },
+        "required": [p.name for p in parameters if p.required],
+    }
+
+
+def build_openai_schema(name: str, description: str, parameters: list[ToolParameter]) -> dict:
+    """OpenAI function-calling schema. Shared by Tool and Skill."""
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": _json_schema(parameters),
+        },
+    }
+
+
+def build_anthropic_schema(name: str, description: str, parameters: list[ToolParameter]) -> dict:
+    """Anthropic tool-use schema. Shared by Tool and Skill."""
+    return {
+        "name": name,
+        "description": description,
+        "input_schema": _json_schema(parameters),
+    }
+
+
 class Tool:
     """A callable tool with schemas compatible with OpenAI and Anthropic tool-use formats."""
 
@@ -32,32 +64,7 @@ class Tool:
         return self.fn(**kwargs)
 
     def to_openai_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        p.name: {"type": p.type, "description": p.description}
-                        for p in self.parameters
-                    },
-                    "required": [p.name for p in self.parameters if p.required],
-                },
-            },
-        }
+        return build_openai_schema(self.name, self.description, self.parameters)
 
     def to_anthropic_schema(self) -> dict:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    p.name: {"type": p.type, "description": p.description}
-                    for p in self.parameters
-                },
-                "required": [p.name for p in self.parameters if p.required],
-            },
-        }
+        return build_anthropic_schema(self.name, self.description, self.parameters)

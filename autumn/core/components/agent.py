@@ -8,10 +8,9 @@ _MAX_HISTORY_CONTEXT = 5
 
 _REACT_SYSTEM = """\
 You are {name}, an autonomous agent in the Autumn framework.
-You have access to tools and skills. Reason step by step:
-- Use tools to gather information or take actions.
-- Invoke skills (via the run_skill tool, if available) to reuse pre-built capabilities.
-When you have a final answer, respond in plain text without calling any tool."""
+Tools and skills are exposed to you as callable functions. Reason step by step:
+- Call a function to gather information, take an action, or reuse a capability.
+When you have a final answer, respond in plain text without calling any function."""
 
 
 def _format_memory_context(history: list[dict]) -> str:
@@ -100,9 +99,12 @@ class Agent:
             msgs = [{"role": "user", "content": task}]
             api_system = system
 
+        # Both tools and skills are exposed to the model as callable functions.
+        # On a name clash, the tool wins at execution time (checked first below).
+        callables = [*self.tools.values(), *self.skills.values()]
         tool_schemas = [
-            t.to_openai_schema() if is_openai else t.to_anthropic_schema()
-            for t in self.tools.values()
+            c.to_openai_schema() if is_openai else c.to_anthropic_schema()
+            for c in callables
         ]
 
         for _ in range(_MAX_STEPS):

@@ -244,3 +244,46 @@ def test_wp2_provider_wired_to_collect_plugins(tmp_path):
     autumn.register_tool(tool)
     tools, _ = autumn.wp2._tool_provider()
     assert tool in tools
+
+
+# ── Hermes-backed WP2: full XML tool-call loop ─────────────────────────────────
+
+async def test_hermes_backed_wp2_full_tool_loop():
+    """A Hermes-backed A2 runs WP2's agent loop end to end: the model emits a
+    <tool_call>, HermesAPIInterface parses it, the tool runs, and the result is
+    fed back as a <tool_response> — all transparent to WP2 and the Agent."""
+    from autumn.core.api.hermes import HermesAPIInterface
+
+    api = HermesAPIInterface("key", "http://localhost:11434", "hermes3:8b")
+
+    responses = [
+        {"choices": [{"message": {"content":
+            '<tool_call>\n{"name": "get_time", "arguments": {"tz": "UTC"}}\n</tool_call>'}}]},
+        {"choices": [{"message": {"content": "The time is 12:00 UTC."}}]},
+    ]
+    sent: list[dict] = []
+
+    async def fake_post(endpoint, payload):
+        sent.append(payload)
+        return responses[len(sent) - 1]
+
+    api._post_with_retry = fake_post  # bypass HTTP, keep all Hermes parsing logic
+
+    async def get_time(tz: str) -> str:
+        return f"12:00 {tz}"
+
+    tool = Tool("get_time", "current time", get_time,
+                [ToolParameter("tz", "string", "timezone")])
+
+    wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([tool], []))
+    result = await wp2.process("What time is it?")
+
+    assert result == "The time is 12:00 UTC."
+    # First request advertises the tool inside the <tools> system block.
+    first_system = next(m for m in sent[0]["messages"] if m["role"] == "system")
+    assert "get_time" in first_system["content"]
+    assert "<tools>" in first_system["content"]
+    # Second request carries the tool result back as a <tool_response>.
+    blob = json.dumps(sent[1], ensure_ascii=False)
+    assert "<tool_response>" in blob
+    assert "12:00 UTC" in blob
