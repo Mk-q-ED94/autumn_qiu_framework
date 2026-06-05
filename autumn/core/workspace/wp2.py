@@ -2,7 +2,7 @@ import time
 from typing import Callable
 
 from .base import WorkspaceBase
-from ..types import Message, Role
+from ..types import Message, Role, WorkflowStage, AgentStep
 from ..components.agent import Agent
 from ..components.skill import Skill
 from ..components.tool import Tool
@@ -12,8 +12,27 @@ _DEFAULT_SYSTEM = (
     "Process the given task and produce a structured, accurate response."
 )
 
+_TOOL_RESULT_MAX = 120
+
 # Returns a snapshot of (tools, skills) available for this turn.
 ToolProvider = Callable[[], tuple[list[Tool], list[Skill]]]
+
+
+def _step_to_stage(index: int, step: AgentStep) -> WorkflowStage:
+    """Render one agent tool call as a trace stage (kind="tool")."""
+    args = ", ".join(f"{k}={v}" for k, v in step.arguments.items())
+    result = step.result
+    if len(result) > _TOOL_RESULT_MAX:
+        result = result[:_TOOL_RESULT_MAX] + "…"
+    detail = f"{args} → {result}" if args else result
+    return WorkflowStage(
+        id=f"wp2.tool.{index}.{step.name}",
+        title=step.name,
+        detail=detail,
+        workspace="WP2",
+        status="completed",
+        kind="tool",
+    )
 
 
 class WP2Tas(WorkspaceBase):
@@ -25,8 +44,8 @@ class WP2Tas(WorkspaceBase):
     skills. With nothing registered it falls back to a single completion,
     preserving the original lightweight behavior and zero added latency.
 
-    The tool set is resolved per-call via ``tool_provider`` so tools attached
-    at runtime (e.g. ``await autumn.add_mcp(...)``) take effect immediately.
+    ``process_with_trace`` additionally returns one :class:`WorkflowStage`
+    per tool call so the pipeline trace can show what the agent actually did.
     """
 
     def __init__(
@@ -41,10 +60,21 @@ class WP2Tas(WorkspaceBase):
         self._tool_provider = tool_provider
 
     async def process(self, task_input: str) -> str:
+        output, _ = await self._execute(task_input)
+        return output
+
+    async def process_with_trace(self, task_input: str) -> tuple[str, list[WorkflowStage]]:
+        """Execute the task and return (output, tool_stages)."""
+        return await self._execute(task_input)
+
+    async def _execute(self, task_input: str) -> tuple[str, list[WorkflowStage]]:
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
+        tool_stages: list[WorkflowStage] = []
 
         if tools or skills:
-            result = await self._run_with_agent(task_input, tools, skills)
+            steps: list[AgentStep] = []
+            result = await self._run_with_agent(task_input, tools, skills, steps)
+            tool_stages = [_step_to_stage(i, s) for i, s in enumerate(steps)]
         else:
             result = await self._run_plain(task_input)
 
@@ -56,7 +86,7 @@ class WP2Tas(WorkspaceBase):
             "task": task_input,
             "output": result,
         })
-        return result
+        return result, tool_stages
 
     async def _run_plain(self, task_input: str) -> str:
         """Single completion — the original WP2 behavior, used when no tools exist."""
@@ -71,6 +101,7 @@ class WP2Tas(WorkspaceBase):
         task_input: str,
         tools: list[Tool],
         skills: list[Skill],
+        steps: list[AgentStep] | None = None,
     ) -> str:
         """ReAct loop with tool access; carries WP2's persona + Mom2 history."""
         agent = Agent(
@@ -80,4 +111,4 @@ class WP2Tas(WorkspaceBase):
             skills=skills,
             instructions=self._system,
         )
-        return await agent.run(task_input, memory=self.memory)
+        return await agent.run(task_input, memory=self.memory, steps=steps)

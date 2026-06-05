@@ -73,6 +73,8 @@ private struct WorkflowStageRow: View {
     let stage: WorkflowStage
     let isLast: Bool
 
+    private var isTool: Bool { stage.kind == "tool" }
+
     var body: some View {
         HStack(alignment: .top, spacing: Autumn.spacing.sm) {
             indicator
@@ -85,11 +87,15 @@ private struct WorkflowStageRow: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(stage.title)
-                        .font(Autumn.typography.captionMedium)
+                        .font(isTool
+                            ? .system(.caption, design: .monospaced).weight(.medium)
+                            : Autumn.typography.captionMedium)
                 }
 
                 Text(stage.detail)
-                    .font(Autumn.typography.caption)
+                    .font(isTool
+                        ? .system(.caption2, design: .monospaced)
+                        : Autumn.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -100,15 +106,24 @@ private struct WorkflowStageRow: View {
     private var indicator: some View {
         VStack(spacing: 2) {
             ZStack {
-                Circle()
-                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1.2)
-                    .frame(width: 14, height: 14)
-                if isCompleted {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
+                if isTool {
+                    Circle()
+                        .fill(Autumn.colors.accent.opacity(0.15))
                         .frame(width: 14, height: 14)
-                        .background(Circle().fill(Autumn.colors.success))
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Autumn.colors.accent)
+                } else {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1.2)
+                        .frame(width: 14, height: 14)
+                    if isCompleted {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 14, height: 14)
+                            .background(Circle().fill(Autumn.colors.success))
+                    }
                 }
             }
             if !isLast {

@@ -95,7 +95,7 @@ open AutumnDesktop.xcodeproj
 | POST   | `/models`               | 根据 API Key / Base URL / 协议获取模型列表 |
 | POST   | `/config/apply`         | 将 A1 / A2 / A3 配置应用到本地服务器 |
 | POST   | `/process`              | 同步执行，返回最终输出；JSON 可带 `route` |
-| POST   | `/trace`                | 同步执行并返回输出、输入类型、路由和协作阶段 |
+| POST   | `/trace`                | 同步执行并返回输出、输入类型、路由和协作阶段（含 Agent 工具调用 `kind="tool"`）|
 | GET    | `/stream?input=...`     | SSE 流式分块；query 可带 `route`    |
 | GET    | `/memory/{area}/history`| `mom1` / `mom2` / `mom3` 历史       |
 | POST   | `/session/end`          | 清空短期记忆                        |

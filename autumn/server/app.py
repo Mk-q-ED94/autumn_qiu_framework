@@ -33,6 +33,7 @@ class TraceStageResponse(BaseModel):
     detail: str
     workspace: str
     status: str
+    kind: str = "stage"
 
 
 class TraceResponse(BaseModel):

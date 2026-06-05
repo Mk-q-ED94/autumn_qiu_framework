@@ -134,6 +134,71 @@ async def test_wp2_agent_injects_memory_history():
     assert "earlier output" in system
 
 
+async def test_wp2_process_with_trace_emits_tool_stages():
+    async def get_weather(city: str) -> str:
+        return f"sunny in {city}"
+
+    tool = Tool("get_weather", "weather", get_weather,
+                [ToolParameter("city", "string", "city")])
+    api = ScriptedAPI(script=[
+        ("", [ToolCall(id="c1", name="get_weather", arguments={"city": "Paris"})]),
+        ("It's sunny in Paris.", []),
+    ])
+    wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([tool], []))
+    output, stages = await wp2.process_with_trace("weather in Paris?")
+
+    assert output == "It's sunny in Paris."
+    assert len(stages) == 1
+    stage = stages[0]
+    assert stage.kind == "tool"
+    assert stage.title == "get_weather"
+    assert stage.workspace == "WP2"
+    assert "city=Paris" in stage.detail
+    assert "sunny in Paris" in stage.detail
+
+
+async def test_wp2_process_with_trace_no_tools_empty_stages():
+    api = ScriptedAPI(completion="plain answer")
+    wp2 = WP2Tas(api, make_memory())
+    output, stages = await wp2.process_with_trace("hello")
+    assert output == "plain answer"
+    assert stages == []
+
+
+async def test_wp2_tool_stage_truncates_long_result():
+    async def big(x: str) -> str:
+        return "y" * 500
+
+    tool = Tool("big", "big output", big, [ToolParameter("x", "string", "x")])
+    api = ScriptedAPI(script=[
+        ("", [ToolCall(id="c1", name="big", arguments={"x": "go"})]),
+        ("done", []),
+    ])
+    wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([tool], []))
+    _, stages = await wp2.process_with_trace("t")
+    assert "…" in stages[0].detail
+    assert len(stages[0].detail) < 200
+
+
+async def test_agent_steps_collector_records_each_call():
+    async def f(a: int) -> int:
+        return a * 2
+
+    tool = Tool("dbl", "double", f, [ToolParameter("a", "integer", "a")])
+    api = ScriptedAPI(script=[
+        ("", [ToolCall(id="c1", name="dbl", arguments={"a": 5})]),
+        ("ten", []),
+    ])
+    agent = Agent("X", api, tools=[tool])
+    steps = []
+    result = await agent.run("double 5", steps=steps)
+    assert result == "ten"
+    assert len(steps) == 1
+    assert steps[0].name == "dbl"
+    assert steps[0].arguments == {"a": 5}
+    assert steps[0].result == "10"
+
+
 async def test_wp2_records_history_after_agent():
     api = ScriptedAPI(script=[("agent-final", [])])
     mom2 = make_memory()
@@ -287,3 +352,41 @@ async def test_hermes_backed_wp2_full_tool_loop():
     blob = json.dumps(sent[1], ensure_ascii=False)
     assert "<tool_response>" in blob
     assert "12:00 UTC" in blob
+
+
+# ── WP1 trace integration: tool stages surface in the pipeline trace ───────────
+
+async def test_wp1_trace_includes_wp2_tool_stages():
+    from autumn.core.workspace.wp1 import WP1Tot
+    from autumn.core.memory.mom1 import Mom1
+    from autumn.core.memory.mom2 import Mom2
+    from autumn.core.memory.mom3 import Mom3
+    from autumn.core.types import WorkflowStage, InputType
+
+    class StubWP2:
+        async def process_with_trace(self, task):
+            return "wp2 output", [WorkflowStage(
+                id="wp2.tool.0.search", title="search", detail="q=x → result",
+                workspace="WP2", status="completed", kind="tool",
+            )]
+
+    class StubSelector:
+        async def classify_and_maybe_confirm(self, inp, interaction):
+            return InputType.TASK
+
+    shared = SharedZone(DictBackend())
+    mom2 = Mom2(DictBackend(), shared)
+    mom3 = Mom3(DictBackend(), shared)
+    mom1 = Mom1(DictBackend(), mom2, mom3)
+
+    wp1 = WP1Tot(api=None, memory=mom1, wp2=StubWP2(), wp3=None)
+    wp1.selector = StubSelector()
+    wp1.checker = None  # skip final check (no api needed)
+
+    run = await wp1.process_with_trace("do a task")
+    tool_stages = [s for s in run.stages if s.kind == "tool"]
+    assert len(tool_stages) == 1
+    assert tool_stages[0].title == "search"
+    # Tool stage must precede the wp2.task completion marker.
+    ids = [s.id for s in run.stages]
+    assert ids.index("wp2.tool.0.search") < ids.index("wp2.task")

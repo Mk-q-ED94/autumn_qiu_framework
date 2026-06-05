@@ -29,6 +29,37 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     let detail: String
     let workspace: String
     let status: String
+    let kind: String   // "stage" = workflow step, "tool" = an agent tool call
+
+    init(
+        id: String,
+        title: String,
+        detail: String,
+        workspace: String,
+        status: String,
+        kind: String = "stage"
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.workspace = workspace
+        self.status = status
+        self.kind = kind
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        detail = try c.decode(String.self, forKey: .detail)
+        workspace = try c.decode(String.self, forKey: .workspace)
+        status = try c.decode(String.self, forKey: .status)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, detail, workspace, status, kind
+    }
 }
 
 struct StreamPayload: Decodable {
