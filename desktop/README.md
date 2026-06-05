@@ -102,6 +102,48 @@ open AutumnDesktop.xcodeproj
 
 `route` 可选值：`auto`、`direct`、`convert`。桌面端设置页的「Mission 默认路由」会随每次请求传给服务器，覆盖服务器 `.env` 中的全局默认值。
 
+## 键盘快捷键
+
+| 快捷键 | 行为 |
+|---|---|
+| ⌘N | 新建对话 |
+| ⌘⇧K | 清空当前对话 |
+| ⌘⇧E | 结束会话（清空短期记忆） |
+| ⌘L | 聚焦到输入框 |
+| ⌘⇧I | 切换右侧检视面板 |
+| ⌘, | 打开设置 |
+
+## 模块化设计
+
+App 按"职责"分目录组织，每个目录都可以独立替换或扩展。
+
+| 目录 | 职责 | 何时编辑 |
+|---|---|---|
+| `DesignSystem/` | 颜色 / 字号 / 间距 / 圆角 / 阴影 / 动效 | 想统一调整视觉风格 |
+| `DesignSystem/Components/` | `AutumnCard` / `AutumnBadge` / `AutumnPrimaryButton` / `EmptyStateView` | 想引入新原子组件 |
+| `Chat/` | 聊天 VM + 视图 + 工作流时间线 | 改对话呈现 |
+| `Conversations/` | 多对话持久化（UserDefaults JSON）+ 侧边栏列表 | 改对话存储/列表 UI |
+| `Workspace/` | 工作区主布局 + 检视面板（状态/路由/模型卡） | 改主区域布局 |
+| `Memory/` | Mom1/2/3 历史浏览 | 改记忆 UI |
+| `Settings/` | A1/A2/A3 配置 + 持久化 | 改配置项或配置 UI |
+| `Networking/` | `AutumnClient`（process/trace/stream/models/config/apply/memory）+ Codable 模型 | 服务器接口变更 |
+| `Services/` | `LocalServerManager`（App 内拉起 Python 服务）/ `AutumnAppDelegate` | 改生命周期/进程管理 |
+| `Commands/` | `AppCommands`（菜单 + 键位） | 加快捷键或菜单项 |
+| `Onboarding/` | 首启引导页 | 改新用户欢迎流 |
+| `Views/` | `SidebarView` 共享导航 | 改侧边栏结构 |
+| `Models/` | `AppSection` / `MemoryModels` / `JSONValue` | 加跨模块数据模型 |
+| `Resources/` | Info.plist / entitlements | 改权限或元数据 |
+
+**修改 UI 风格**：只需编辑 `DesignSystem/Tokens.swift` 中的某个值（如把 `radius.lg` 从 14 改为 18），全局视觉自动更新。
+
+**新增设计原子**：在 `DesignSystem/Components/` 下放新 SwiftUI View，遵循只引用 `Autumn.colors` / `Autumn.typography` / `Autumn.spacing` 的约定。
+
+**新增功能模块**（例如插件管理）：
+1. 新建目录 `Plugins/`
+2. 添加新的 `AppSection` 枚举项 + `SidebarView` 自动包含
+3. 在 `ContentView.detailView` 的 switch 加一个 case 指向新视图
+4. XcodeGen 的 `sources: - path: AutumnApp` 会自动包含新文件
+
 ## 文件结构
 
 ```
@@ -110,32 +152,49 @@ desktop/
 ├── README.md
 └── AutumnApp/
     ├── AutumnApp.swift                  # @main
-    ├── ContentView.swift                # NavigationSplitView 主窗口
+    ├── ContentView.swift                # NavigationSplitView + Onboarding gate
+    ├── DesignSystem/
+    │   ├── Tokens.swift                 # 颜色/字号/间距/动效集中定义
+    │   └── Components/
+    │       ├── AutumnCard.swift
+    │       ├── AutumnBadge.swift
+    │       ├── AutumnPrimaryButton.swift
+    │       └── EmptyStateView.swift
     ├── Models/
     │   ├── AppSection.swift             # 侧边栏选择
     │   └── MemoryModels.swift           # Mom1-3 + JSON 记忆条目
     ├── Views/
-    │   └── SidebarView.swift            # 原生 macOS 侧边栏
+    │   └── SidebarView.swift            # 主导航 + 对话列表
     ├── Workspace/
-    │   └── WorkspaceView.swift          # 协作工作台 + 工作流摘要
+    │   └── WorkspaceView.swift          # 协作工作台 + 可折叠检视面板
     ├── Memory/
     │   ├── MemoryView.swift             # Mom1-3 历史视图
-    │   └── MemoryViewModel.swift        # 记忆加载状态
+    │   └── MemoryViewModel.swift
+    ├── Chat/
+    │   ├── ChatMessage.swift
+    │   ├── ChatViewModel.swift          # @MainActor，绑定 ConversationStore
+    │   ├── ChatView.swift               # 聊天 UI（DesignSystem）
+    │   └── WorkflowTraceView.swift      # 协作时间线（可折叠 + 动画）
+    ├── Conversations/
+    │   ├── Conversation.swift           # Codable 对话模型
+    │   ├── ConversationStore.swift      # UserDefaults JSON 持久化
+    │   └── ConversationListView.swift   # 侧边栏对话列表
     ├── Networking/
     │   ├── AutumnClient.swift           # HTTP + SSE 客户端
     │   └── ChatModels.swift             # Codable 模型
     ├── Services/
-    │   └── LocalServerManager.swift     # App 启动时拉起本地 autumn.server
-    ├── Chat/
-    │   ├── ChatMessage.swift
-    │   ├── ChatViewModel.swift          # @MainActor 运行逻辑
-    │   ├── WorkflowTraceView.swift      # WP1/WP2/WP3 协作时间线
-    │   └── ChatView.swift               # 聊天 UI
+    │   ├── LocalServerManager.swift     # 自动拉起 autumn.server
+    │   └── AutumnAppDelegate.swift      # macOS 生命周期
     ├── Settings/
     │   ├── AppSettings.swift            # @Published + UserDefaults
-    │   └── SettingsView.swift           # 设置 UI
+    │   └── SettingsView.swift           # A1/A2/A3 配置 UI
+    ├── Commands/
+    │   └── AppCommands.swift            # 菜单 + 键盘快捷键
+    ├── Onboarding/
+    │   └── OnboardingView.swift         # 首启引导
     └── Resources/
-        └── Info.plist                   # NSAllowsLocalNetworking
+        ├── Info.plist                   # NSAllowsLocalNetworking
+        └── AutumnDesktop.entitlements   # sandbox + network.client
 ```
 
 ## 常见问题

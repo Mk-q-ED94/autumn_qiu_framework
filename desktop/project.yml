@@ -22,6 +22,9 @@ targets:
       - path: AutumnApp
         excludes:
           - "Resources/Info.plist"
+          - "Resources/Assets.xcassets"
+    resources:
+      - path: AutumnApp/Resources/Assets.xcassets
     info:
       path: AutumnApp/Resources/Info.plist
       properties:
@@ -40,3 +43,4 @@ targets:
         ENABLE_DEBUG_DYLIB: NO
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
