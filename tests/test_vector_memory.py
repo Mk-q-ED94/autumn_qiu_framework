@@ -1,7 +1,8 @@
 """Tests for vector memory: SQLiteVectorStore, MemoryArea.search/index, auto_index."""
-import pytest
+import math
+import random
 
-np = pytest.importorskip("numpy", reason="numpy not installed")
+import pytest
 
 from autumn.core.types import SearchResult
 from autumn.core.memory.backends.vector_backend import SQLiteVectorStore
@@ -26,12 +27,12 @@ class _MockEmbedding:
             return list(self._overrides[text])
         # hash-based fallback: deterministic but not semantic
         seed = abs(hash(text)) % (2 ** 31)
-        rng = np.random.default_rng(seed)
-        vec = rng.standard_normal(self._dim).astype(np.float32)
-        norm = np.linalg.norm(vec)
+        rng = random.Random(seed)
+        vec = [rng.uniform(-1.0, 1.0) for _ in range(self._dim)]
+        norm = math.sqrt(sum(v * v for v in vec))
         if norm > 0:
-            vec /= norm
-        return vec.tolist()
+            vec = [v / norm for v in vec]
+        return vec
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return [await self.embed(t) for t in texts]

@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum
-from pydantic import BaseModel
 
 
 class Protocol(str, Enum):
@@ -14,7 +13,8 @@ class Role(str, Enum):
     ASSISTANT = "assistant"
 
 
-class Message(BaseModel):
+@dataclass
+class Message:
     role: Role
     content: str
 
@@ -27,6 +27,23 @@ class InputType(str, Enum):
 class MissionRoute(str, Enum):
     DIRECT = "direct"
     CONVERT = "convert"
+
+
+@dataclass
+class WorkflowStage:
+    id: str
+    title: str
+    detail: str
+    workspace: str
+    status: str = "completed"
+
+
+@dataclass
+class WorkflowRun:
+    output: str
+    input_type: InputType
+    route: MissionRoute | None
+    stages: list[WorkflowStage]
 
 
 @dataclass

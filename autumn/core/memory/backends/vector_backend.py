@@ -1,27 +1,38 @@
 import asyncio
+from array import array
 import json
+import math
 import sqlite3
 
 from ...types import SearchResult
 
 
-def _require_numpy():
-    try:
-        import numpy as np
-        return np
-    except ImportError:
-        raise ImportError(
-            "numpy is required for vector memory. "
-            "Install it with: pip install 'autumn[vector]'"
-        )
+def _vector_to_blob(vector: list) -> bytes:
+    return array("f", (float(v) for v in vector)).tobytes()
+
+
+def _vector_from_blob(blob: bytes) -> list[float]:
+    values = array("f")
+    values.frombytes(blob)
+    return list(values)
+
+
+def _norm(vector: list[float]) -> float:
+    return math.sqrt(sum(v * v for v in vector))
+
+
+def _cosine_score(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        return 0.0
+    left_norm = _norm(left)
+    right_norm = _norm(right)
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
 
 
 class SQLiteVectorStore:
-    """Stores text embeddings as float32 blobs in SQLite.
-
-    Cosine similarity is computed in-process via numpy. Requires numpy
-    (install with: pip install autumn[vector]).
-    """
+    """Stores text embeddings as float32 blobs in SQLite."""
 
     def __init__(self, db_path: str, table: str = "vectors"):
         self._db_path = db_path
@@ -45,9 +56,8 @@ class SQLiteVectorStore:
         return self._conn
 
     def _sync_store(self, id: str, text: str, vector: list, metadata: dict) -> None:
-        np = _require_numpy()
         conn = self._ensure_conn()
-        blob = np.array(vector, dtype=np.float32).tobytes()
+        blob = _vector_to_blob(vector)
         conn.execute(
             f"INSERT OR REPLACE INTO {self._table} (id, text, vector, meta) VALUES (?, ?, ?, ?)",
             (id, text, blob, json.dumps(metadata)),
@@ -55,7 +65,6 @@ class SQLiteVectorStore:
         conn.commit()
 
     def _sync_search(self, query_vector: list, k: int) -> list:
-        np = _require_numpy()
         conn = self._ensure_conn()
         rows = conn.execute(
             f"SELECT id, text, vector, meta FROM {self._table}"
@@ -63,19 +72,17 @@ class SQLiteVectorStore:
         if not rows:
             return []
 
-        q = np.array(query_vector, dtype=np.float32)
-        q_norm = np.linalg.norm(q)
-        if q_norm == 0.0:
+        query = [float(v) for v in query_vector]
+        if _norm(query) == 0.0:
             return []
-        q = q / q_norm
 
-        ids, texts, blobs, metas = zip(*rows)
-        mat = np.stack([np.frombuffer(b, dtype=np.float32) for b in blobs])
-        row_norms = np.linalg.norm(mat, axis=1, keepdims=True)
-        row_norms[row_norms == 0.0] = 1.0
-        scores = (mat / row_norms) @ q
-
-        ranked = sorted(zip(scores.tolist(), ids, texts, metas), reverse=True)
+        ranked = sorted(
+            (
+                (_cosine_score(query, _vector_from_blob(blob)), row_id, text, meta)
+                for row_id, text, blob, meta in rows
+            ),
+            reverse=True,
+        )
         return [
             SearchResult(
                 id=row_id,

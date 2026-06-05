@@ -79,6 +79,18 @@ async for chunk in autumn.stream("写一首关于秋天的诗"):
     print(chunk, end="", flush=True)
 ```
 
+Override the mission route for a single call when you do not want to use the
+configured `HEADLESS_MISSION_ROUTE`:
+
+```python
+from autumn import MissionRoute
+
+result = await autumn.process(
+    "把这个产品想法整理成执行计划",
+    mission_route=MissionRoute.CONVERT,
+)
+```
+
 ## Interactive mode
 
 ```python
@@ -161,14 +173,26 @@ autumn/
 ## HTTP server & desktop client
 
 A FastAPI bridge exposes the framework over HTTP/SSE so any client can drive it.
-The SwiftUI iOS/macOS app under `desktop/` is the reference client.
+The SwiftUI macOS app under `desktop/` is the reference client. It automatically
+starts the local bridge with `python -m autumn.server` when its server URL points
+to localhost and no existing server is responding.
 
 ```bash
 pip install -e ".[server]"
 python -m autumn.server            # listens on 127.0.0.1:8765
 
+curl -X POST http://127.0.0.1:8765/models \
+  -H 'Content-Type: application/json' \
+  -d '{"api_key":"sk-...","base_url":"https://api.openai.com","protocol":"openai"}'
+
+curl -X POST http://127.0.0.1:8765/process \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"把这个想法变成任务清单","route":"convert"}'
+
+curl -N 'http://127.0.0.1:8765/stream?input=写一段欢迎语&route=direct'
+
 # Build & open the desktop app (requires Xcode + XcodeGen on macOS):
-cd desktop && xcodegen generate && open AutumnDesktop.xcodeproj
+bash ./script/build_and_run.sh
 ```
 
 See [`desktop/README.md`](desktop/README.md) for the full workflow.

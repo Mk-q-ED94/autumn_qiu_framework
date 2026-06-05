@@ -1,4 +1,4 @@
-from autumn.core.types import InputType, MissionRoute, Protocol, Role, Message
+from autumn.core.types import InputType, MissionRoute, Protocol, Role, Message, WorkflowRun, WorkflowStage
 
 
 def test_protocol_values():
@@ -20,3 +20,21 @@ def test_message_creation():
     msg = Message(role=Role.USER, content="Hello")
     assert msg.role == Role.USER
     assert msg.content == "Hello"
+
+
+def test_workflow_run_creation():
+    stage = WorkflowStage(
+        id="wp1.select",
+        title="A1 分类",
+        detail="输入被识别为 task",
+        workspace="WP1",
+    )
+    run = WorkflowRun(
+        output="done",
+        input_type=InputType.TASK,
+        route=None,
+        stages=[stage],
+    )
+
+    assert run.output == "done"
+    assert run.stages[0].status == "completed"

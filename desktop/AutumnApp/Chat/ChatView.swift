@@ -13,7 +13,7 @@ struct ChatView: View {
             errorBanner
             inputBar
         }
-        .navigationTitle("Autumn")
+        .navigationTitle("协作")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -51,12 +51,14 @@ struct ChatView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Image(systemName: "leaf.fill")
-                .font(.system(size: 36))
+                .font(.system(size: 34))
                 .foregroundStyle(.tint)
-            Text("和秋说点什么")
-                .font(.title3)
+            Text("开始一次协作")
+                .font(.title3.weight(.semibold))
+            Text("输入任务、问题或 mission")
+                .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 240)
@@ -79,13 +81,13 @@ struct ChatView: View {
             TextField("输入消息…", text: $vm.input, axis: .vertical)
                 .lineLimit(1...6)
                 .textFieldStyle(.roundedBorder)
-                .disabled(vm.isStreaming)
+                .disabled(vm.isRunning)
                 .onSubmit { Task { await vm.send() } }
 
             Button {
                 Task { await vm.send() }
             } label: {
-                if vm.isStreaming {
+                if vm.isRunning {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "paperplane.fill")
@@ -93,10 +95,10 @@ struct ChatView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isStreaming)
+            .disabled(vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isRunning)
         }
         .padding()
-        .background(.bar)
+        .background(.regularMaterial)
     }
 }
 
@@ -116,8 +118,14 @@ private struct MessageRow: View {
     }
 
     private var bubble: some View {
-        Text(message.text.isEmpty ? "…" : message.text)
-            .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message.text.isEmpty ? "…" : message.text)
+                .textSelection(.enabled)
+
+            if message.role == .assistant, let trace = message.trace {
+                WorkflowTraceView(trace: trace)
+            }
+        }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(
@@ -125,7 +133,7 @@ private struct MessageRow: View {
                     ? Color.accentColor.opacity(0.18)
                     : Color.secondary.opacity(0.12)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .frame(maxWidth: 540, alignment: message.role == .user ? .trailing : .leading)
     }
 }

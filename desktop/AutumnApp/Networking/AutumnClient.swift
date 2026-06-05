@@ -32,17 +32,55 @@ final class AutumnClient {
         return try? JSONDecoder().decode(HealthResponse.self, from: data)
     }
 
-    func process(_ input: String) async throws -> String {
+    func fetchModels(apiKey: String, baseURL: String, apiProtocol: String) async throws -> [String] {
+        var request = URLRequest(url: self.baseURL.appendingPathComponent("models"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 45
+        request.httpBody = try JSONEncoder().encode(
+            ModelsRequest(apiKey: apiKey, baseURL: baseURL, apiProtocol: apiProtocol)
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ModelsResponse.self, from: data).models
+    }
+
+    func applyConfiguration(_ config: ApplyConfigRequest) async throws -> ApplyConfigResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("config/apply"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+        request.httpBody = try JSONEncoder().encode(config)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ApplyConfigResponse.self, from: data)
+    }
+
+    func process(_ input: String, route: String? = nil) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("process"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(ProcessRequest(input: input))
+        request.httpBody = try JSONEncoder().encode(ProcessRequest(input: input, route: route))
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response)
         return try JSONDecoder().decode(ProcessResponse.self, from: data).output
     }
 
-    func stream(_ input: String) -> AsyncThrowingStream<String, Error> {
+    func trace(_ input: String, route: String? = nil) async throws -> WorkflowTrace {
+        var request = URLRequest(url: baseURL.appendingPathComponent("trace"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 300
+        request.httpBody = try JSONEncoder().encode(ProcessRequest(input: input, route: route))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(WorkflowTrace.self, from: data)
+    }
+
+    func stream(_ input: String, route: String? = nil) -> AsyncThrowingStream<String, Error> {
         let baseURL = self.baseURL
 
         return AsyncThrowingStream { continuation in
@@ -52,7 +90,11 @@ final class AutumnClient {
                         url: baseURL.appendingPathComponent("stream"),
                         resolvingAgainstBaseURL: false
                     )!
-                    components.queryItems = [URLQueryItem(name: "input", value: input)]
+                    var queryItems = [URLQueryItem(name: "input", value: input)]
+                    if let route {
+                        queryItems.append(URLQueryItem(name: "route", value: route))
+                    }
+                    components.queryItems = queryItems
                     guard let url = components.url else {
                         throw AutumnClientError.invalidURL
                     }
@@ -97,6 +139,16 @@ final class AutumnClient {
         request.httpMethod = "POST"
         let (_, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response)
+    }
+
+    func memoryHistory(area: MemoryArea) async throws -> [MemoryEntry] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/history"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        let payload = try JSONDecoder().decode([[String: JSONValue]].self, from: data)
+        return payload.map { MemoryEntry(area: area, values: $0) }
     }
 
     private static func requireOK(_ response: URLResponse) throws {

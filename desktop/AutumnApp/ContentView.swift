@@ -2,30 +2,36 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var settings: AppSettings
+    @SceneStorage("AutumnDesktop.selectedSection") private var selectedSectionRaw = AppSection.workspace.rawValue
 
     var body: some View {
-        TabView {
+        NavigationSplitView {
+            SidebarView(selection: $selectedSectionRaw)
+        } detail: {
             NavigationStack {
-                ChatView(settings: settings)
-            }
-            .tabItem {
-                Label("聊天", systemImage: "bubble.left.and.bubble.right")
-            }
-
-            NavigationStack {
-                SettingsView()
-            }
-            .tabItem {
-                Label("设置", systemImage: "gearshape")
+                detailView
             }
         }
         #if os(macOS)
-        .frame(minWidth: 520, minHeight: 640)
+        .frame(minWidth: 980, minHeight: 680)
         #endif
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch AppSection(rawValue: selectedSectionRaw) ?? .workspace {
+        case .workspace:
+            WorkspaceView()
+        case .memory:
+            MemoryView(settings: settings)
+        case .settings:
+            SettingsView()
+        }
     }
 }
 
 #Preview {
     ContentView()
         .environmentObject(AppSettings())
+        .environmentObject(LocalServerManager())
 }
