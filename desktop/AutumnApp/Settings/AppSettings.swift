@@ -128,6 +128,26 @@ final class AppSettings: ObservableObject {
             a3: providerConfig(for: .a3)
         )
     }
+
+    /// True when at least one slot has API key + base URL + model populated.
+    var anyModelConfigured: Bool {
+        ModelSlot.allCases.contains { slot in
+            let cfg = providerConfig(for: slot)
+            return !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !cfg.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !(cfg.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// True when ALL three slots are populated (A1 + A2 + A3).
+    var allModelsConfigured: Bool {
+        ModelSlot.allCases.allSatisfy { slot in
+            let cfg = providerConfig(for: slot)
+            return !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !cfg.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !(cfg.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 }
 
 enum ModelSlot: String, CaseIterable, Identifiable {

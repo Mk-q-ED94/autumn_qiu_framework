@@ -2,33 +2,56 @@ import SwiftUI
 
 struct WorkflowTraceView: View {
     let trace: WorkflowTrace
+    @State private var isExpanded: Bool = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Divider()
+        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            header
 
-            HStack(spacing: 8) {
-                Label(inputTitle, systemImage: inputIcon)
-                    .font(.caption.weight(.semibold))
-
-                if let routeTitle {
-                    Text(routeTitle)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(trace.stages.enumerated()), id: \.element.id) { index, stage in
+                        WorkflowStageRow(
+                            stage: stage,
+                            isLast: index == trace.stages.count - 1
+                        )
+                    }
                 }
-            }
-
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(trace.stages.enumerated()), id: \.element.id) { index, stage in
-                    WorkflowStageRow(stage: stage, isLast: index == trace.stages.count - 1)
-                }
+                .padding(.top, Autumn.spacing.xs)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .foregroundStyle(.primary)
+        .padding(Autumn.spacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+                .fill(.background.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.16), lineWidth: Autumn.stroke.hairline)
+        )
+    }
+
+    private var header: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            AutumnBadge(inputTitle, icon: inputIcon, tone: .accent)
+            if let routeTitle {
+                AutumnBadge(routeTitle, tone: .neutral)
+            }
+            Spacer()
+            Button {
+                withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
+            } label: {
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var inputTitle: String {
-        trace.inputType == "mission" ? "Mission 协作路径" : "Task 协作路径"
+        trace.inputType == "mission" ? "Mission" : "Task"
     }
 
     private var inputIcon: String {
@@ -38,7 +61,8 @@ struct WorkflowTraceView: View {
     private var routeTitle: String? {
         switch trace.route {
         case "direct": return "直接回答"
-        case "convert": return "转换为任务"
+        case "convert": return "转为任务"
+        case "auto": return "自动路由"
         case nil: return trace.inputType == "task" ? nil : "自动路由"
         default: return trace.route
         }
@@ -50,43 +74,52 @@ private struct WorkflowStageRow: View {
     let isLast: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(spacing: 3) {
-                Image(systemName: iconName)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(iconColor)
-                    .frame(width: 14, height: 14)
-
-                if !isLast {
-                    Rectangle()
-                        .fill(.secondary.opacity(0.28))
-                        .frame(width: 1, height: 20)
-                }
-            }
+        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+            indicator
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+                HStack(spacing: Autumn.spacing.xs) {
                     Text(stage.workspace)
-                        .font(.caption2.weight(.semibold))
+                        .font(Autumn.typography.captionStrong)
                         .foregroundStyle(.tint)
+                    Text("·")
+                        .foregroundStyle(.tertiary)
                     Text(stage.title)
-                        .font(.caption.weight(.medium))
+                        .font(Autumn.typography.captionMedium)
                 }
 
                 Text(stage.detail)
-                    .font(.caption2)
+                    .font(Autumn.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.bottom, isLast ? 0 : 8)
+            .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
         }
     }
 
-    private var iconName: String {
-        stage.status == "completed" ? "checkmark.circle.fill" : "circle"
+    private var indicator: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1.2)
+                    .frame(width: 14, height: 14)
+                if isCompleted {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 14, height: 14)
+                        .background(Circle().fill(Autumn.colors.success))
+                }
+            }
+            if !isLast {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.18))
+                    .frame(width: 1, height: 26)
+            }
+        }
     }
 
-    private var iconColor: Color {
-        stage.status == "completed" ? .green : .secondary
+    private var isCompleted: Bool {
+        stage.status == "completed"
     }
 }

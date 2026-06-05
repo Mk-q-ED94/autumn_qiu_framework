@@ -16,16 +16,14 @@ struct MemoryView: View {
             content
         }
         .navigationTitle("记忆")
-        .task {
-            await vm.load()
-        }
+        .task { await vm.load() }
         .onChange(of: vm.selectedArea) { _, _ in
             Task { await vm.load() }
         }
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Autumn.spacing.md) {
             Picker("记忆区", selection: $vm.selectedArea) {
                 ForEach(MemoryArea.allCases) { area in
                     Text(area.title).tag(area)
@@ -34,9 +32,7 @@ struct MemoryView: View {
             .pickerStyle(.segmented)
             .frame(width: 260)
 
-            Text(vm.selectedArea.subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            AutumnBadge(vm.selectedArea.subtitle, tone: .accent)
 
             Spacer()
 
@@ -44,12 +40,15 @@ struct MemoryView: View {
                 Task { await vm.load() }
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .medium))
             }
+            .buttonStyle(.plain)
             .help("刷新")
             .disabled(vm.isLoading)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(.bar)
     }
 
     @ViewBuilder
@@ -58,17 +57,27 @@ struct MemoryView: View {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = vm.errorMessage {
-            ContentUnavailableView("无法读取记忆", systemImage: "exclamationmark.triangle", description: Text(error))
+            EmptyStateView(
+                icon: "exclamationmark.triangle",
+                title: "无法读取记忆",
+                message: error,
+                actionTitle: "重试",
+                action: { Task { await vm.load() } }
+            )
         } else if vm.entries.isEmpty {
-            ContentUnavailableView("暂无记忆", systemImage: "tray", description: Text(vm.selectedArea.subtitle))
+            EmptyStateView(
+                icon: "tray",
+                title: "暂无记忆",
+                message: vm.selectedArea.subtitle
+            )
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: Autumn.spacing.sm) {
                     ForEach(vm.entries) { entry in
                         MemoryEntryRow(entry: entry)
                     }
                 }
-                .padding(18)
+                .padding(Autumn.spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -77,40 +86,54 @@ struct MemoryView: View {
 
 private struct MemoryEntryRow: View {
     let entry: MemoryEntry
+    @State private var isExpanded: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(entry.title)
-                    .font(.headline)
-                Spacer()
-                Text(entry.area.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        AutumnCard(padding: Autumn.spacing.md) {
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(entry.title)
+                        .font(Autumn.typography.headline)
+                    Spacer()
+                    AutumnBadge(entry.area.title, tone: .neutral)
+                }
 
-            Text(entry.preview)
-                .font(.callout)
-                .foregroundStyle(.primary)
-                .lineLimit(3)
-                .textSelection(.enabled)
+                Text(entry.preview)
+                    .font(Autumn.typography.callout)
+                    .foregroundStyle(.primary)
+                    .lineLimit(isExpanded ? nil : 3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Divider()
+                if isExpanded {
+                    Divider()
+                    Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 4) {
+                        ForEach(entry.sortedKeys, id: \.self) { key in
+                            GridRow {
+                                Text(key)
+                                    .font(Autumn.typography.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(entry.values[key]?.formatted ?? "")
+                                    .font(Autumn.typography.caption)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .transition(.opacity)
+                }
 
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-                ForEach(entry.sortedKeys, id: \.self) { key in
-                    GridRow {
-                        Text(key)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(entry.values[key]?.formatted ?? "")
-                            .font(.caption)
-                            .textSelection(.enabled)
+                HStack {
+                    Spacer()
+                    AutumnGhostButton(action: {
+                        withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
+                    }) {
+                        HStack(spacing: Autumn.spacing.xs) {
+                            Text(isExpanded ? "收起" : "展开详情")
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        }
                     }
                 }
             }
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     }
 }

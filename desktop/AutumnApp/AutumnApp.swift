@@ -11,12 +11,16 @@ struct AutumnApp: App {
 
     @StateObject private var settings: AppSettings
     @StateObject private var localServer: LocalServerManager
+    @StateObject private var conversations: ConversationStore
 
     init() {
         let settings = AppSettings()
         let localServer = LocalServerManager()
+        let conversations = ConversationStore()
+
         _settings = StateObject(wrappedValue: settings)
         _localServer = StateObject(wrappedValue: localServer)
+        _conversations = StateObject(wrappedValue: conversations)
 
         #if os(macOS)
         AutumnAppDelegate.settings = settings
@@ -29,9 +33,14 @@ struct AutumnApp: App {
             ContentView()
                 .environmentObject(settings)
                 .environmentObject(localServer)
+                .environmentObject(conversations)
+                .tint(Color.accentColor)
         }
         #if os(macOS)
         .windowResizability(.contentSize)
+        .commands {
+            AppCommands()
+        }
         #endif
     }
 }
