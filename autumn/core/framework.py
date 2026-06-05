@@ -86,7 +86,11 @@ class Autumn:
                 mom.enable_vector(self._embedding, store, auto_index=config.auto_index)
 
         p = config.prompts
-        self.wp2 = WP2Tas(self.a2, self.mom2, system_prompt=p.wp2_task)
+        self.wp2 = WP2Tas(
+            self.a2, self.mom2,
+            system_prompt=p.wp2_task,
+            tool_provider=self._collect_plugins,
+        )
         self.wp3 = WP3Mis(self.a3, self.mom3, direct_prompt=p.wp3_direct, convert_prompt=p.wp3_convert)
         self.wp1 = WP1Tot(
             self.a1, self.mom1, self.wp2, self.wp3,
@@ -136,6 +140,22 @@ class Autumn:
             await asyncio.sleep(0)
 
     # ── plugin & extension api ────────────────────────────────────────────────
+
+    def _collect_plugins(self) -> tuple[list[Tool], list[Skill]]:
+        """Snapshot currently-registered tools and skills for WP2's agent loop.
+
+        Resolved fresh on each WP2 turn, so tools added at runtime (e.g. via
+        ``add_mcp``) become available immediately. MCP tools appear here too —
+        ``add_mcp`` registers them as :class:`Tool` instances.
+        """
+        tools: list[Tool] = []
+        skills: list[Skill] = []
+        for obj in self.plugins.all().values():
+            if isinstance(obj, Tool):
+                tools.append(obj)
+            elif isinstance(obj, Skill):
+                skills.append(obj)
+        return tools, skills
 
     def register_tool(self, tool: Tool) -> None:
         self.plugins.register(tool.name, tool)
