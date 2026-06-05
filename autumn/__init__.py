@@ -19,6 +19,7 @@ _EXPORTS = {
     "UserInteraction": ("autumn.core.interaction", "UserInteraction"),
     "CLIInteraction": ("autumn.core.interaction", "CLIInteraction"),
     "EmbeddingInterface": ("autumn.core.api.embedding", "EmbeddingInterface"),
+    "HermesAPIInterface": ("autumn.core.api.hermes", "HermesAPIInterface"),
     "Agent": ("autumn.core.components", "Agent"),
     "Skill": ("autumn.core.components", "Skill"),
     "Tool": ("autumn.core.components", "Tool"),

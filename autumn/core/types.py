@@ -5,6 +5,7 @@ from enum import Enum
 class Protocol(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    HERMES = "hermes"
 
 
 class Role(str, Enum):
