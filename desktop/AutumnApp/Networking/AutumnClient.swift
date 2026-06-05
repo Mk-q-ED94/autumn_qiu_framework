@@ -68,6 +68,18 @@ final class AutumnClient {
         return try JSONDecoder().decode(ProcessResponse.self, from: data).output
     }
 
+    func trace(_ input: String, route: String? = nil) async throws -> WorkflowTrace {
+        var request = URLRequest(url: baseURL.appendingPathComponent("trace"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 300
+        request.httpBody = try JSONEncoder().encode(ProcessRequest(input: input, route: route))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(WorkflowTrace.self, from: data)
+    }
+
     func stream(_ input: String, route: String? = nil) -> AsyncThrowingStream<String, Error> {
         let baseURL = self.baseURL
 
@@ -127,6 +139,16 @@ final class AutumnClient {
         request.httpMethod = "POST"
         let (_, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response)
+    }
+
+    func memoryHistory(area: MemoryArea) async throws -> [MemoryEntry] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/history"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        let payload = try JSONDecoder().decode([[String: JSONValue]].self, from: data)
+        return payload.map { MemoryEntry(area: area, values: $0) }
     }
 
     private static func requireOK(_ response: URLResponse) throws {

@@ -77,14 +77,15 @@ open AutumnDesktop.xcodeproj
 
 ## 3. 在 App 内配置
 
-打开 **设置** 标签页：
+打开左侧边栏的 **设置**：
 
 - **本地服务** 会显示 App 自动启动或连接到已有本地服务器的状态。
 - 确认 **Server URL** 指向你的服务器（默认 `http://127.0.0.1:8765`）。
 - 为 **A1 / A2 / A3** 填写 API Key、Base URL、协议和模型。
 - App 会在 Key / Base URL / 协议变化后向本地服务器请求模型列表并更新模型选择框。
 - 点 **应用配置**，看到「已应用」即可。
-- 切回 **聊天** 标签页发送消息。
+- 切回 **协作** 发送消息；每次回复下方会显示 WP1/WP2/WP3 的协作路径。
+- 打开 **记忆** 查看 Mom1-3 历史。
 
 ## 端点速查
 
@@ -94,6 +95,7 @@ open AutumnDesktop.xcodeproj
 | POST   | `/models`               | 根据 API Key / Base URL / 协议获取模型列表 |
 | POST   | `/config/apply`         | 将 A1 / A2 / A3 配置应用到本地服务器 |
 | POST   | `/process`              | 同步执行，返回最终输出；JSON 可带 `route` |
+| POST   | `/trace`                | 同步执行并返回输出、输入类型、路由和协作阶段 |
 | GET    | `/stream?input=...`     | SSE 流式分块；query 可带 `route`    |
 | GET    | `/memory/{area}/history`| `mom1` / `mom2` / `mom3` 历史       |
 | POST   | `/session/end`          | 清空短期记忆                        |
@@ -108,7 +110,17 @@ desktop/
 ├── README.md
 └── AutumnApp/
     ├── AutumnApp.swift                  # @main
-    ├── ContentView.swift                # TabView（聊天 / 设置）
+    ├── ContentView.swift                # NavigationSplitView 主窗口
+    ├── Models/
+    │   ├── AppSection.swift             # 侧边栏选择
+    │   └── MemoryModels.swift           # Mom1-3 + JSON 记忆条目
+    ├── Views/
+    │   └── SidebarView.swift            # 原生 macOS 侧边栏
+    ├── Workspace/
+    │   └── WorkspaceView.swift          # 协作工作台 + 工作流摘要
+    ├── Memory/
+    │   ├── MemoryView.swift             # Mom1-3 历史视图
+    │   └── MemoryViewModel.swift        # 记忆加载状态
     ├── Networking/
     │   ├── AutumnClient.swift           # HTTP + SSE 客户端
     │   └── ChatModels.swift             # Codable 模型
@@ -116,7 +128,8 @@ desktop/
     │   └── LocalServerManager.swift     # App 启动时拉起本地 autumn.server
     ├── Chat/
     │   ├── ChatMessage.swift
-    │   ├── ChatViewModel.swift          # @MainActor 流式逻辑
+    │   ├── ChatViewModel.swift          # @MainActor 运行逻辑
+    │   ├── WorkflowTraceView.swift      # WP1/WP2/WP3 协作时间线
     │   └── ChatView.swift               # 聊天 UI
     ├── Settings/
     │   ├── AppSettings.swift            # @Published + UserDefaults

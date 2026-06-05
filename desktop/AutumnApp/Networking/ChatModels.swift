@@ -9,6 +9,28 @@ struct ProcessResponse: Decodable {
     let output: String
 }
 
+struct WorkflowTrace: Decodable, Equatable {
+    let output: String
+    let inputType: String
+    let route: String?
+    let stages: [WorkflowStage]
+
+    enum CodingKeys: String, CodingKey {
+        case output
+        case inputType = "input_type"
+        case route
+        case stages
+    }
+}
+
+struct WorkflowStage: Decodable, Identifiable, Equatable {
+    let id: String
+    let title: String
+    let detail: String
+    let workspace: String
+    let status: String
+}
+
 struct StreamPayload: Decodable {
     let chunk: String?
     let error: String?

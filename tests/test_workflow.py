@@ -83,3 +83,31 @@ async def test_wp1_process_accepts_per_request_route_override():
     assert result == "Executed converted task."
     history = await mom1.get_history()
     assert history[-1]["route"] == "convert"
+
+
+async def test_wp1_process_with_trace_returns_route_and_stages():
+    shared = SharedZone(DictBackend())
+    mom2 = Mom2(DictBackend(), shared)
+    mom3 = Mom3(DictBackend(), shared)
+    mom1 = Mom1(DictBackend(), mom2, mom3)
+    api = MockAPI()
+
+    wp2 = WP2Tas(api, mom2)
+    wp3 = WP3Mis(api, mom3)
+    wp1 = WP1Tot(api, mom1, wp2, wp3, headless_mission_route="auto")
+
+    run = await wp1.process_with_trace(
+        "Turn this into an execution plan.",
+        mission_route=MissionRoute.CONVERT,
+    )
+
+    assert run.output == "Executed converted task."
+    assert run.input_type.value == "mission"
+    assert run.route == MissionRoute.CONVERT
+    assert [stage.id for stage in run.stages] == [
+        "wp1.select",
+        "wp3.route",
+        "wp3.convert",
+        "wp2.task",
+        "wp1.final_check",
+    ]

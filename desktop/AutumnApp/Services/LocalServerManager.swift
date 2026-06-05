@@ -119,7 +119,7 @@ final class LocalServerManager: ObservableObject {
             _ = fileManager.createFile(atPath: logURL.path, contents: nil)
         }
         let logHandle = try FileHandle(forWritingTo: logURL)
-        try? logHandle.seekToEnd()
+        _ = try? logHandle.seekToEnd()
         if let header = "\n--- Autumn server launch \(Date()) ---\n".data(using: .utf8) {
             logHandle.write(header)
         }

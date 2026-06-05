@@ -30,6 +30,23 @@ class MissionRoute(str, Enum):
 
 
 @dataclass
+class WorkflowStage:
+    id: str
+    title: str
+    detail: str
+    workspace: str
+    status: str = "completed"
+
+
+@dataclass
+class WorkflowRun:
+    output: str
+    input_type: InputType
+    route: MissionRoute | None
+    stages: list[WorkflowStage]
+
+
+@dataclass
 class ToolCall:
     id: str
     name: str

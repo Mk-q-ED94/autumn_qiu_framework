@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 os.environ["AUTUMN_SKIP_INIT"] = "1"
 
 from autumn.server.app import create_app  # noqa: E402
+from autumn.core.types import InputType, MissionRoute, WorkflowRun, WorkflowStage  # noqa: E402
 
 server_app = importlib.import_module("autumn.server.app")
 
@@ -39,6 +40,23 @@ class _MockAutumn:
     async def process(self, text: str, mission_route=None) -> str:
         self.process_calls.append((text, mission_route))
         return f"processed: {text}"
+
+    async def process_with_trace(self, text: str, mission_route=None):
+        self.process_calls.append((text, mission_route))
+        route = MissionRoute.CONVERT if mission_route == "convert" else MissionRoute.DIRECT
+        return WorkflowRun(
+            output=f"processed: {text}",
+            input_type=InputType.MISSION,
+            route=route,
+            stages=[
+                WorkflowStage(
+                    id="wp3.route",
+                    title="A3 路由",
+                    detail=f"Mission 路由为 {route.value}",
+                    workspace="WP3",
+                ),
+            ],
+        )
 
     async def stream(self, text: str, mission_route=None):
         self.stream_calls.append((text, mission_route))
@@ -283,6 +301,26 @@ def test_process_requires_input(configured_client):
 
 def test_process_503_when_unconfigured(unconfigured_client):
     r = unconfigured_client.post("/process", json={"input": "hi"})
+    assert r.status_code == 503
+
+
+# ── /trace ────────────────────────────────────────────────────────────────────
+
+
+def test_trace_returns_workflow_run(configured_client):
+    r = configured_client.post("/trace", json={"input": "hi", "route": "convert"})
+
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["output"] == "processed: hi"
+    assert payload["input_type"] == "mission"
+    assert payload["route"] == "convert"
+    assert payload["stages"][0]["id"] == "wp3.route"
+    assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert")
+
+
+def test_trace_503_when_unconfigured(unconfigured_client):
+    r = unconfigured_client.post("/trace", json={"input": "hi"})
     assert r.status_code == 503
 
 

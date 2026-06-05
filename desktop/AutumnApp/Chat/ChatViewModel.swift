@@ -5,7 +5,7 @@ import SwiftUI
 final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var input: String = ""
-    @Published var isStreaming: Bool = false
+    @Published var isRunning: Bool = false
     @Published var errorMessage: String? = nil
 
     private let settings: AppSettings
@@ -21,7 +21,7 @@ final class ChatViewModel: ObservableObject {
 
     func send() async {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isStreaming else { return }
+        guard !text.isEmpty, !isRunning else { return }
         guard let client = client else {
             errorMessage = "服务器 URL 无效"
             return
@@ -34,16 +34,13 @@ final class ChatViewModel: ObservableObject {
         let assistantIndex = messages.count
         messages.append(ChatMessage(role: .assistant, text: ""))
 
-        isStreaming = true
-        defer { isStreaming = false }
+        isRunning = true
+        defer { isRunning = false }
 
         do {
-            for try await chunk in client.stream(text, route: settings.routeMode) {
-                messages[assistantIndex].text += chunk
-            }
-            if messages[assistantIndex].text.isEmpty {
-                messages[assistantIndex].text = "(empty response)"
-            }
+            let trace = try await client.trace(text, route: settings.routeMode)
+            messages[assistantIndex].text = trace.output.isEmpty ? "(empty response)" : trace.output
+            messages[assistantIndex].trace = trace
         } catch {
             errorMessage = error.localizedDescription
             messages[assistantIndex].text +=

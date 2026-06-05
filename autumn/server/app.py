@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
-from ..core.types import MissionRoute, Protocol
+from ..core.types import InputType, MissionRoute, Protocol, WorkflowRun
 
 
 RequestRoute = MissionRoute | Literal["auto"] | None
@@ -25,6 +25,21 @@ class ProcessRequest(BaseModel):
 
 class ProcessResponse(BaseModel):
     output: str
+
+
+class TraceStageResponse(BaseModel):
+    id: str
+    title: str
+    detail: str
+    workspace: str
+    status: str
+
+
+class TraceResponse(BaseModel):
+    output: str
+    input_type: InputType
+    route: MissionRoute | None = None
+    stages: list[TraceStageResponse]
 
 
 class ProviderConfigRequest(BaseModel):
@@ -131,6 +146,15 @@ def _autumn_or_503(request: Request) -> Autumn:
     return autumn
 
 
+def _trace_response(run: WorkflowRun) -> TraceResponse:
+    return TraceResponse(
+        output=run.output,
+        input_type=run.input_type,
+        route=run.route,
+        stages=[TraceStageResponse(**stage.__dict__) for stage in run.stages],
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Autumn HTTP API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -191,6 +215,12 @@ def create_app() -> FastAPI:
         autumn = _autumn_or_503(request)
         output = await autumn.process(req.input, mission_route=req.route)
         return ProcessResponse(output=output)
+
+    @app.post("/trace", response_model=TraceResponse)
+    async def trace(req: ProcessRequest, request: Request):
+        autumn = _autumn_or_503(request)
+        run = await autumn.process_with_trace(req.input, mission_route=req.route)
+        return _trace_response(run)
 
     @app.get("/stream")
     async def stream(input: str, request: Request, route: RequestRoute = None):

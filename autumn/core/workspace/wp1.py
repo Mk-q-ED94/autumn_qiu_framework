@@ -4,7 +4,7 @@ from typing import Literal
 from .base import WorkspaceBase
 from .wp2 import WP2Tas
 from .wp3 import WP3Mis
-from ..types import InputType, MissionRoute, Message, Role
+from ..types import InputType, MissionRoute, Message, Role, WorkflowRun, WorkflowStage
 from ..components.selector import Selector
 from ..interaction import UserInteraction
 
@@ -49,14 +49,43 @@ class WP1Tot(WorkspaceBase):
         user_input: str,
         mission_route: MissionRoute | Literal["auto"] | None = None,
     ) -> str:
+        run = await self.process_with_trace(user_input, mission_route=mission_route)
+        return run.output
+
+    async def process_with_trace(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> WorkflowRun:
+        stages: list[WorkflowStage] = []
         input_type = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
+        stages.append(WorkflowStage(
+            id="wp1.select",
+            title="A1 分类",
+            detail=f"输入被识别为 {input_type.value}",
+            workspace="WP1",
+        ))
 
         if input_type == InputType.TASK:
-            final = await self._route_task(user_input)
+            result = await self.wp2.process(user_input)
+            stages.append(WorkflowStage(
+                id="wp2.task",
+                title="A2 执行任务",
+                detail="WP2 已完成结构化任务执行",
+                workspace="WP2",
+            ))
+            final = await self._wp1_check(result)
+            stages.append(WorkflowStage(
+                id="wp1.final_check",
+                title="A1 最终检查",
+                detail="WP1 已完成最终质量检查",
+                workspace="WP1",
+            ))
             chosen_route = None
         else:
-            final, chosen_route = await self._route_mission_returning_route(
+            final, chosen_route = await self._route_mission_with_trace(
                 user_input,
+                stages,
                 mission_route=mission_route,
             )
 
@@ -67,7 +96,7 @@ class WP1Tot(WorkspaceBase):
             "route": chosen_route.value if chosen_route else None,
             "output": final,
         })
-        return final
+        return WorkflowRun(output=final, input_type=input_type, route=chosen_route, stages=stages)
 
     async def _route_task(self, task_input: str) -> str:
         result = await self.wp2.process(task_input)
@@ -98,6 +127,85 @@ class WP1Tot(WorkspaceBase):
         if self.checker:
             _, task_form = await self.checker.validate(task_form, self.memory)
         return await self._route_task(task_form), route
+
+    async def _route_mission_with_trace(
+        self,
+        mission_input: str,
+        stages: list[WorkflowStage],
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> tuple[str, MissionRoute]:
+        if self.interaction:
+            chosen = await self.interaction.ask(
+                "How should I handle this mission?",
+                [r.value for r in MissionRoute],
+            )
+            route = MissionRoute(chosen)
+        else:
+            route = await self._resolve_headless_route(mission_input, mission_route)
+
+        stages.append(WorkflowStage(
+            id="wp3.route",
+            title="A3 路由",
+            detail=f"Mission 路由为 {route.value}",
+            workspace="WP3",
+        ))
+
+        if route == MissionRoute.DIRECT:
+            result = await self.wp3.answer_directly(mission_input)
+            stages.append(WorkflowStage(
+                id="wp3.direct",
+                title="A3 直接回答",
+                detail="WP3 已生成 mission 回答",
+                workspace="WP3",
+            ))
+            final = await self._wp1_check(result)
+            stages.append(WorkflowStage(
+                id="wp1.final_check",
+                title="A1 最终检查",
+                detail="WP1 已完成最终质量检查",
+                workspace="WP1",
+            ))
+            return final, route
+
+        task_form = await self.wp3.convert_to_task(mission_input)
+        stages.append(WorkflowStage(
+            id="wp3.convert",
+            title="A3 转换任务",
+            detail="WP3 已将 mission 转为可执行任务",
+            workspace="WP3",
+        ))
+        if self.wp3.checker:
+            _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+            stages.append(WorkflowStage(
+                id="wp3.check",
+                title="WP3 检查",
+                detail="转换后的任务已通过 WP3 检查",
+                workspace="WP3",
+            ))
+        if self.checker:
+            _, task_form = await self.checker.validate(task_form, self.memory)
+            stages.append(WorkflowStage(
+                id="wp1.handoff_check",
+                title="A1 交接检查",
+                detail="A1 已检查 mission 到 task 的交接内容",
+                workspace="WP1",
+            ))
+
+        result = await self.wp2.process(task_form)
+        stages.append(WorkflowStage(
+            id="wp2.task",
+            title="A2 执行任务",
+            detail="WP2 已完成转换任务执行",
+            workspace="WP2",
+        ))
+        final = await self._wp1_check(result)
+        stages.append(WorkflowStage(
+            id="wp1.final_check",
+            title="A1 最终检查",
+            detail="WP1 已完成最终质量检查",
+            workspace="WP1",
+        ))
+        return final, route
 
     async def _resolve_headless_route(
         self,

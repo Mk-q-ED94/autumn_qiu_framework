@@ -20,7 +20,7 @@ from .components.skill import Skill
 from .components.tool import Tool
 from .components.mcp import MCPClient
 from .components.mcp_bridge import mcp_to_tools
-from .types import MissionRoute
+from .types import MissionRoute, WorkflowRun
 from ..plugins.loader import PluginLoader
 
 
@@ -108,6 +108,14 @@ class Autumn:
     ) -> str:
         """Run the full pipeline and return the validated final output."""
         return await self.wp1.process(user_input, mission_route=mission_route)
+
+    async def process_with_trace(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> WorkflowRun:
+        """Run the full pipeline and return output plus a structured workflow trace."""
+        return await self.wp1.process_with_trace(user_input, mission_route=mission_route)
 
     async def stream(
         self,

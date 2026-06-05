@@ -10,6 +10,8 @@ _EXPORTS = {
     "Protocol": ("autumn.core.types", "Protocol"),
     "InputType": ("autumn.core.types", "InputType"),
     "MissionRoute": ("autumn.core.types", "MissionRoute"),
+    "WorkflowRun": ("autumn.core.types", "WorkflowRun"),
+    "WorkflowStage": ("autumn.core.types", "WorkflowStage"),
     "Message": ("autumn.core.types", "Message"),
     "Role": ("autumn.core.types", "Role"),
     "ToolCall": ("autumn.core.types", "ToolCall"),
