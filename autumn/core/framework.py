@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from typing import AsyncIterator, Literal
 
@@ -124,20 +123,19 @@ class Autumn:
     async def stream(
         self,
         user_input: str,
-        chunk_size: int = 32,
         mission_route: MissionRoute | Literal["auto"] | None = None,
     ) -> AsyncIterator[str]:
-        """Run the pipeline and yield the validated output in chunks.
+        """Real-time streaming with post-hoc Checker advisory.
 
-        Because the checker requires the full output before validating, the
-        pipeline runs to completion first; chunks are emitted afterward. This
-        keeps the streaming API consistent for UI consumers without surfacing
-        unvalidated content.
+        Tokens flow from the chosen workspace (WP2 for tasks, WP3 for direct
+        missions) straight to the caller. The Checker no longer gates output —
+        instead, after the stream ends, it runs once as an observation; if it
+        flags an issue, a clearly-marked advisory chunk is appended. The
+        convert path remains buffered because conversion is a non-streamed
+        model call.
         """
-        result = await self.process(user_input, mission_route=mission_route)
-        for i in range(0, len(result), chunk_size):
-            yield result[i:i + chunk_size]
-            await asyncio.sleep(0)
+        async for chunk in self.wp1.stream(user_input, mission_route=mission_route):
+            yield chunk
 
     # ── plugin & extension api ────────────────────────────────────────────────
 

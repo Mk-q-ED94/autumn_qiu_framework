@@ -1,12 +1,14 @@
 import json
 import time
-from typing import Literal
+from typing import AsyncIterator, Literal
 from .base import WorkspaceBase
 from .wp2 import WP2Tas
 from .wp3 import WP3Mis
 from ..types import InputType, TaskType, MissionRoute, Message, Role, WorkflowRun, WorkflowStage
 from ..components.selector import Selector
 from ..interaction import UserInteraction
+
+_ADVISORY_PREFIX = "\n\n---\n[质量提示] "
 
 _AUTO_ROUTE_SYSTEM = """\
 You are a routing agent in the Autumn framework.
@@ -250,3 +252,68 @@ class WP1Tot(WorkspaceBase):
         if self.checker:
             _, output = await self.checker.validate(output, self.memory)
         return output
+
+    # ── streaming ─────────────────────────────────────────────────────────────
+
+    async def stream(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+    ) -> AsyncIterator[str]:
+        """Real-time streaming: classify once, then forward tokens from the
+        chosen workspace. After the stream ends, the Checker is run once as
+        an *advisory* — if it flags an issue, one final chunk is appended
+        with a clear separator. The Checker no longer gates output.
+
+        The convert path (mission → task) cannot stream end-to-end because
+        the conversion is a non-streamed model call; it falls back to a
+        buffered run that is chunked at the end.
+        """
+        sel = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
+        input_type = sel.input_type
+        task_type = sel.task_type
+
+        if input_type == InputType.TASK:
+            gen = self.wp2.stream(user_input, task_type=task_type)
+            chosen_route: MissionRoute | None = None
+        else:
+            route = await self._resolve_headless_route(user_input, mission_route)
+            chosen_route = route
+            if route == MissionRoute.DIRECT:
+                gen = self.wp3.stream_direct(user_input)
+            else:
+                gen = self._stream_convert_path(user_input)
+
+        buf: list[str] = []
+        async for tok in gen:
+            buf.append(tok)
+            yield tok
+
+        full = "".join(buf)
+
+        # Post-hoc advisory: rule check + model check, no auto-correction.
+        if self.checker:
+            ok, issues = await self.checker.inspect(full, self.memory)
+            if not ok and issues:
+                advisory = f"{_ADVISORY_PREFIX}{issues}"
+                buf.append(advisory)
+                yield advisory
+
+        # Mom1 carries the full conversation log; mirror process_with_trace().
+        await self.memory.append_history({
+            "ts": time.time(),
+            "input": user_input,
+            "type": input_type.value,
+            "route": chosen_route.value if chosen_route else None,
+            "output": "".join(buf),
+        })
+
+    async def _stream_convert_path(self, mission_input: str) -> AsyncIterator[str]:
+        """Mission/convert: WP3 converts (buffered), then WP2 streams the task."""
+        task_form = await self.wp3.convert_to_task(mission_input)
+        if self.wp3.checker:
+            _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+        if self.checker:
+            _, task_form = await self.checker.validate(task_form, self.memory)
+        async for tok in self.wp2.stream(task_form):
+            yield tok

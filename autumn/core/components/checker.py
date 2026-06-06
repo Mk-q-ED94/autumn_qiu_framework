@@ -50,6 +50,17 @@ class Checker:
 
         return False, f"[CHECK_FAILED({self.workspace_id}): {last_issues}]\n\n{output}"
 
+    async def inspect(self, output: str, memory: MemoryArea) -> tuple[bool, str]:
+        """Observation-only check: returns (ok, issues) without auto-correction.
+
+        Used by the streaming path, which has already emitted tokens to the user
+        — we can no longer rewrite the output, only surface issues as an advisory.
+        """
+        rule_issues = _rule_check(output)
+        if rule_issues:
+            return False, rule_issues
+        return await self._model_check(output, memory)
+
     async def _model_check(self, output: str, memory: MemoryArea) -> tuple[bool, str]:
         context = await _load_context(memory, output)
         user_content = f"Output to evaluate:\n{output}"
