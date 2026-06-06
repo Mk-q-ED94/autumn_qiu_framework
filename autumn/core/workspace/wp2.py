@@ -2,7 +2,7 @@ import time
 from typing import Callable
 
 from .base import WorkspaceBase
-from ..types import Message, Role, WorkflowStage, AgentStep
+from ..types import Message, Role, TaskType, WorkflowStage, AgentStep
 from ..components.agent import Agent
 from ..components.skill import Skill
 from ..components.tool import Tool
@@ -16,6 +16,14 @@ _TOOL_RESULT_MAX = 120
 
 # Returns a snapshot of (tools, skills) available for this turn.
 ToolProvider = Callable[[], tuple[list[Tool], list[Skill]]]
+
+_TASK_HINTS: dict[TaskType, str] = {
+    TaskType.CODE: "Focus on correctness, test coverage, and code style.",
+    TaskType.SEARCH: "Prefer search and retrieval tools to ground your answer in facts before synthesizing.",
+    TaskType.WRITE: "Prioritize clarity, tone, and structure; avoid unnecessary tool use.",
+    TaskType.DATA: "Break calculations into verifiable steps; validate intermediate results.",
+    TaskType.GENERAL: "",
+}
 
 
 def _step_to_stage(index: int, step: AgentStep) -> WorkflowStage:
@@ -33,6 +41,13 @@ def _step_to_stage(index: int, step: AgentStep) -> WorkflowStage:
         status="completed",
         kind="tool",
     )
+
+
+def _apply_hint(base_system: str, task_type: TaskType | None) -> str:
+    if task_type is None:
+        return base_system
+    hint = _TASK_HINTS.get(task_type, "")
+    return f"{base_system}\n\n{hint}" if hint else base_system
 
 
 class WP2Tas(WorkspaceBase):
@@ -59,24 +74,32 @@ class WP2Tas(WorkspaceBase):
         self._system = system_prompt or _DEFAULT_SYSTEM
         self._tool_provider = tool_provider
 
-    async def process(self, task_input: str) -> str:
-        output, _ = await self._execute(task_input)
+    async def process(self, task_input: str, task_type: TaskType | None = None) -> str:
+        output, _ = await self._execute(task_input, task_type)
         return output
 
-    async def process_with_trace(self, task_input: str) -> tuple[str, list[WorkflowStage]]:
+    async def process_with_trace(
+        self,
+        task_input: str,
+        task_type: TaskType | None = None,
+    ) -> tuple[str, list[WorkflowStage]]:
         """Execute the task and return (output, tool_stages)."""
-        return await self._execute(task_input)
+        return await self._execute(task_input, task_type)
 
-    async def _execute(self, task_input: str) -> tuple[str, list[WorkflowStage]]:
+    async def _execute(
+        self,
+        task_input: str,
+        task_type: TaskType | None = None,
+    ) -> tuple[str, list[WorkflowStage]]:
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
         tool_stages: list[WorkflowStage] = []
 
         if tools or skills:
             steps: list[AgentStep] = []
-            result = await self._run_with_agent(task_input, tools, skills, steps)
+            result = await self._run_with_agent(task_input, tools, skills, steps, task_type)
             tool_stages = [_step_to_stage(i, s) for i, s in enumerate(steps)]
         else:
-            result = await self._run_plain(task_input)
+            result = await self._run_plain(task_input, task_type)
 
         if self.checker:
             _, result = await self.checker.validate(result, self.memory)
@@ -88,10 +111,10 @@ class WP2Tas(WorkspaceBase):
         })
         return result, tool_stages
 
-    async def _run_plain(self, task_input: str) -> str:
+    async def _run_plain(self, task_input: str, task_type: TaskType | None = None) -> str:
         """Single completion — the original WP2 behavior, used when no tools exist."""
         messages = [
-            Message(role=Role.SYSTEM, content=self._system),
+            Message(role=Role.SYSTEM, content=_apply_hint(self._system, task_type)),
             Message(role=Role.USER, content=task_input),
         ]
         return await self.api.complete(messages)
@@ -102,6 +125,7 @@ class WP2Tas(WorkspaceBase):
         tools: list[Tool],
         skills: list[Skill],
         steps: list[AgentStep] | None = None,
+        task_type: TaskType | None = None,
     ) -> str:
         """ReAct loop with tool access; carries WP2's persona + Mom2 history."""
         agent = Agent(
@@ -109,6 +133,6 @@ class WP2Tas(WorkspaceBase):
             api=self.api,
             tools=tools,
             skills=skills,
-            instructions=self._system,
+            instructions=_apply_hint(self._system, task_type),
         )
         return await agent.run(task_input, memory=self.memory, steps=steps)

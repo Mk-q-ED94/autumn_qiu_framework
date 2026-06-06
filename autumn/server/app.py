@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
-from ..core.types import InputType, MissionRoute, Protocol, WorkflowRun
+from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
 
 
 RequestRoute = MissionRoute | Literal["auto"] | None
@@ -40,6 +40,7 @@ class TraceResponse(BaseModel):
     output: str
     input_type: InputType
     route: MissionRoute | None = None
+    task_type: TaskType | None = None
     stages: list[TraceStageResponse]
 
 
@@ -152,6 +153,7 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
         output=run.output,
         input_type=run.input_type,
         route=run.route,
+        task_type=run.task_type,
         stages=[TraceStageResponse(**stage.__dict__) for stage in run.stages],
     )
 

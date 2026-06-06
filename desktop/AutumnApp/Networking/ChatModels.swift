@@ -13,12 +13,14 @@ struct WorkflowTrace: Decodable, Equatable {
     let output: String
     let inputType: String
     let route: String?
+    let taskType: String?
     let stages: [WorkflowStage]
 
     enum CodingKeys: String, CodingKey {
         case output
         case inputType = "input_type"
         case route
+        case taskType = "task_type"
         case stages
     }
 }

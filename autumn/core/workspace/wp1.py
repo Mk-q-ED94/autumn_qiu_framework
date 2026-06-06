@@ -4,7 +4,7 @@ from typing import Literal
 from .base import WorkspaceBase
 from .wp2 import WP2Tas
 from .wp3 import WP3Mis
-from ..types import InputType, MissionRoute, Message, Role, WorkflowRun, WorkflowStage
+from ..types import InputType, TaskType, MissionRoute, Message, Role, WorkflowRun, WorkflowStage
 from ..components.selector import Selector
 from ..interaction import UserInteraction
 
@@ -16,6 +16,12 @@ Decide how the following mission should be handled:
 (multi-step work, concrete actions, anything that benefits from a todo list)
 
 Respond with ONLY valid JSON: {"route": "direct"} or {"route": "convert"}"""
+
+
+def _classify_detail(input_type: InputType, task_type: TaskType | None) -> str:
+    if input_type == InputType.TASK and task_type and task_type != TaskType.GENERAL:
+        return f"输入被识别为 task · {task_type.value}"
+    return f"输入被识别为 {input_type.value}"
 
 
 class WP1Tot(WorkspaceBase):
@@ -58,16 +64,18 @@ class WP1Tot(WorkspaceBase):
         mission_route: MissionRoute | Literal["auto"] | None = None,
     ) -> WorkflowRun:
         stages: list[WorkflowStage] = []
-        input_type = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
+        sel = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
+        input_type = sel.input_type
+        task_type = sel.task_type
         stages.append(WorkflowStage(
             id="wp1.select",
             title="A1 分类",
-            detail=f"输入被识别为 {input_type.value}",
+            detail=_classify_detail(input_type, task_type),
             workspace="WP1",
         ))
 
         if input_type == InputType.TASK:
-            result, tool_stages = await self.wp2.process_with_trace(user_input)
+            result, tool_stages = await self.wp2.process_with_trace(user_input, task_type=task_type)
             stages.extend(tool_stages)
             stages.append(WorkflowStage(
                 id="wp2.task",
@@ -84,6 +92,7 @@ class WP1Tot(WorkspaceBase):
             ))
             chosen_route = None
         else:
+            task_type = None  # task_type is not applicable for missions
             final, chosen_route = await self._route_mission_with_trace(
                 user_input,
                 stages,
@@ -97,7 +106,13 @@ class WP1Tot(WorkspaceBase):
             "route": chosen_route.value if chosen_route else None,
             "output": final,
         })
-        return WorkflowRun(output=final, input_type=input_type, route=chosen_route, stages=stages)
+        return WorkflowRun(
+            output=final,
+            input_type=input_type,
+            route=chosen_route,
+            stages=stages,
+            task_type=task_type,
+        )
 
     async def _route_task(self, task_input: str) -> str:
         result = await self.wp2.process(task_input)

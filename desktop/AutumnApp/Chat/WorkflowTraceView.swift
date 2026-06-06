@@ -35,6 +35,9 @@ struct WorkflowTraceView: View {
     private var header: some View {
         HStack(spacing: Autumn.spacing.sm) {
             AutumnBadge(inputTitle, icon: inputIcon, tone: .accent)
+            if let taskTitle = taskTypeTitle {
+                AutumnBadge(taskTitle, tone: .accent)
+            }
             if let routeTitle {
                 AutumnBadge(routeTitle, tone: .neutral)
             }
@@ -56,6 +59,17 @@ struct WorkflowTraceView: View {
 
     private var inputIcon: String {
         trace.inputType == "mission" ? "arrow.triangle.branch" : "checklist"
+    }
+
+    private var taskTypeTitle: String? {
+        guard trace.inputType == "task", let tt = trace.taskType, tt != "general" else { return nil }
+        switch tt {
+        case "code":   return "代码"
+        case "search": return "检索"
+        case "write":  return "写作"
+        case "data":   return "数据"
+        default:       return tt
+        }
     }
 
     private var routeTitle: String? {
