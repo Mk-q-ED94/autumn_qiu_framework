@@ -38,8 +38,8 @@ final class ConversationStore: ObservableObject {
         return conversations.first(where: { $0.id == id })
     }
 
-    func newConversation() {
-        let new = Conversation()
+    func newConversation(projectID: UUID? = nil) {
+        let new = Conversation(projectID: projectID)
         conversations.insert(new, at: 0)
         selectedID = new.id
         persist()
@@ -90,6 +90,38 @@ final class ConversationStore: ObservableObject {
         conversations[idx].messages = []
         conversations[idx].updatedAt = Date()
         persist()
+    }
+
+    // ── project assignment ───────────────────────────────────────────────────
+
+    /// Assigns ``conversationID`` to ``projectID`` (nil = unfiled).
+    func moveConversation(_ conversationID: UUID, toProject projectID: UUID?) {
+        guard let idx = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
+        guard conversations[idx].projectID != projectID else { return }
+        conversations[idx].projectID = projectID
+        conversations[idx].updatedAt = Date()
+        persist()
+    }
+
+    /// Clears project membership for every conversation in the given project —
+    /// called when the project itself is deleted so conversations survive as
+    /// unfiled rather than vanishing.
+    func unfileConversations(belongingTo projectID: UUID) {
+        var changed = false
+        for idx in conversations.indices where conversations[idx].projectID == projectID {
+            conversations[idx].projectID = nil
+            conversations[idx].updatedAt = Date()
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    func conversations(in projectID: UUID?) -> [Conversation] {
+        conversations.filter { $0.projectID == projectID }
+    }
+
+    var unfiledConversations: [Conversation] {
+        conversations.filter { $0.projectID == nil }
     }
 
     // ── persistence ──────────────────────────────────────────────────────────

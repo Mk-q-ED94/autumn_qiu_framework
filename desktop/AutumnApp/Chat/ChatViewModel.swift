@@ -21,15 +21,37 @@ final class ChatViewModel: ObservableObject {
 
     private let settings: AppSettings
     private let store: ConversationStore
+    private let projects: ProjectStore?
     private var cancellables: Set<AnyCancellable> = []
     private var loadedConversationID: UUID?
     private var intentTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
 
-    init(settings: AppSettings, store: ConversationStore) {
+    init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
         self.settings = settings
         self.store = store
+        self.projects = projects
         bindToStore()
+    }
+
+    /// The currently-active project for the loaded conversation, if any.
+    private var activeProject: Project? {
+        guard
+            let conversationID = loadedConversationID,
+            let conversation = store.conversations.first(where: { $0.id == conversationID }),
+            let projectID = conversation.projectID
+        else { return nil }
+        return projects?.project(id: projectID)
+    }
+
+    /// Project instructions to attach to the next outbound request, trimmed.
+    private var activeProjectInstructions: String? {
+        let trimmed = activeProject?.trimmedInstructions
+        return (trimmed?.isEmpty ?? true) ? nil : trimmed
+    }
+
+    private var activeProjectIDString: String? {
+        activeProject?.id.uuidString
     }
 
     private func bindToStore() {
@@ -150,12 +172,16 @@ final class ChatViewModel: ObservableObject {
         }
 
         do {
+            let projectInstructions = activeProjectInstructions
+            let projectID = activeProjectIDString
             var streamed = ""
             for try await chunk in client.stream(
                 text,
                 route: effectiveRoute.rawValue,
                 inputType: intentOverride?.rawValue,
-                taskType: effectiveTaskKind?.rawValue
+                taskType: effectiveTaskKind?.rawValue,
+                projectInstructions: projectInstructions,
+                projectID: projectID
             ) {
                 try Task.checkCancellation()
                 streamed += chunk
@@ -167,7 +193,9 @@ final class ChatViewModel: ObservableObject {
                 text,
                 route: effectiveRoute.rawValue,
                 inputType: intentOverride?.rawValue,
-                taskType: effectiveTaskKind?.rawValue
+                taskType: effectiveTaskKind?.rawValue,
+                projectInstructions: projectInstructions,
+                projectID: projectID
             )
             withAnimation(Autumn.motion.smooth) {
                 messages[assistantIndex].text = trace.output.isEmpty ? "(empty response)" : trace.output
@@ -241,7 +269,9 @@ final class ChatViewModel: ObservableObject {
                 text,
                 route: effectiveRoute.rawValue,
                 inputType: intentOverride?.rawValue,
-                taskType: effectiveTaskKind?.rawValue
+                taskType: effectiveTaskKind?.rawValue,
+                projectInstructions: activeProjectInstructions,
+                projectID: activeProjectIDString
             )
         } catch {
             // Intent preview is advisory; keep typing smooth and surface the state through the badge.

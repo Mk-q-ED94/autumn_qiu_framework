@@ -24,10 +24,31 @@ class ProcessRequest(BaseModel):
     route: RequestRoute = None
     input_type: InputType | None = None
     task_type: TaskType | None = None
+    project_instructions: str | None = None
+    project_id: str | None = None
 
 
 class ProcessResponse(BaseModel):
     output: str
+
+
+def _apply_project_context(user_input: str, project_instructions: str | None) -> str:
+    """Wrap ``user_input`` with a project-instructions preamble when set.
+
+    The instructions are inserted as a clearly-tagged block so the
+    workflow sees them as part of the user turn but A1 can distinguish
+    them in its trace.  Returns the original input unchanged when no
+    instructions are present.
+    """
+    instructions = (project_instructions or "").strip()
+    if not instructions:
+        return user_input
+    return (
+        "[项目指令 / Project Instructions]\n"
+        f"{instructions}\n\n"
+        "[用户输入 / User Input]\n"
+        f"{user_input}"
+    )
 
 
 class TraceStageResponse(BaseModel):
@@ -57,6 +78,8 @@ class IntentRequest(BaseModel):
     route: RequestRoute = None
     input_type: InputType | None = None
     task_type: TaskType | None = None
+    project_instructions: str | None = None
+    project_id: str | None = None
 
 
 class IntentResponse(BaseModel):
@@ -272,7 +295,7 @@ def create_app() -> FastAPI:
     async def process(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
         output = await autumn.process(
-            req.input,
+            _apply_project_context(req.input, req.project_instructions),
             mission_route=req.route,
             input_type=req.input_type,
             task_type=req.task_type,
@@ -283,7 +306,7 @@ def create_app() -> FastAPI:
     async def trace(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
         run = await autumn.process_with_trace(
-            req.input,
+            _apply_project_context(req.input, req.project_instructions),
             mission_route=req.route,
             input_type=req.input_type,
             task_type=req.task_type,
@@ -293,8 +316,11 @@ def create_app() -> FastAPI:
     @app.post("/intent", response_model=IntentResponse)
     async def intent(req: IntentRequest, request: Request):
         autumn = _autumn_or_503(request)
+        # Project instructions are advisory for intent classification too —
+        # they may shift the classifier's read (e.g. a project full of code
+        # work is more likely to interpret short prompts as TASK).
         sel, route = await autumn.classify_intent(
-            req.input,
+            _apply_project_context(req.input, req.project_instructions),
             mission_route=req.route,
             input_type=req.input_type,
             task_type=req.task_type,
@@ -314,14 +340,18 @@ def create_app() -> FastAPI:
         route: RequestRoute = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        project_instructions: str | None = None,
+        project_id: str | None = None,
     ):
         autumn = _autumn_or_503(request)
+        effective_input = _apply_project_context(input, project_instructions)
+        _ = project_id  # reserved for future per-project memory scoping
 
         async def event_stream():
             disconnected = False
             try:
                 async for chunk in autumn.stream(
-                    input,
+                    effective_input,
                     mission_route=route,
                     input_type=input_type,
                     task_type=task_type,

@@ -176,9 +176,13 @@ desktop/
     │   ├── ChatView.swift               # 聊天 UI（DesignSystem）
     │   └── WorkflowTraceView.swift      # 协作时间线（可折叠 + 动画）
     ├── Conversations/
-    │   ├── Conversation.swift           # Codable 对话模型
-    │   ├── ConversationStore.swift      # UserDefaults JSON 持久化
-    │   └── ConversationListView.swift   # 侧边栏对话列表
+    │   ├── Conversation.swift           # Codable 对话模型（含 projectID）
+    │   └── ConversationStore.swift      # UserDefaults JSON 持久化 + 项目归属
+    ├── Projects/
+    │   ├── Project.swift                # Codable 项目模型 + 调色板
+    │   ├── ProjectStore.swift           # UserDefaults JSON 持久化
+    │   ├── ProjectEditorView.swift      # 创建/编辑项目（名称/指令/颜色）
+    │   └── ProjectSidebarView.swift     # 侧边栏：项目分组 + 未分组对话
     ├── Networking/
     │   ├── AutumnClient.swift           # HTTP + SSE 客户端
     │   └── ChatModels.swift             # Codable 模型

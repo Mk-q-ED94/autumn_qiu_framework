@@ -27,9 +27,9 @@ struct SidebarView: View {
 
             Divider()
 
-            // ── conversation list (visible while in workspace) ──
+            // ── project/conversation explorer (visible while in workspace) ──
             if selection == AppSection.workspace.rawValue {
-                ConversationListView()
+                ProjectSidebarView()
             } else {
                 Spacer()
             }

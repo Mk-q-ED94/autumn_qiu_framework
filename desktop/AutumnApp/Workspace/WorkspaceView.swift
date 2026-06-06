@@ -4,12 +4,13 @@ struct WorkspaceView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var localServer: LocalServerManager
     @EnvironmentObject private var store: ConversationStore
+    @EnvironmentObject private var projects: ProjectStore
 
     @SceneStorage("AutumnDesktop.inspectorVisible") private var inspectorVisible: Bool = true
 
     var body: some View {
         HStack(spacing: 0) {
-            ChatView(settings: settings, store: store)
+            ChatView(settings: settings, store: store, projects: projects)
                 .id(store.selectedID)   // rebuild the chat VM when the conversation switches
 
             if inspectorVisible {
@@ -19,7 +20,7 @@ struct WorkspaceView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .navigationTitle(store.selected?.title ?? "协作")
+        .navigationTitle(navigationTitleText)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -39,6 +40,15 @@ struct WorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: .autumnNewConversation)) { _ in
             store.newConversation()
         }
+    }
+
+    private var navigationTitleText: String {
+        let title = store.selected?.title ?? "协作"
+        if let projectID = store.selected?.projectID,
+           let project = projects.project(id: projectID) {
+            return "\(project.name) › \(title)"
+        }
+        return title
     }
 }
 

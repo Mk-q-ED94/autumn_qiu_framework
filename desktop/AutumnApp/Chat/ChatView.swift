@@ -3,15 +3,22 @@ import SwiftUI
 struct ChatView: View {
     @StateObject private var vm: ChatViewModel
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var conversationStore: ConversationStore
+    @EnvironmentObject private var projectStore: ProjectStore
     @FocusState private var composerFocused: Bool
     @State private var intentPopoverVisible: Bool = false
 
-    init(settings: AppSettings, store: ConversationStore) {
-        _vm = StateObject(wrappedValue: ChatViewModel(settings: settings, store: store))
+    init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
+        _vm = StateObject(wrappedValue: ChatViewModel(
+            settings: settings,
+            store: store,
+            projects: projects
+        ))
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            projectBanner
             messagesList
             errorBanner
             inputBar
@@ -36,6 +43,49 @@ struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: .autumnFocusComposer)) { _ in
             composerFocused = true
         }
+    }
+
+    @ViewBuilder
+    private var projectBanner: some View {
+        if let project = activeProject {
+            HStack(spacing: Autumn.spacing.sm) {
+                Image(systemName: ProjectPalette.icon(for: project.colorTag))
+                    .foregroundStyle(ProjectPalette.color(for: project.colorTag))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(project.name)
+                        .font(Autumn.typography.captionStrong)
+                    if !project.trimmedInstructions.isEmpty {
+                        Text(project.trimmedInstructions)
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    } else {
+                        Text("项目无附加指令")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, Autumn.spacing.lg)
+            .padding(.vertical, Autumn.spacing.sm)
+            .background(ProjectPalette.color(for: project.colorTag).opacity(0.08))
+            .overlay(
+                Rectangle()
+                    .fill(ProjectPalette.color(for: project.colorTag).opacity(0.25))
+                    .frame(height: 1),
+                alignment: .bottom
+            )
+        }
+    }
+
+    private var activeProject: Project? {
+        guard
+            let id = conversationStore.selectedID,
+            let convo = conversationStore.conversations.first(where: { $0.id == id }),
+            let projectID = convo.projectID
+        else { return nil }
+        return projectStore.project(id: projectID)
     }
 
     private var messagesList: some View {

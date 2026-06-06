@@ -1,25 +1,45 @@
 import Foundation
 
 /// Persistable single conversation.
+///
+/// ``projectID`` is optional so legacy persisted blobs without the field
+/// continue to decode (custom ``init(from:)`` defaults it to nil).
 struct Conversation: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String
     var messages: [PersistableMessage]
     var createdAt: Date
     var updatedAt: Date
+    var projectID: UUID?
 
     init(
         id: UUID = UUID(),
         title: String = "新对话",
         messages: [PersistableMessage] = [],
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        projectID: UUID? = nil
     ) {
         self.id = id
         self.title = title
         self.messages = messages
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.projectID = projectID
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        messages = try c.decode([PersistableMessage].self, forKey: .messages)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        projectID = try c.decodeIfPresent(UUID.self, forKey: .projectID)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, messages, createdAt, updatedAt, projectID
     }
 }
 

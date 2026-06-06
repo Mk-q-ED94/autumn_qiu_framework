@@ -5,12 +5,23 @@ struct ProcessRequest: Encodable {
     let route: String?
     let inputType: String?
     let taskType: String?
+    let projectInstructions: String?
+    let projectID: String?
 
-    init(input: String, route: String? = nil, inputType: String? = nil, taskType: String? = nil) {
+    init(
+        input: String,
+        route: String? = nil,
+        inputType: String? = nil,
+        taskType: String? = nil,
+        projectInstructions: String? = nil,
+        projectID: String? = nil
+    ) {
         self.input = input
         self.route = route
         self.inputType = inputType
         self.taskType = taskType
+        self.projectInstructions = projectInstructions
+        self.projectID = projectID
     }
 
     enum CodingKeys: String, CodingKey {
@@ -18,6 +29,8 @@ struct ProcessRequest: Encodable {
         case route
         case inputType = "input_type"
         case taskType = "task_type"
+        case projectInstructions = "project_instructions"
+        case projectID = "project_id"
     }
 }
 

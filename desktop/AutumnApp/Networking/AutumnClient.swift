@@ -62,13 +62,18 @@ final class AutumnClient {
         _ input: String,
         route: String? = nil,
         inputType: String? = nil,
-        taskType: String? = nil
+        taskType: String? = nil,
+        projectInstructions: String? = nil,
+        projectID: String? = nil
     ) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("process"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
-            ProcessRequest(input: input, route: route, inputType: inputType, taskType: taskType)
+            ProcessRequest(
+                input: input, route: route, inputType: inputType, taskType: taskType,
+                projectInstructions: projectInstructions, projectID: projectID
+            )
         )
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response)
@@ -79,14 +84,19 @@ final class AutumnClient {
         _ input: String,
         route: String? = nil,
         inputType: String? = nil,
-        taskType: String? = nil
+        taskType: String? = nil,
+        projectInstructions: String? = nil,
+        projectID: String? = nil
     ) async throws -> WorkflowTrace {
         var request = URLRequest(url: baseURL.appendingPathComponent("trace"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
         request.httpBody = try JSONEncoder().encode(
-            ProcessRequest(input: input, route: route, inputType: inputType, taskType: taskType)
+            ProcessRequest(
+                input: input, route: route, inputType: inputType, taskType: taskType,
+                projectInstructions: projectInstructions, projectID: projectID
+            )
         )
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -98,14 +108,19 @@ final class AutumnClient {
         _ input: String,
         route: String? = nil,
         inputType: String? = nil,
-        taskType: String? = nil
+        taskType: String? = nil,
+        projectInstructions: String? = nil,
+        projectID: String? = nil
     ) async throws -> IntentPreview {
         var request = URLRequest(url: baseURL.appendingPathComponent("intent"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 45
         request.httpBody = try JSONEncoder().encode(
-            ProcessRequest(input: input, route: route, inputType: inputType, taskType: taskType)
+            ProcessRequest(
+                input: input, route: route, inputType: inputType, taskType: taskType,
+                projectInstructions: projectInstructions, projectID: projectID
+            )
         )
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -117,7 +132,9 @@ final class AutumnClient {
         _ input: String,
         route: String? = nil,
         inputType: String? = nil,
-        taskType: String? = nil
+        taskType: String? = nil,
+        projectInstructions: String? = nil,
+        projectID: String? = nil
     ) -> AsyncThrowingStream<String, Error> {
         let baseURL = self.baseURL
 
@@ -137,6 +154,15 @@ final class AutumnClient {
                     }
                     if let taskType {
                         queryItems.append(URLQueryItem(name: "task_type", value: taskType))
+                    }
+                    if let projectInstructions, !projectInstructions.isEmpty {
+                        queryItems.append(URLQueryItem(
+                            name: "project_instructions",
+                            value: projectInstructions
+                        ))
+                    }
+                    if let projectID, !projectID.isEmpty {
+                        queryItems.append(URLQueryItem(name: "project_id", value: projectID))
                     }
                     components.queryItems = queryItems
                     guard let url = components.url else {
