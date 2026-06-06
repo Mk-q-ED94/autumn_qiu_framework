@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
@@ -9,15 +9,25 @@ class ToolParameter:
     type: str
     description: str
     required: bool = True
+    # Free-form JSON Schema fields merged into this property's schema.
+    # Use this to pass through `enum`, `items`, `default`, nested `properties`,
+    # `minimum`, `maximum`, etc. — anything the model should see beyond the
+    # base ``type`` / ``description``.
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+def _property_schema(p: ToolParameter) -> dict:
+    schema: dict[str, Any] = {"type": p.type, "description": p.description}
+    if p.extra:
+        # `extra` wins on conflict so callers can override type/description if needed.
+        schema.update(p.extra)
+    return schema
 
 
 def _json_schema(parameters: list[ToolParameter]) -> dict:
     return {
         "type": "object",
-        "properties": {
-            p.name: {"type": p.type, "description": p.description}
-            for p in parameters
-        },
+        "properties": {p.name: _property_schema(p) for p in parameters},
         "required": [p.name for p in parameters if p.required],
     }
 

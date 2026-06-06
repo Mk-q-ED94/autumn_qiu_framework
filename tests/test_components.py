@@ -120,6 +120,73 @@ def test_schema_to_parameters_empty():
     assert _schema_to_parameters({"type": "object"}) == []
 
 
+# ── G1: ToolParameter.extra pass-through ───────────────────────────────────────
+
+
+def test_tool_parameter_extra_merged_into_property_schema():
+    tool = Tool(
+        name="pick",
+        description="pick a color",
+        fn=lambda color: color,
+        parameters=[ToolParameter(
+            name="color", type="string", description="color",
+            extra={"enum": ["red", "blue"]},
+        )],
+    )
+    schema = tool.to_openai_schema()
+    color = schema["function"]["parameters"]["properties"]["color"]
+    assert color["type"] == "string"
+    assert color["enum"] == ["red", "blue"]
+
+
+def test_tool_parameter_extra_items_array():
+    tool = Tool(
+        name="tag",
+        description="tag items",
+        fn=lambda tags: tags,
+        parameters=[ToolParameter(
+            name="tags", type="array", description="tags",
+            extra={"items": {"type": "string"}},
+        )],
+    )
+    schema = tool.to_anthropic_schema()
+    assert schema["input_schema"]["properties"]["tags"]["items"] == {"type": "string"}
+
+
+def test_schema_to_parameters_preserves_enum():
+    schema = {
+        "type": "object",
+        "properties": {"unit": {"type": "string", "enum": ["c", "f"], "description": "unit"}},
+        "required": ["unit"],
+    }
+    params = _schema_to_parameters(schema)
+    assert params[0].extra == {"enum": ["c", "f"]}
+    # And the schema round-trip preserves it
+    tool = Tool("t", "t", lambda **kw: None, params)
+    out = tool.to_openai_schema()
+    assert out["function"]["parameters"]["properties"]["unit"]["enum"] == ["c", "f"]
+
+
+def test_schema_to_parameters_preserves_items_default_nested():
+    schema = {
+        "type": "object",
+        "properties": {
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "tags"},
+            "limit": {"type": "integer", "default": 10, "description": "max"},
+            "filter": {
+                "type": "object",
+                "properties": {"key": {"type": "string"}},
+                "description": "filter",
+            },
+        },
+    }
+    params = _schema_to_parameters(schema)
+    by = {p.name: p for p in params}
+    assert by["tags"].extra == {"items": {"type": "string"}}
+    assert by["limit"].extra == {"default": 10}
+    assert by["filter"].extra == {"properties": {"key": {"type": "string"}}}
+
+
 # ── Selector ──────────────────────────────────────────────────────────────────
 
 
