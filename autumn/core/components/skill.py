@@ -5,12 +5,17 @@ from .tool import ToolParameter, build_openai_schema, build_anthropic_schema
 
 
 class Skill:
-    """A named, reusable capability. Higher-level than a Tool; may compose multiple tools.
+    """A named, reusable capability — a higher-level operation that may compose
+    multiple tools or steps internally.
 
-    Like a Tool, a Skill is exposed to the model as a callable function, so an
-    Agent can invoke it by name during its ReAct loop. Declare ``parameters``
-    to tell the model what arguments to pass; the handler receives them as a
-    single context dict (whereas a Tool's fn receives them as **kwargs).
+    Both Tool and Skill are exposed to the model as callable functions; the
+    distinction is organizational, not protocol-level. A Skill is the right
+    abstraction when the operation is a workflow ("draft_release_notes",
+    "review_pull_request") rather than a single primitive call ("read_file").
+
+    The handler receives the model's arguments as keyword arguments, matching
+    the convention used by :class:`Tool.fn`. Declare ``parameters`` to tell
+    the model what arguments to pass.
     """
 
     def __init__(
@@ -25,10 +30,10 @@ class Skill:
         self.handler = handler
         self.parameters = parameters or []
 
-    async def execute(self, context: dict[str, Any]) -> Any:
+    async def execute(self, **kwargs: Any) -> Any:
         if asyncio.iscoroutinefunction(self.handler):
-            return await self.handler(context)
-        return self.handler(context)
+            return await self.handler(**kwargs)
+        return self.handler(**kwargs)
 
     def to_openai_schema(self) -> dict:
         return build_openai_schema(self.name, self.description, self.parameters)

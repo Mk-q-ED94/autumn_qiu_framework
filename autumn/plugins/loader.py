@@ -1,4 +1,5 @@
 import importlib.util
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,14 @@ class PluginLoader:
         self._registry: dict[str, Any] = {}
 
     def register(self, name: str, plugin: Any) -> None:
+        existing = self._registry.get(name)
+        if existing is not None and type(existing) is not type(plugin):
+            warnings.warn(
+                f"Plugin name {name!r} reused across types: "
+                f"{type(existing).__name__} → {type(plugin).__name__}. "
+                "The new registration wins; the old one is no longer reachable.",
+                stacklevel=2,
+            )
         self._registry[name] = plugin
 
     def get(self, name: str) -> Any:

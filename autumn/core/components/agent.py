@@ -3,14 +3,18 @@ from .skill import Skill
 from ..api.base import ModelAPIInterface
 from ..types import Protocol, AgentStep
 
-_MAX_STEPS = 10
+_DEFAULT_MAX_STEPS = 10
 _MAX_HISTORY_CONTEXT = 5
 
 _REACT_SYSTEM = """\
 You are {name}, an autonomous agent in the Autumn framework.
-Tools and skills are exposed to you as callable functions. Reason step by step:
-- Call a function to gather information, take an action, or reuse a capability.
-When you have a final answer, respond in plain text without calling any function."""
+You have access to callable functions — some are atomic tools (single primitive \
+operations like reading a file or calling an API), others are higher-level \
+skills (workflows that may chain several steps internally). Prefer a skill \
+when one matches the user's request directly; reach for tools when you need \
+precise control.
+Reason step by step. When you have the final answer, respond in plain text \
+without calling any function."""
 
 
 def _format_memory_context(history: list[dict]) -> str:
@@ -49,11 +53,18 @@ class Agent:
         Backing model. Any protocol works — OpenAI, Anthropic, or Hermes — since
         tool wire-format details are encapsulated by the interface.
     tools, skills : list
-        Callable capabilities. Tools are exposed to the model as schemas; skills
-        are invoked by name when the model calls them.
+        Callable capabilities. Both are advertised to the model as function
+        schemas; ``tools`` are atomic operations, ``skills`` are higher-level
+        workflows. A name collision between a tool and a skill is an error —
+        the function-calling API would expose two schemas with the same name —
+        so ``__init__`` raises ``ValueError`` instead of letting one silently
+        shadow the other.
     instructions : str | None
         Extra system guidance appended after the ReAct base prompt. WP2 uses this
         to keep its task-executor persona while gaining tool access.
+    max_steps : int
+        Maximum ReAct iterations before giving up. Long agentic tasks (search
+        + synthesize, multi-file refactor) may need a higher ceiling.
     """
 
     def __init__(
@@ -63,12 +74,21 @@ class Agent:
         tools: list[Tool] | None = None,
         skills: list[Skill] | None = None,
         instructions: str | None = None,
+        max_steps: int = _DEFAULT_MAX_STEPS,
     ):
         self.name = name
         self.api = api
         self.tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self.skills: dict[str, Skill] = {s.name: s for s in (skills or [])}
+        clash = set(self.tools) & set(self.skills)
+        if clash:
+            raise ValueError(
+                f"Agent {name!r}: tool/skill name collision {sorted(clash)!r}. "
+                "Function-calling exposes both as schemas under the same name, "
+                "which would silently shadow one. Rename one before constructing."
+            )
         self.instructions = instructions
+        self.max_steps = max_steps
 
     async def _build_system(self, memory) -> str:
         system = _REACT_SYSTEM.format(name=self.name)
@@ -113,7 +133,7 @@ class Agent:
             for c in callables
         ]
 
-        for _ in range(_MAX_STEPS):
+        for _ in range(self.max_steps):
             text, tool_calls = await self.api.complete_with_tools_raw(
                 msgs, tool_schemas, system=api_system
             )
@@ -128,7 +148,7 @@ class Agent:
                     if tc.name in self.tools:
                         result = await self.tools[tc.name].call(**tc.arguments)
                     elif tc.name in self.skills:
-                        result = await self.skills[tc.name].execute(tc.arguments)
+                        result = await self.skills[tc.name].execute(**tc.arguments)
                     else:
                         result = f"[error: unknown tool '{tc.name}']"
                 except Exception as e:  # noqa: BLE001 — feed error back to model for ReAct recovery

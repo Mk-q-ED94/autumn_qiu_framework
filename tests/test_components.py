@@ -36,7 +36,7 @@ def test_skill_openai_schema():
     skill = Skill(
         name="summarize",
         description="Summarize text",
-        handler=lambda ctx: ctx,
+        handler=lambda text: text,
         parameters=[ToolParameter(name="text", type="string", description="text to summarize")],
     )
     schema = skill.to_openai_schema()
@@ -47,7 +47,7 @@ def test_skill_openai_schema():
 
 
 def test_skill_anthropic_schema():
-    skill = Skill("greet", "Greet someone", lambda ctx: ctx,
+    skill = Skill("greet", "Greet someone", lambda name: name,
                   [ToolParameter(name="name", type="string", description="who")])
     schema = skill.to_anthropic_schema()
     assert schema["name"] == "greet"
@@ -55,23 +55,49 @@ def test_skill_anthropic_schema():
 
 
 def test_skill_default_empty_parameters():
-    skill = Skill("ping", "no-arg trigger", lambda ctx: "pong")
+    skill = Skill("ping", "no-arg trigger", lambda: "pong")
     schema = skill.to_openai_schema()
     assert schema["function"]["parameters"]["properties"] == {}
     assert schema["function"]["parameters"]["required"] == []
 
 
-async def test_skill_execute_receives_context():
+async def test_skill_execute_passes_kwargs_to_handler():
     captured = {}
 
-    async def handler(ctx):
-        captured.update(ctx)
+    async def handler(**kwargs):
+        captured.update(kwargs)
         return "ok"
 
     skill = Skill("cap", "captures", handler)
-    result = await skill.execute({"a": 1, "b": 2})
+    result = await skill.execute(a=1, b=2)
     assert result == "ok"
     assert captured == {"a": 1, "b": 2}
+
+
+async def test_skill_execute_named_params():
+    """Handler with named params matching the declared schema receives them
+    as keyword arguments, just like Tool.fn does."""
+    async def summarize(text: str, max_words: int = 50) -> str:
+        return f"{text[:max_words]}…"
+
+    skill = Skill("summarize", "summarize text", summarize, [
+        ToolParameter(name="text", type="string", description="text"),
+        ToolParameter(name="max_words", type="integer", description="cap", required=False),
+    ])
+    out = await skill.execute(text="hello world", max_words=5)
+    assert out == "hello…"
+
+
+async def test_skill_execute_sync_handler():
+    """Sync handlers also receive **kwargs."""
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    skill = Skill("add", "adds", add, [
+        ToolParameter(name="a", type="integer", description="a"),
+        ToolParameter(name="b", type="integer", description="b"),
+    ])
+    assert await skill.execute(a=3, b=4) == 7
 
 
 async def test_tool_call_async():
@@ -245,6 +271,38 @@ async def test_selector_classify_and_maybe_confirm_returns_selector_result():
     assert isinstance(result, SelectorResult)
     assert result.input_type == InputType.TASK
     assert result.task_type == TaskType.SEARCH
+
+
+# ── G3: PluginLoader collision warnings ────────────────────────────────────────
+
+
+def test_plugin_loader_warns_when_name_reused_across_types():
+    """Reusing a name across Tool and Skill silently overwrites — should warn."""
+    from autumn.plugins.loader import PluginLoader
+
+    loader = PluginLoader()
+    tool = Tool("foo", "atomic", lambda: "x", [])
+    skill = Skill("foo", "workflow", lambda **kw: "y")
+    loader.register("foo", tool)
+    with pytest.warns(UserWarning, match="reused across types"):
+        loader.register("foo", skill)
+    assert loader.get("foo") is skill
+
+
+def test_plugin_loader_silent_when_same_type_reused():
+    """Re-registering the same TYPE under the same name is intentional override —
+    no warning (e.g. user iterating on a tool)."""
+    from autumn.plugins.loader import PluginLoader
+
+    loader = PluginLoader()
+    t1 = Tool("foo", "v1", lambda: "x", [])
+    t2 = Tool("foo", "v2", lambda: "y", [])
+    loader.register("foo", t1)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning becomes an error
+        loader.register("foo", t2)
+    assert loader.get("foo") is t2
 
 
 async def test_selector_all_task_types():
