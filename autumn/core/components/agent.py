@@ -1,5 +1,6 @@
 from .tool import Tool
 from .skill import Skill
+from .terr import Terr
 from ..api.base import ModelAPIInterface
 from ..types import Protocol, AgentStep
 
@@ -73,13 +74,26 @@ class Agent:
         api: ModelAPIInterface,
         tools: list[Tool] | None = None,
         skills: list[Skill] | None = None,
+        terrs: "list[Terr] | None" = None,
         instructions: str | None = None,
         max_steps: int = _DEFAULT_MAX_STEPS,
     ):
         self.name = name
         self.api = api
-        self.tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
-        self.skills: dict[str, Skill] = {s.name: s for s in (skills or [])}
+
+        # Expand terrs into flat lists; explicit tools/skills take precedence
+        # (they're registered last, so the dict overwrites any same-name terr entry).
+        all_tools: list[Tool] = []
+        all_skills: list[Skill] = []
+        for terr in (terrs or []):
+            all_tools.extend(terr.tools)
+            all_skills.extend(terr.skills)
+        all_tools.extend(tools or [])
+        all_skills.extend(skills or [])
+
+        self.tools: dict[str, Tool] = {t.name: t for t in all_tools}
+        self.skills: dict[str, Skill] = {s.name: s for s in all_skills}
+
         clash = set(self.tools) & set(self.skills)
         if clash:
             raise ValueError(
@@ -87,11 +101,21 @@ class Agent:
                 "Function-calling exposes both as schemas under the same name, "
                 "which would silently shadow one. Rename one before constructing."
             )
+
+        # Domain descriptions are surfaced in the system prompt so the model
+        # can reason about which area of expertise to call on.
+        self._terr_descriptions: dict[str, str] = {
+            t.name: t.description for t in (terrs or []) if t.description
+        }
+
         self.instructions = instructions
         self.max_steps = max_steps
 
     async def _build_system(self, memory) -> str:
         system = _REACT_SYSTEM.format(name=self.name)
+        if self._terr_descriptions:
+            lines = "\n".join(f"- {n}: {d}" for n, d in self._terr_descriptions.items())
+            system = f"{system}\n\nLoaded capability domains:\n{lines}"
         if self.instructions:
             system = f"{system}\n\n{self.instructions}"
         if memory is not None and hasattr(memory, "get_history"):

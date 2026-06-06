@@ -26,6 +26,7 @@ _EXPORTS = {
     "Skill": ("autumn.core.components", "Skill"),
     "Tool": ("autumn.core.components", "Tool"),
     "ToolParameter": ("autumn.core.components", "ToolParameter"),
+    "Terr": ("autumn.core.components", "Terr"),
     "MCPClient": ("autumn.core.components", "MCPClient"),
     "StdioMCPClient": ("autumn.core.components", "StdioMCPClient"),
     "mcp_to_tools": ("autumn.core.components", "mcp_to_tools"),
