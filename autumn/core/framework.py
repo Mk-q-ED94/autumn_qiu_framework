@@ -4,7 +4,7 @@ from typing import AsyncIterator, Literal
 
 from .config import AutumnConfig
 from .interaction import UserInteraction
-from .api.interfaces import A1, A2, A3
+from .api.interfaces import A1, A2, A3, A4
 from .api.embedding import EmbeddingInterface
 from .memory.backends import SQLiteBackend, HybridBackend, SQLiteVectorStore
 from .memory.shared import SharedZone
@@ -67,6 +67,7 @@ class Autumn:
         self.a1 = A1(config.a1)
         self.a2 = A2(config.a2)
         self.a3 = A3(config.a3)
+        self.a4 = A4(config.a4) if config.a4 is not None else None
 
         db = config.storage.db_path
         shared = SharedZone(HybridBackend(SQLiteBackend(db + ".shared")))
@@ -226,6 +227,33 @@ class Autumn:
                 skills.append(obj)
         return tools, skills
 
+    def add_memory_skills(self, area: str = "shared") -> None:
+        """Register recall and remember Skills backed by a memory area.
+
+        The Skills appear in the agent's ReAct trace so every memory read
+        and write is visible in the workflow timeline.
+
+        Parameters
+        ----------
+        area:
+            Which memory zone to bind to.  One of ``"shared"``, ``"mom1"``,
+            ``"mom2"``, or ``"mom3"``.  Defaults to ``"shared"`` so facts
+            persist across workspaces.
+        """
+        from .memory.skills import make_memory_skills
+        _areas = {
+            "shared": self.mom1.shared,
+            "mom1": self.mom1,
+            "mom2": self.mom2,
+            "mom3": self.mom3,
+        }
+        if area not in _areas:
+            raise ValueError(
+                f"Unknown memory area: {area!r}.  Choose from: {list(_areas)}"
+            )
+        for skill in make_memory_skills(_areas[area], api=self.a4):
+            self.register_skill(skill)
+
     def register_tool(self, tool: Tool) -> None:
         self.plugins.register(tool.name, tool)
 
@@ -338,6 +366,8 @@ class Autumn:
         await self.a1.close()
         await self.a2.close()
         await self.a3.close()
+        if self.a4 is not None:
+            await self.a4.close()
         if self._embedding is not None:
             await self._embedding.close()
 

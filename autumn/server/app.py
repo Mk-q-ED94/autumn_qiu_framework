@@ -99,6 +99,7 @@ class ApplyConfigRequest(BaseModel):
     a1: ProviderConfigRequest
     a2: ProviderConfigRequest
     a3: ProviderConfigRequest
+    a4: ProviderConfigRequest | None = None
 
 
 class ApplyConfigResponse(BaseModel):
@@ -250,10 +251,14 @@ def create_app() -> FastAPI:
 
     @app.post("/config/apply", response_model=ApplyConfigResponse)
     async def apply_config(req: ApplyConfigRequest, request: Request):
+        a4_config: ModelConfig | None = None
+        if req.a4 and req.a4.api_key.strip():
+            a4_config = _require_model_config("A4", req.a4)
         config = AutumnConfig(
             a1=_require_model_config("A1", req.a1),
             a2=_require_model_config("A2", req.a2),
             a3=_require_model_config("A3", req.a3),
+            a4=a4_config,
         )
 
         old: Autumn | None = request.app.state.autumn

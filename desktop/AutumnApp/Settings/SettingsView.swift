@@ -85,6 +85,40 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                Toggle("启用记忆模型 A4", isOn: $settings.a4Enabled)
+
+                if settings.a4Enabled {
+                    SecureField("API Key（本地模型可留空）", text: $settings.a4APIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+
+                    TextField("Base URL", text: $settings.a4BaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+
+                    Picker("协议", selection: $settings.a4Protocol) {
+                        Text("OpenAI").tag("openai")
+                        Text("Anthropic").tag("anthropic")
+                        Text("Hermes").tag("hermes")
+                    }
+                    .pickerStyle(.segmented)
+
+                    TextField("模型名称", text: $settings.a4Model)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                }
+            } header: {
+                Text("记忆模型 A4（可选）")
+            } footer: {
+                Text("A4 用于 recall 技能中向量搜索结果的合成，建议配置本地 Ollama 模型以降低成本。未启用时 recall 直接返回原始片段。")
+                    .font(.caption)
+            }
+
             Section("Mission 默认路由") {
                 Picker("路由模式", selection: $settings.routeMode) {
                     Text("自动 (A3 决定)").tag("auto")

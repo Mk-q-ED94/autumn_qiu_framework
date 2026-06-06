@@ -59,6 +59,26 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(a3Model, forKey: Self.a3ModelKey) }
     }
 
+    @Published var a4Enabled: Bool {
+        didSet { UserDefaults.standard.set(a4Enabled, forKey: Self.a4EnabledKey) }
+    }
+
+    @Published var a4APIKey: String {
+        didSet { UserDefaults.standard.set(a4APIKey, forKey: Self.a4APIKeyKey) }
+    }
+
+    @Published var a4BaseURL: String {
+        didSet { UserDefaults.standard.set(a4BaseURL, forKey: Self.a4BaseURLKey) }
+    }
+
+    @Published var a4Protocol: String {
+        didSet { UserDefaults.standard.set(a4Protocol, forKey: Self.a4ProtocolKey) }
+    }
+
+    @Published var a4Model: String {
+        didSet { UserDefaults.standard.set(a4Model, forKey: Self.a4ModelKey) }
+    }
+
     @Published private(set) var a1ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a2ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a3ModelState: ModelConnectionState = .unconfigured
@@ -78,9 +98,15 @@ final class AppSettings: ObservableObject {
     private static let a3BaseURLKey = "AutumnDesktop.a3BaseURL"
     private static let a3ProtocolKey = "AutumnDesktop.a3Protocol"
     private static let a3ModelKey = "AutumnDesktop.a3Model"
+    private static let a4EnabledKey = "AutumnDesktop.a4Enabled"
+    private static let a4APIKeyKey = "AutumnDesktop.a4APIKey"
+    private static let a4BaseURLKey = "AutumnDesktop.a4BaseURL"
+    private static let a4ProtocolKey = "AutumnDesktop.a4Protocol"
+    private static let a4ModelKey = "AutumnDesktop.a4Model"
     private static let defaultServerURL = "http://127.0.0.1:8765"
     private static let openAIBaseURL = "https://api.openai.com"
     private static let anthropicBaseURL = "https://api.anthropic.com"
+    private static let ollamaBaseURL = "http://localhost:11434"
 
     init() {
         self.serverURL =
@@ -98,6 +124,11 @@ final class AppSettings: ObservableObject {
         self.a3BaseURL = UserDefaults.standard.string(forKey: Self.a3BaseURLKey) ?? Self.openAIBaseURL
         self.a3Protocol = UserDefaults.standard.string(forKey: Self.a3ProtocolKey) ?? "openai"
         self.a3Model = UserDefaults.standard.string(forKey: Self.a3ModelKey) ?? "gpt-4o"
+        self.a4Enabled = UserDefaults.standard.bool(forKey: Self.a4EnabledKey)
+        self.a4APIKey = UserDefaults.standard.string(forKey: Self.a4APIKeyKey) ?? ""
+        self.a4BaseURL = UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
+        self.a4Protocol = UserDefaults.standard.string(forKey: Self.a4ProtocolKey) ?? "openai"
+        self.a4Model = UserDefaults.standard.string(forKey: Self.a4ModelKey) ?? ""
         refreshInitialModelStates()
     }
 
@@ -128,10 +159,14 @@ final class AppSettings: ObservableObject {
     }
 
     func applyConfigRequest() -> ApplyConfigRequest {
-        ApplyConfigRequest(
+        let a4Config: ProviderConfigRequest? = (a4Enabled && !a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            ? ProviderConfigRequest(apiKey: a4APIKey, baseURL: a4BaseURL, model: a4Model.isEmpty ? nil : a4Model, apiProtocol: a4Protocol)
+            : nil
+        return ApplyConfigRequest(
             a1: providerConfig(for: .a1),
             a2: providerConfig(for: .a2),
-            a3: providerConfig(for: .a3)
+            a3: providerConfig(for: .a3),
+            a4: a4Config
         )
     }
 

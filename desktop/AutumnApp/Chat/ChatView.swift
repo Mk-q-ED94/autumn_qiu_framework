@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @StateObject private var vm: ChatViewModel
+    @EnvironmentObject private var settings: AppSettings
     @FocusState private var composerFocused: Bool
     @State private var intentPopoverVisible: Bool = false
 
@@ -134,6 +135,13 @@ struct ChatView: View {
                 .padding(.top, 7)
                 .padding(.trailing, 8)
                 .disabled(vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if !vm.input.isEmpty {
+                    tokenCounterLabel
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(.bottom, 7)
+                        .padding(.leading, 10)
+                }
             }
 
             runButton
@@ -146,6 +154,16 @@ struct ChatView: View {
                 .frame(height: Autumn.stroke.hairline),
             alignment: .top
         )
+    }
+
+    private var tokenCounterLabel: some View {
+        let tokens = ContextLimit.estimateTokens(vm.input)
+        let limit = ContextLimit.limit(for: settings.a2Model)
+        let ratio = Double(tokens) / Double(limit)
+        let color: Color = ratio > 0.8 ? Autumn.colors.danger : (ratio > 0.6 ? .orange : .tertiary)
+        return Text("\(ContextLimit.format(tokens)) / \(ContextLimit.format(limit))")
+            .font(.system(size: 10, weight: .regular, design: .monospaced))
+            .foregroundStyle(color)
     }
 
     private var runButton: some View {

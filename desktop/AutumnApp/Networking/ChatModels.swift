@@ -249,6 +249,7 @@ struct ApplyConfigRequest: Encodable {
     let a1: ProviderConfigRequest
     let a2: ProviderConfigRequest
     let a3: ProviderConfigRequest
+    let a4: ProviderConfigRequest?
 }
 
 struct ApplyConfigResponse: Decodable {
