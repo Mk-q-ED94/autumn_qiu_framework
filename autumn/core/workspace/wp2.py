@@ -41,6 +41,7 @@ def _step_to_stage(index: int, step: AgentStep) -> WorkflowStage:
         workspace="WP2",
         status="completed",
         kind="tool",
+        duration_ms=step.duration_ms,
     )
 
 

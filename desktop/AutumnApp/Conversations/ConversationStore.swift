@@ -6,6 +6,7 @@ import SwiftUI
 final class ConversationStore: ObservableObject {
     @Published private(set) var conversations: [Conversation] = []
     @Published var selectedID: UUID?
+    @Published private(set) var isLoading: Bool = true
 
     private static let storageKey = "AutumnDesktop.conversations.v1"
     private static let selectionKey = "AutumnDesktop.conversations.selected"
@@ -23,6 +24,12 @@ final class ConversationStore: ObservableObject {
             selectedID = uuid
         } else {
             selectedID = conversations.first?.id
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            await MainActor.run {
+                self?.isLoading = false
+            }
         }
     }
 

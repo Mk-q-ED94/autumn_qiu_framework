@@ -1,3 +1,4 @@
+import time
 import warnings
 
 from .tool import Tool
@@ -197,6 +198,7 @@ class Agent:
             # Execute every requested tool
             results: list[str] = []
             for tc in tool_calls:
+                started = time.perf_counter()
                 try:
                     if tc.name in self.tools:
                         result = await self.tools[tc.name].call(**tc.arguments)
@@ -206,12 +208,14 @@ class Agent:
                         result = f"[error: unknown tool '{tc.name}']"
                 except Exception as e:  # noqa: BLE001 — feed error back to model for ReAct recovery
                     result = f"[tool error: {e}]"
+                duration_ms = round((time.perf_counter() - started) * 1000, 1)
                 results.append(str(result))
                 if steps is not None:
                     steps.append(AgentStep(
                         name=tc.name,
                         arguments=dict(tc.arguments),
                         result=str(result),
+                        duration_ms=duration_ms,
                     ))
 
             msgs.append(self.api.build_assistant_tool_message(text, tool_calls))

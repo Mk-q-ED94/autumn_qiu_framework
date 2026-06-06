@@ -21,7 +21,7 @@ from .components.tool import Tool
 from .components.terr import Terr
 from .components.mcp import MCPClient
 from .components.mcp_bridge import mcp_to_tools
-from .types import MissionRoute, WorkflowRun
+from .types import InputType, MissionRoute, TaskType, WorkflowRun
 from ..plugins.loader import PluginLoader
 
 
@@ -110,22 +110,53 @@ class Autumn:
         self,
         user_input: str,
         mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
     ) -> str:
         """Run the full pipeline and return the validated final output."""
-        return await self.wp1.process(user_input, mission_route=mission_route)
+        return await self.wp1.process(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        )
 
     async def process_with_trace(
         self,
         user_input: str,
         mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
-        return await self.wp1.process_with_trace(user_input, mission_route=mission_route)
+        return await self.wp1.process_with_trace(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        )
+
+    async def classify_intent(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
+    ):
+        """Classify user input for desktop previews without executing the pipeline."""
+        return await self.wp1.classify_intent(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        )
 
     async def stream(
         self,
         user_input: str,
         mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
     ) -> AsyncIterator[str]:
         """Real-time streaming with post-hoc Checker advisory.
 
@@ -136,8 +167,46 @@ class Autumn:
         convert path remains buffered because conversion is a non-streamed
         model call.
         """
-        async for chunk in self.wp1.stream(user_input, mission_route=mission_route):
+        async for chunk in self.wp1.stream(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        ):
             yield chunk
+
+    def describe_terrs(self) -> list[dict]:
+        """Return serializable Terr summaries for desktop/debug UI."""
+        summaries: list[dict] = []
+        for terr in self.plugins.all_terrs().values():
+            summaries.append({
+                "name": terr.name,
+                "description": terr.description,
+                "tools": [
+                    {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": [p.__dict__ for p in tool.parameters],
+                    }
+                    for tool in terr.tools
+                ],
+                "skills": [
+                    {
+                        "name": skill.name,
+                        "description": skill.description,
+                        "parameters": [p.__dict__ for p in skill.parameters],
+                    }
+                    for skill in terr.skills
+                ],
+                "mcps": [
+                    {
+                        "name": getattr(client, "name", type(client).__name__),
+                        "description": type(client).__name__,
+                    }
+                    for client in terr.mcps
+                ],
+            })
+        return summaries
 
     # ── plugin & extension api ────────────────────────────────────────────────
 

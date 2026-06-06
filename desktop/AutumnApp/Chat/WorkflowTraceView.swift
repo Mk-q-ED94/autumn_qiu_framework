@@ -2,7 +2,12 @@ import SwiftUI
 
 struct WorkflowTraceView: View {
     let trace: WorkflowTrace
-    @State private var isExpanded: Bool = true
+    @State private var isExpanded: Bool
+
+    init(trace: WorkflowTrace) {
+        self.trace = trace
+        _isExpanded = State(initialValue: trace.isLive)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
@@ -34,13 +39,17 @@ struct WorkflowTraceView: View {
 
     private var header: some View {
         HStack(spacing: Autumn.spacing.sm) {
-            AutumnBadge(inputTitle, icon: inputIcon, tone: .accent)
+            AutumnBadge(inputTitle, icon: inputIcon, tone: trace.isLive ? .info : .accent)
             if let taskTitle = taskTypeTitle {
                 AutumnBadge(taskTitle, tone: .accent)
             }
             if let routeTitle {
                 AutumnBadge(routeTitle, tone: .neutral)
             }
+            Text(summary)
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer()
             Button {
                 withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
@@ -54,32 +63,33 @@ struct WorkflowTraceView: View {
     }
 
     private var inputTitle: String {
-        trace.inputType == "mission" ? "Mission" : "Task"
+        trace.inputKind == .mission ? "Mission" : "Task"
     }
 
     private var inputIcon: String {
-        trace.inputType == "mission" ? "arrow.triangle.branch" : "checklist"
+        trace.inputKind.icon
     }
 
     private var taskTypeTitle: String? {
-        guard trace.inputType == "task", let tt = trace.taskType, tt != "general" else { return nil }
-        switch tt {
-        case "code":   return "代码"
-        case "search": return "检索"
-        case "write":  return "写作"
-        case "data":   return "数据"
-        default:       return tt
-        }
+        guard trace.inputKind == .task, let taskKind = trace.taskKind, taskKind != .general else { return nil }
+        return taskKind.title
     }
 
     private var routeTitle: String? {
-        switch trace.route {
-        case "direct": return "直接回答"
-        case "convert": return "转为任务"
-        case "auto": return "自动路由"
-        case nil: return trace.inputType == "task" ? nil : "自动路由"
-        default: return trace.route
+        if let route = trace.routeMode { return route.title }
+        return trace.inputKind == .task ? nil : MissionRouteMode.auto.title
+    }
+
+    private var summary: String {
+        let toolCount = trace.stages.filter { $0.kind == "tool" }.count
+        var parts = ["\(trace.stages.count) 阶段"]
+        if toolCount > 0 {
+            parts.append("\(toolCount) 工具")
         }
+        if let total = trace.totalDurationMS {
+            parts.append(formatDuration(total))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -88,6 +98,7 @@ private struct WorkflowStageRow: View {
     let isLast: Bool
 
     private var isTool: Bool { stage.kind == "tool" }
+    @State private var pulse = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Autumn.spacing.sm) {
@@ -112,8 +123,19 @@ private struct WorkflowStageRow: View {
                         : Autumn.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let duration = stage.durationMS {
+                    Text(formatDuration(duration))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
+        }
+        .onAppear {
+            if stage.status == "active" {
+                withAnimation(Autumn.motion.pulse) { pulse = true }
+            }
         }
     }
 
@@ -129,15 +151,15 @@ private struct WorkflowStageRow: View {
                         .foregroundStyle(Autumn.colors.accent)
                 } else {
                     Circle()
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1.2)
+                        .stroke(indicatorColor.opacity(0.35), lineWidth: 1.2)
                         .frame(width: 14, height: 14)
-                    if isCompleted {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 14, height: 14)
-                            .background(Circle().fill(Autumn.colors.success))
-                    }
+                    Image(systemName: indicatorIcon)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(isPending ? indicatorColor : .white)
+                        .frame(width: 14, height: 14)
+                        .background(Circle().fill(isPending ? Color.clear : indicatorColor))
+                        .scaleEffect(stage.status == "active" && pulse ? 1.18 : 1.0)
+                        .opacity(stage.status == "active" && pulse ? 0.68 : 1.0)
                 }
             }
             if !isLast {
@@ -151,4 +173,33 @@ private struct WorkflowStageRow: View {
     private var isCompleted: Bool {
         stage.status == "completed"
     }
+
+    private var isPending: Bool {
+        stage.status == "pending"
+    }
+
+    private var indicatorIcon: String {
+        switch stage.status {
+        case "completed": return "checkmark"
+        case "active": return "bolt.fill"
+        case "failed": return "xmark"
+        default: return "circle"
+        }
+    }
+
+    private var indicatorColor: Color {
+        switch stage.status {
+        case "completed": return Autumn.colors.success
+        case "active": return Autumn.colors.info
+        case "failed": return Autumn.colors.danger
+        default: return Autumn.colors.muted
+        }
+    }
+}
+
+private func formatDuration(_ ms: Double) -> String {
+    if ms >= 1000 {
+        return String(format: "%.1fs", ms / 1000)
+    }
+    return "\(Int(ms.rounded()))ms"
 }

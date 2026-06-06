@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 os.environ["AUTUMN_SKIP_INIT"] = "1"
 
 from autumn.server.app import create_app  # noqa: E402
-from autumn.core.types import InputType, MissionRoute, TaskType, WorkflowRun, WorkflowStage  # noqa: E402
+from autumn.core.types import InputType, MissionRoute, SelectorResult, TaskType, WorkflowRun, WorkflowStage  # noqa: E402
 
 server_app = importlib.import_module("autumn.server.app")
 
@@ -37,24 +37,25 @@ class _MockAutumn:
         self.process_calls = []
         self.stream_calls = []
 
-    async def process(self, text: str, mission_route=None) -> str:
-        self.process_calls.append((text, mission_route))
+    async def process(self, text: str, mission_route=None, input_type=None, task_type=None) -> str:
+        self.process_calls.append((text, mission_route, input_type, task_type))
         return f"processed: {text}"
 
-    async def process_with_trace(self, text: str, mission_route=None):
-        self.process_calls.append((text, mission_route))
+    async def process_with_trace(self, text: str, mission_route=None, input_type=None, task_type=None):
+        self.process_calls.append((text, mission_route, input_type, task_type))
         route = MissionRoute.CONVERT if mission_route == "convert" else MissionRoute.DIRECT
         return WorkflowRun(
             output=f"processed: {text}",
-            input_type=InputType.MISSION,
-            route=route,
-            task_type=None,
+            input_type=input_type or InputType.MISSION,
+            route=None if input_type == InputType.TASK else route,
+            task_type=task_type,
             stages=[
                 WorkflowStage(
                     id="wp3.route",
                     title="A3 路由",
                     detail=f"Mission 路由为 {route.value}",
                     workspace="WP3",
+                    duration_ms=12.5,
                 ),
                 WorkflowStage(
                     id="wp2.tool.0.search",
@@ -67,10 +68,38 @@ class _MockAutumn:
             ],
         )
 
-    async def stream(self, text: str, mission_route=None):
+    async def stream(self, text: str, mission_route=None, input_type=None, task_type=None):
         self.stream_calls.append((text, mission_route))
         for chunk in ["hello ", "world", " ", text]:
             yield chunk
+
+    async def classify_intent(self, text: str, mission_route=None, input_type=None, task_type=None):
+        sel = SelectorResult(
+            input_type or InputType.TASK,
+            0.66,
+            task_type or TaskType.SEARCH,
+        )
+        route = MissionRoute.DIRECT if mission_route == "direct" else None
+        return sel, route
+
+    def describe_terrs(self):
+        return [{
+            "name": "search",
+            "description": "Search tools",
+            "tools": [{
+                "name": "web_search",
+                "description": "search web",
+                "parameters": [{
+                    "name": "query",
+                    "type": "string",
+                    "description": "query",
+                    "required": True,
+                    "extra": {},
+                }],
+            }],
+            "skills": [],
+            "mcps": [{"name": "stdio", "description": "MCP"}],
+        }]
 
     async def end_session(self):
         self.ended = True
@@ -295,7 +324,21 @@ def test_process_returns_output(configured_client):
 def test_process_passes_route_override(configured_client):
     r = configured_client.post("/process", json={"input": "hi", "route": "convert"})
     assert r.status_code == 200
-    assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert")
+    assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert", None, None)
+
+
+def test_process_passes_task_type_override(configured_client):
+    r = configured_client.post(
+        "/process",
+        json={"input": "hi", "input_type": "task", "task_type": "code"},
+    )
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.process_calls[-1] == (
+        "hi",
+        None,
+        InputType.TASK,
+        TaskType.CODE,
+    )
 
 
 def test_process_rejects_invalid_route(configured_client):
@@ -326,15 +369,28 @@ def test_trace_returns_workflow_run(configured_client):
     assert payload["route"] == "convert"
     assert payload["task_type"] is None
     assert payload["stages"][0]["id"] == "wp3.route"
-    assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert")
+    assert payload["stages"][0]["duration_ms"] == 12.5
+    assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert", None, None)
+
+
+def test_trace_accepts_task_type_override(configured_client):
+    r = configured_client.post(
+        "/trace",
+        json={"input": "fix bug", "input_type": "task", "task_type": "code"},
+    )
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["input_type"] == "task"
+    assert payload["task_type"] == "code"
+    assert payload["route"] is None
 
 
 def test_trace_includes_task_type(configured_client, monkeypatch):
     """task_type is forwarded from WorkflowRun to the trace response."""
     original = configured_client.app.state.autumn.process_with_trace
 
-    async def patched(text, mission_route=None):
-        run = await original(text, mission_route)
+    async def patched(text, mission_route=None, input_type=None, task_type=None):
+        run = await original(text, mission_route, input_type, task_type)
         run.task_type = TaskType.CODE
         return run
 
@@ -357,6 +413,30 @@ def test_trace_includes_tool_stage_kind(configured_client):
 def test_trace_503_when_unconfigured(unconfigured_client):
     r = unconfigured_client.post("/trace", json={"input": "hi"})
     assert r.status_code == 503
+
+
+# ── /intent ───────────────────────────────────────────────────────────────────
+
+
+def test_intent_returns_selector_preview(configured_client):
+    r = configured_client.post("/intent", json={"input": "find docs"})
+    assert r.status_code == 200
+    assert r.json() == {
+        "input_type": "task",
+        "task_type": "search",
+        "route": None,
+        "confidence": 0.66,
+    }
+
+
+def test_intent_accepts_manual_override(configured_client):
+    r = configured_client.post(
+        "/intent",
+        json={"input": "hello", "input_type": "mission", "route": "direct"},
+    )
+    assert r.status_code == 200
+    assert r.json()["input_type"] == "mission"
+    assert r.json()["route"] == "direct"
 
 
 # ── /stream ───────────────────────────────────────────────────────────────────
@@ -414,3 +494,15 @@ def test_session_end(configured_client):
     r = configured_client.post("/session/end")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+# ── /terrs ────────────────────────────────────────────────────────────────────
+
+
+def test_terrs_returns_registered_domains(configured_client):
+    r = configured_client.get("/terrs")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload[0]["name"] == "search"
+    assert payload[0]["tools"][0]["name"] == "web_search"
+    assert payload[0]["tools"][0]["parameters"][0]["name"] == "query"

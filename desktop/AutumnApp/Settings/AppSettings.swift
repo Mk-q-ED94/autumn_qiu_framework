@@ -59,6 +59,11 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(a3Model, forKey: Self.a3ModelKey) }
     }
 
+    @Published private(set) var a1ModelState: ModelConnectionState = .unconfigured
+    @Published private(set) var a2ModelState: ModelConnectionState = .unconfigured
+    @Published private(set) var a3ModelState: ModelConnectionState = .unconfigured
+    @Published var activeRouteOverride: String? = nil
+
     private static let serverURLKey = "AutumnDesktop.serverURL"
     private static let routeModeKey = "AutumnDesktop.routeMode"
     private static let a1APIKeyKey = "AutumnDesktop.a1APIKey"
@@ -93,6 +98,7 @@ final class AppSettings: ObservableObject {
         self.a3BaseURL = UserDefaults.standard.string(forKey: Self.a3BaseURLKey) ?? Self.openAIBaseURL
         self.a3Protocol = UserDefaults.standard.string(forKey: Self.a3ProtocolKey) ?? "openai"
         self.a3Model = UserDefaults.standard.string(forKey: Self.a3ModelKey) ?? "gpt-4o"
+        refreshInitialModelStates()
     }
 
     func providerConfig(for slot: ModelSlot) -> ProviderConfigRequest {
@@ -146,6 +152,57 @@ final class AppSettings: ObservableObject {
             return !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !cfg.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !(cfg.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    func modelState(for slot: ModelSlot) -> ModelConnectionState {
+        switch slot {
+        case .a1: return a1ModelState
+        case .a2: return a2ModelState
+        case .a3: return a3ModelState
+        }
+    }
+
+    func setModelState(_ state: ModelConnectionState, for slot: ModelSlot) {
+        switch slot {
+        case .a1: a1ModelState = state
+        case .a2: a2ModelState = state
+        case .a3: a3ModelState = state
+        }
+    }
+
+    private func refreshInitialModelStates() {
+        for slot in ModelSlot.allCases {
+            let cfg = providerConfig(for: slot)
+            let configured = !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !cfg.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !(cfg.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            setModelState(configured ? .ready : .unconfigured, for: slot)
+        }
+    }
+}
+
+enum ModelConnectionState: String, Equatable {
+    case unconfigured
+    case connecting
+    case ready
+    case failed
+
+    var title: String {
+        switch self {
+        case .unconfigured: return "未配置"
+        case .connecting: return "连接中"
+        case .ready: return "就绪"
+        case .failed: return "失败"
+        }
+    }
+
+    var tone: AutumnBadge.Tone {
+        switch self {
+        case .unconfigured: return .neutral
+        case .connecting: return .warning
+        case .ready: return .success
+        case .failed: return .danger
         }
     }
 }

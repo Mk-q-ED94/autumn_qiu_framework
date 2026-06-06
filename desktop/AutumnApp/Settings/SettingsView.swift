@@ -55,7 +55,7 @@ struct SettingsView: View {
                         apiProtocol: protocolBinding(for: slot),
                         model: modelBinding(for: slot),
                         models: pickerModels(for: slot),
-                        isLoading: loadingSlots.contains(slot),
+                        state: settings.modelState(for: slot),
                         errorMessage: modelErrors[slot],
                         refresh: { scheduleModelRefresh(slot, delay: 0) }
                     )
@@ -251,14 +251,17 @@ struct SettingsView: View {
         guard !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             modelOptions[slot] = []
             modelErrors[slot] = nil
+            settings.setModelState(.unconfigured, for: slot)
             return
         }
         guard !config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             modelErrors[slot] = "Base URL 为空"
+            settings.setModelState(.unconfigured, for: slot)
             return
         }
 
         loadingSlots.insert(slot)
+        settings.setModelState(.connecting, for: slot)
         modelErrors[slot] = nil
         defer { loadingSlots.remove(slot) }
 
@@ -273,8 +276,10 @@ struct SettingsView: View {
             if currentModel(for: slot).isEmpty, let first = models.first {
                 setModel(first, for: slot)
             }
+            settings.setModelState(.ready, for: slot)
         } catch {
             modelErrors[slot] = error.localizedDescription
+            settings.setModelState(.failed, for: slot)
         }
     }
 
@@ -298,6 +303,9 @@ struct SettingsView: View {
             let response = try await client.applyConfiguration(settings.applyConfigRequest())
             connectionState = .ok(configured: response.configured)
             applyMessage = "已应用"
+            for slot in ModelSlot.allCases {
+                settings.setModelState(.ready, for: slot)
+            }
         } catch {
             applyMessage = error.localizedDescription
             connectionState = .failed(error.localizedDescription)
@@ -328,7 +336,7 @@ private struct ModelConfigRow: View {
     @Binding var apiProtocol: String
     @Binding var model: String
     let models: [String]
-    let isLoading: Bool
+    let state: ModelConnectionState
     let errorMessage: String?
     let refresh: () -> Void
 
@@ -343,7 +351,8 @@ private struct ModelConfigRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if isLoading {
+                AutumnBadge(state.title, tone: state.tone)
+                if state == .connecting {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -383,7 +392,7 @@ private struct ModelConfigRow: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.borderless)
-                .disabled(isLoading || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(state == .connecting || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .help("刷新模型")
             }
 

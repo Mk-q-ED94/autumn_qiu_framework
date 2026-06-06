@@ -28,7 +28,7 @@ struct WorkspaceView: View {
                     }
                 } label: {
                     Image(systemName: inspectorVisible ? "sidebar.right" : "sidebar.right")
-                        .foregroundStyle(inspectorVisible ? .tint : .secondary)
+                        .foregroundStyle(inspectorVisible ? Color.accentColor : Color.secondary)
                 }
                 .help("切换检视面板 (⌘⇧I)")
             }
@@ -52,8 +52,12 @@ private struct WorkflowInspectorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Autumn.spacing.md) {
                 StatusPanel(settings: settings, localServer: localServer)
-                RoutePanel(routeMode: settings.routeMode)
+                RoutePanel(
+                    routeMode: settings.routeMode,
+                    routeOverride: settings.activeRouteOverride
+                )
                 ModelStack(settings: settings)
+                TerrPanel(settings: settings)
             }
             .padding(Autumn.spacing.md)
         }
@@ -88,6 +92,7 @@ private struct StatusPanel: View {
 
 private struct RoutePanel: View {
     let routeMode: String
+    let routeOverride: String?
 
     var body: some View {
         AutumnCard {
@@ -97,6 +102,16 @@ private struct RoutePanel: View {
                         .font(Autumn.typography.headline)
                     Spacer()
                     AutumnBadge(routeTitle, icon: routeIcon, tone: .accent)
+                }
+                if let routeOverride,
+                   let override = MissionRouteMode(rawValue: routeOverride) {
+                    HStack {
+                        Text("本次覆盖")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        AutumnBadge(override.title, icon: override.icon, tone: .warning)
+                    }
                 }
                 Divider()
                 Text(routeDetail)
@@ -108,27 +123,15 @@ private struct RoutePanel: View {
     }
 
     private var routeIcon: String {
-        switch routeMode {
-        case "direct": return "arrow.down.message"
-        case "convert": return "checklist"
-        default: return "wand.and.stars"
-        }
+        (MissionRouteMode(rawValue: routeMode) ?? .auto).icon
     }
 
     private var routeTitle: String {
-        switch routeMode {
-        case "direct": return "直接回答"
-        case "convert": return "转为任务"
-        default: return "自动"
-        }
+        (MissionRouteMode(rawValue: routeMode) ?? .auto).title
     }
 
     private var routeDetail: String {
-        switch routeMode {
-        case "direct": return "A3 生成回答，A1 做最终检查。"
-        case "convert": return "A3 转换任务，A2 执行，A1 检查。"
-        default: return "每条 mission 由 A3 决定路径。"
-        }
+        (MissionRouteMode(rawValue: routeMode) ?? .auto).detail
     }
 }
 
@@ -143,7 +146,11 @@ private struct ModelStack: View {
                 Divider()
                 VStack(spacing: Autumn.spacing.sm) {
                     ForEach(ModelSlot.allCases) { slot in
-                        ModelStatusRow(slot: slot, config: settings.providerConfig(for: slot))
+                        ModelStatusRow(
+                            slot: slot,
+                            config: settings.providerConfig(for: slot),
+                            state: settings.modelState(for: slot)
+                        )
                     }
                 }
             }
@@ -154,6 +161,7 @@ private struct ModelStack: View {
 private struct ModelStatusRow: View {
     let slot: ModelSlot
     let config: ProviderConfigRequest
+    let state: ModelConnectionState
 
     var body: some View {
         HStack(alignment: .top, spacing: Autumn.spacing.sm) {
@@ -161,10 +169,7 @@ private struct ModelStatusRow: View {
                 HStack(spacing: Autumn.spacing.xs) {
                     Text(slot.title)
                         .font(Autumn.typography.captionStrong)
-                    AutumnBadge(
-                        isConfigured ? "就绪" : "未就绪",
-                        tone: isConfigured ? .success : .neutral
-                    )
+                    AutumnBadge(state.title, tone: state.tone)
                 }
                 Text(config.model?.isEmpty == false ? config.model ?? "" : "未选择模型")
                     .font(Autumn.typography.caption)
@@ -181,10 +186,147 @@ private struct ModelStatusRow: View {
         )
     }
 
-    private var isConfigured: Bool {
-        !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !(config.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
+
+private struct TerrPanel: View {
+    let settings: AppSettings
+    @State private var terrs: [TerrSummary] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        AutumnCard {
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                HStack {
+                    Text("能力域")
+                        .font(Autumn.typography.headline)
+                    Spacer()
+                    if isLoading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button(action: { Task { await loadTerrs() } }) {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.plain)
+                        .help("刷新能力域")
+                    }
+                }
+                Divider()
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(Autumn.colors.danger)
+                } else if terrs.isEmpty {
+                    VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                        Text("尚未加载 Terr")
+                            .font(Autumn.typography.captionStrong)
+                        Text("在 Python 侧调用 register_terr、add_terr，或把 Terr 插件放入 plugin_dirs。")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    VStack(spacing: Autumn.spacing.sm) {
+                        ForEach(terrs) { terr in
+                            TerrCard(terr: terr)
+                        }
+                    }
+                }
+            }
+        }
+        .task { await loadTerrs() }
+    }
+
+    private func loadTerrs() async {
+        guard let url = URL(string: settings.serverURL) else {
+            errorMessage = "服务器 URL 无效"
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            terrs = try await AutumnClient(baseURL: url).fetchTerrs()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct TerrCard: View {
+    let terr: TerrSummary
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                capabilityGroup("Tools", items: terr.tools)
+                capabilityGroup("Skills", items: terr.skills)
+                if !terr.mcps.isEmpty {
+                    VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                        Text("MCP")
+                            .font(Autumn.typography.captionStrong)
+                        ForEach(terr.mcps) { mcp in
+                            Text("\(mcp.name) · \(mcp.description)")
+                                .font(Autumn.typography.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(.top, Autumn.spacing.sm)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(terr.name)
+                        .font(Autumn.typography.captionStrong)
+                    Spacer()
+                    AutumnBadge("\(terr.tools.count)T", tone: .info)
+                    AutumnBadge("\(terr.skills.count)S", tone: .accent)
+                }
+                Text(terr.description.isEmpty ? "未提供描述" : terr.description)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(Autumn.spacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                .fill(Autumn.colors.surfaceElevated)
+        )
+    }
+
+    @ViewBuilder
+    private func capabilityGroup(_ title: String, items: [TerrCallable]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                Text(title)
+                    .font(Autumn.typography.captionStrong)
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name)
+                            .font(.system(.caption, design: .monospaced).weight(.medium))
+                        Text(schemaSummary(for: item))
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func schemaSummary(for item: TerrCallable) -> String {
+        guard !item.parameters.isEmpty else {
+            return item.description.isEmpty ? "无参数" : item.description
+        }
+        let params = item.parameters.map { parameter in
+            "\(parameter.name):\(parameter.type)\(parameter.required ? "" : "?")"
+        }
+        return params.joined(separator: ", ")
     }
 }
 

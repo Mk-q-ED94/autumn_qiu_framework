@@ -46,6 +46,7 @@ class WorkflowStage:
     workspace: str
     status: str = "completed"
     kind: str = "stage"   # "stage" = workflow step, "tool" = an agent tool call
+    duration_ms: float | None = None
 
 
 @dataclass
@@ -54,6 +55,7 @@ class AgentStep:
     name: str
     arguments: dict
     result: str
+    duration_ms: float | None = None
 
 
 @dataclass

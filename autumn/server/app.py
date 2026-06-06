@@ -1,4 +1,5 @@
 """HTTP/SSE bridge that exposes Autumn to the SwiftUI desktop client."""
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -8,7 +9,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
@@ -21,6 +22,8 @@ RequestRoute = MissionRoute | Literal["auto"] | None
 class ProcessRequest(BaseModel):
     input: str
     route: RequestRoute = None
+    input_type: InputType | None = None
+    task_type: TaskType | None = None
 
 
 class ProcessResponse(BaseModel):
@@ -34,6 +37,7 @@ class TraceStageResponse(BaseModel):
     workspace: str
     status: str
     kind: str = "stage"
+    duration_ms: float | None = None
 
 
 class TraceResponse(BaseModel):
@@ -42,6 +46,42 @@ class TraceResponse(BaseModel):
     route: MissionRoute | None = None
     task_type: TaskType | None = None
     stages: list[TraceStageResponse]
+
+
+class IntentRequest(BaseModel):
+    input: str
+    route: RequestRoute = None
+    input_type: InputType | None = None
+    task_type: TaskType | None = None
+
+
+class IntentResponse(BaseModel):
+    input_type: InputType
+    task_type: TaskType | None = None
+    route: MissionRoute | None = None
+    confidence: float
+
+
+class TerrParameterResponse(BaseModel):
+    name: str
+    type: str
+    description: str
+    required: bool = True
+    extra: dict = Field(default_factory=dict)
+
+
+class TerrCallableResponse(BaseModel):
+    name: str
+    description: str
+    parameters: list[TerrParameterResponse] = []
+
+
+class TerrResponse(BaseModel):
+    name: str
+    description: str
+    tools: list[TerrCallableResponse] = []
+    skills: list[TerrCallableResponse] = []
+    mcps: list[dict] = []
 
 
 class ProviderConfigRequest(BaseModel):
@@ -216,31 +256,80 @@ def create_app() -> FastAPI:
     @app.post("/process", response_model=ProcessResponse)
     async def process(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
-        output = await autumn.process(req.input, mission_route=req.route)
+        output = await autumn.process(
+            req.input,
+            mission_route=req.route,
+            input_type=req.input_type,
+            task_type=req.task_type,
+        )
         return ProcessResponse(output=output)
 
     @app.post("/trace", response_model=TraceResponse)
     async def trace(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
-        run = await autumn.process_with_trace(req.input, mission_route=req.route)
+        run = await autumn.process_with_trace(
+            req.input,
+            mission_route=req.route,
+            input_type=req.input_type,
+            task_type=req.task_type,
+        )
         return _trace_response(run)
 
+    @app.post("/intent", response_model=IntentResponse)
+    async def intent(req: IntentRequest, request: Request):
+        autumn = _autumn_or_503(request)
+        sel, route = await autumn.classify_intent(
+            req.input,
+            mission_route=req.route,
+            input_type=req.input_type,
+            task_type=req.task_type,
+        )
+        return IntentResponse(
+            input_type=sel.input_type,
+            task_type=sel.task_type,
+            route=route,
+            confidence=sel.confidence,
+        )
+
     @app.get("/stream")
-    async def stream(input: str, request: Request, route: RequestRoute = None):
+    async def stream(
+        input: str,
+        request: Request,
+        route: RequestRoute = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
+    ):
         autumn = _autumn_or_503(request)
 
         async def event_stream():
+            disconnected = False
             try:
-                async for chunk in autumn.stream(input, mission_route=route):
+                async for chunk in autumn.stream(
+                    input,
+                    mission_route=route,
+                    input_type=input_type,
+                    task_type=task_type,
+                ):
+                    if await request.is_disconnected():
+                        disconnected = True
+                        break
                     payload = json.dumps({"chunk": chunk}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
-                yield "data: [DONE]\n\n"
+                if not disconnected:
+                    yield "data: [DONE]\n\n"
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:  # noqa: BLE001
                 payload = json.dumps({"error": str(exc)}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
                 yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @app.get("/terrs", response_model=list[TerrResponse])
+    async def terrs(request: Request):
+        autumn = _autumn_or_503(request)
+        return autumn.describe_terrs()
 
     @app.get("/memory/{area}/history")
     async def get_history(area: str, request: Request):

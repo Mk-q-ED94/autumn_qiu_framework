@@ -2,17 +2,29 @@ import Foundation
 import SwiftUI
 import Combine
 
+struct ChatError: Identifiable, Equatable {
+    let id = UUID()
+    let message: String
+}
+
 @MainActor
 final class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var input: String = ""
     @Published var isRunning: Bool = false
-    @Published var errorMessage: String? = nil
+    @Published var errors: [ChatError] = []
+    @Published var intentPreview: IntentPreview? = nil
+    @Published var intentOverride: WorkflowInputKind? = nil
+    @Published var taskOverride: WorkflowTaskKind? = nil
+    @Published var routeOverride: MissionRouteMode? = nil
+    @Published var isPreviewingIntent: Bool = false
 
     private let settings: AppSettings
     private let store: ConversationStore
     private var cancellables: Set<AnyCancellable> = []
     private var loadedConversationID: UUID?
+    private var intentTask: Task<Void, Never>?
+    private var runTask: Task<Void, Never>?
 
     init(settings: AppSettings, store: ConversationStore) {
         self.settings = settings
@@ -38,8 +50,13 @@ final class ChatViewModel: ObservableObject {
         } else {
             messages = []
         }
-        errorMessage = nil
+        errors.removeAll()
         input = ""
+        intentPreview = nil
+        intentOverride = nil
+        taskOverride = nil
+        routeOverride = nil
+        settings.activeRouteOverride = nil
     }
 
     private var client: AutumnClient? {
@@ -47,20 +64,80 @@ final class ChatViewModel: ObservableObject {
         return AutumnClient(baseURL: url)
     }
 
+    var effectiveRoute: MissionRouteMode {
+        routeOverride ?? MissionRouteMode(rawValue: settings.routeMode) ?? .auto
+    }
+
+    var effectiveInputKind: WorkflowInputKind? {
+        intentOverride ?? intentPreview?.inputKind
+    }
+
+    var effectiveTaskKind: WorkflowTaskKind? {
+        guard effectiveInputKind == .task else { return nil }
+        return taskOverride ?? intentPreview?.taskKind ?? .general
+    }
+
+    func inputDidChange() {
+        scheduleIntentPreview()
+    }
+
+    func setInputOverride(_ kind: WorkflowInputKind) {
+        intentOverride = kind
+        if kind == .mission {
+            taskOverride = nil
+        } else if taskOverride == nil {
+            taskOverride = intentPreview?.taskKind ?? .general
+        }
+        scheduleIntentPreview(delay: 0)
+    }
+
+    func setTaskOverride(_ kind: WorkflowTaskKind) {
+        intentOverride = .task
+        taskOverride = kind
+        scheduleIntentPreview(delay: 0)
+    }
+
+    func setRouteOverride(_ route: MissionRouteMode?) {
+        routeOverride = route
+        settings.activeRouteOverride = route?.rawValue
+        scheduleIntentPreview(delay: 0)
+    }
+
+    func submitOrStop() {
+        if isRunning {
+            stop()
+            return
+        }
+        runTask = Task { await send() }
+    }
+
+    func stop() {
+        runTask?.cancel()
+        runTask = nil
+        isRunning = false
+        pushError("已停止，保留当前已生成内容。")
+        persistMessages()
+    }
+
     func send() async {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isRunning else { return }
         guard let client = client else {
-            errorMessage = "服务器 URL 无效"
+            pushError("服务器 URL 无效")
             return
         }
 
         input = ""
-        errorMessage = nil
+        intentTask?.cancel()
+        errors.removeAll()
 
         withAnimation(Autumn.motion.snappy) {
             messages.append(ChatMessage(role: .user, text: text))
-            messages.append(ChatMessage(role: .assistant, text: ""))
+            messages.append(ChatMessage(
+                role: .assistant,
+                text: "",
+                trace: provisionalTrace(for: text, status: "active")
+            ))
         }
         persistMessages()
 
@@ -68,27 +145,59 @@ final class ChatViewModel: ObservableObject {
         isRunning = true
         defer {
             isRunning = false
+            runTask = nil
             persistMessages()
         }
 
         do {
-            let trace = try await client.trace(text, route: settings.routeMode)
+            var streamed = ""
+            for try await chunk in client.stream(
+                text,
+                route: effectiveRoute.rawValue,
+                inputType: intentOverride?.rawValue,
+                taskType: effectiveTaskKind?.rawValue
+            ) {
+                try Task.checkCancellation()
+                streamed += chunk
+                messages[assistantIndex].text = streamed
+            }
+            if Task.isCancelled { return }
+
+            let trace = try await client.trace(
+                text,
+                route: effectiveRoute.rawValue,
+                inputType: intentOverride?.rawValue,
+                taskType: effectiveTaskKind?.rawValue
+            )
             withAnimation(Autumn.motion.smooth) {
                 messages[assistantIndex].text = trace.output.isEmpty ? "(empty response)" : trace.output
                 messages[assistantIndex].trace = trace
             }
+            intentPreview = IntentPreview(
+                inputType: trace.inputType,
+                taskType: trace.taskType,
+                route: trace.route,
+                confidence: 1.0
+            )
+        } catch is CancellationError {
+            if messages.indices.contains(assistantIndex), messages[assistantIndex].text.isEmpty {
+                messages[assistantIndex].text = "已停止"
+            }
         } catch {
-            errorMessage = error.localizedDescription
-            messages[assistantIndex].text +=
-                (messages[assistantIndex].text.isEmpty ? "" : "\n\n") +
-                "[错误] \(error.localizedDescription)"
+            pushError(error.localizedDescription)
+            if messages.indices.contains(assistantIndex) {
+                messages[assistantIndex].text +=
+                    (messages[assistantIndex].text.isEmpty ? "" : "\n\n") +
+                    "[错误] \(error.localizedDescription)"
+                messages[assistantIndex].trace = failedTrace(for: text, message: error.localizedDescription)
+            }
         }
     }
 
     func clear() {
         withAnimation(Autumn.motion.smooth) {
             messages.removeAll()
-            errorMessage = nil
+            errors.removeAll()
         }
         if let id = loadedConversationID {
             store.clearMessages(id)
@@ -101,11 +210,153 @@ final class ChatViewModel: ObservableObject {
             try await client.endSession()
             clear()
         } catch {
-            errorMessage = error.localizedDescription
+            pushError(error.localizedDescription)
         }
     }
 
     // ── private ───────────────────────────────────────────────────────────────
+
+    private func scheduleIntentPreview(delay: UInt64 = 450_000_000) {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        intentTask?.cancel()
+        guard text.count >= 2, let client else {
+            intentPreview = nil
+            return
+        }
+
+        intentTask = Task { [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            if Task.isCancelled { return }
+            await self?.refreshIntentPreview(text: text, client: client)
+        }
+    }
+
+    private func refreshIntentPreview(text: String, client: AutumnClient) async {
+        isPreviewingIntent = true
+        defer { isPreviewingIntent = false }
+        do {
+            intentPreview = try await client.previewIntent(
+                text,
+                route: effectiveRoute.rawValue,
+                inputType: intentOverride?.rawValue,
+                taskType: effectiveTaskKind?.rawValue
+            )
+        } catch {
+            // Intent preview is advisory; keep typing smooth and surface the state through the badge.
+            intentPreview = IntentPreview(
+                inputType: intentOverride?.rawValue ?? "mission",
+                taskType: taskOverride?.rawValue,
+                route: routeOverride?.rawValue,
+                confidence: 0.0
+            )
+        }
+    }
+
+    private func provisionalTrace(for input: String, status: String) -> WorkflowTrace {
+        let preview = intentPreview ?? IntentPreview(
+            inputType: intentOverride?.rawValue ?? "mission",
+            taskType: taskOverride?.rawValue,
+            route: routeOverride?.rawValue,
+            confidence: 1.0
+        )
+        var stages = [
+            WorkflowStage(
+                id: "wp1.select",
+                title: "A1 分类",
+                detail: preview.badgeTitle,
+                workspace: "WP1",
+                status: "completed"
+            )
+        ]
+        if preview.inputKind == .task {
+            stages.append(WorkflowStage(
+                id: "wp2.task",
+                title: "A2 执行任务",
+                detail: "流式响应进行中",
+                workspace: "WP2",
+                status: status
+            ))
+        } else {
+            let route = effectiveRoute
+            stages.append(WorkflowStage(
+                id: "wp3.route",
+                title: "A3 路由",
+                detail: route == .auto ? "等待 A3 判断路由" : "Mission 路由为 \(route.rawValue)",
+                workspace: "WP3",
+                status: route == .auto ? "active" : "completed"
+            ))
+            stages.append(WorkflowStage(
+                id: route == .convert ? "wp3.convert" : "wp3.direct",
+                title: route == .convert ? "A3 转换任务" : "A3 直接回答",
+                detail: "流式响应进行中",
+                workspace: "WP3",
+                status: status
+            ))
+            if route == .convert {
+                stages.append(WorkflowStage(
+                    id: "wp2.task",
+                    title: "A2 执行任务",
+                    detail: "等待转换后的任务",
+                    workspace: "WP2",
+                    status: "pending"
+                ))
+            }
+        }
+        stages.append(WorkflowStage(
+            id: "wp1.final_check",
+            title: "A1 最终检查",
+            detail: "等待输出完成",
+            workspace: "WP1",
+            status: "pending"
+        ))
+
+        return WorkflowTrace(
+            output: "",
+            inputType: preview.inputType,
+            route: effectiveRoute == .auto ? preview.route : effectiveRoute.rawValue,
+            taskType: preview.taskType,
+            stages: stages
+        )
+    }
+
+    private func failedTrace(for input: String, message: String) -> WorkflowTrace {
+        let trace = provisionalTrace(for: input, status: "failed")
+        let stages = trace.stages + [WorkflowStage(
+            id: "error",
+            title: "运行失败",
+            detail: message,
+            workspace: "系统",
+            status: "failed"
+        )]
+        return WorkflowTrace(
+            output: trace.output,
+            inputType: trace.inputType,
+            route: trace.route,
+            taskType: trace.taskType,
+            stages: stages
+        )
+    }
+
+    private func pushError(_ message: String) {
+        let error = ChatError(message: message)
+        withAnimation(Autumn.motion.smooth) {
+            errors.append(error)
+        }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await MainActor.run {
+                self?.dismissError(error.id)
+            }
+        }
+    }
+
+    func dismissError(_ id: UUID) {
+        withAnimation(Autumn.motion.smooth) {
+            errors.removeAll { $0.id == id }
+        }
+    }
 
     private func persistMessages() {
         guard let id = loadedConversationID else { return }

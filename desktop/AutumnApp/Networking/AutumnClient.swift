@@ -58,29 +58,67 @@ final class AutumnClient {
         return try JSONDecoder().decode(ApplyConfigResponse.self, from: data)
     }
 
-    func process(_ input: String, route: String? = nil) async throws -> String {
+    func process(
+        _ input: String,
+        route: String? = nil,
+        inputType: String? = nil,
+        taskType: String? = nil
+    ) async throws -> String {
         var request = URLRequest(url: baseURL.appendingPathComponent("process"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(ProcessRequest(input: input, route: route))
+        request.httpBody = try JSONEncoder().encode(
+            ProcessRequest(input: input, route: route, inputType: inputType, taskType: taskType)
+        )
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response)
         return try JSONDecoder().decode(ProcessResponse.self, from: data).output
     }
 
-    func trace(_ input: String, route: String? = nil) async throws -> WorkflowTrace {
+    func trace(
+        _ input: String,
+        route: String? = nil,
+        inputType: String? = nil,
+        taskType: String? = nil
+    ) async throws -> WorkflowTrace {
         var request = URLRequest(url: baseURL.appendingPathComponent("trace"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
-        request.httpBody = try JSONEncoder().encode(ProcessRequest(input: input, route: route))
+        request.httpBody = try JSONEncoder().encode(
+            ProcessRequest(input: input, route: route, inputType: inputType, taskType: taskType)
+        )
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response)
         return try JSONDecoder().decode(WorkflowTrace.self, from: data)
     }
 
-    func stream(_ input: String, route: String? = nil) -> AsyncThrowingStream<String, Error> {
+    func previewIntent(
+        _ input: String,
+        route: String? = nil,
+        inputType: String? = nil,
+        taskType: String? = nil
+    ) async throws -> IntentPreview {
+        var request = URLRequest(url: baseURL.appendingPathComponent("intent"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 45
+        request.httpBody = try JSONEncoder().encode(
+            ProcessRequest(input: input, route: route, inputType: inputType, taskType: taskType)
+        )
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(IntentPreview.self, from: data)
+    }
+
+    func stream(
+        _ input: String,
+        route: String? = nil,
+        inputType: String? = nil,
+        taskType: String? = nil
+    ) -> AsyncThrowingStream<String, Error> {
         let baseURL = self.baseURL
 
         return AsyncThrowingStream { continuation in
@@ -93,6 +131,12 @@ final class AutumnClient {
                     var queryItems = [URLQueryItem(name: "input", value: input)]
                     if let route {
                         queryItems.append(URLQueryItem(name: "route", value: route))
+                    }
+                    if let inputType {
+                        queryItems.append(URLQueryItem(name: "input_type", value: inputType))
+                    }
+                    if let taskType {
+                        queryItems.append(URLQueryItem(name: "task_type", value: taskType))
                     }
                     components.queryItems = queryItems
                     guard let url = components.url else {
@@ -132,6 +176,15 @@ final class AutumnClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    func fetchTerrs() async throws -> [TerrSummary] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("terrs"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode([TerrSummary].self, from: data)
     }
 
     func endSession() async throws {
