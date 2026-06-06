@@ -27,7 +27,7 @@ struct WorkspaceView: View {
                         inspectorVisible.toggle()
                     }
                 } label: {
-                    Image(systemName: inspectorVisible ? "sidebar.right" : "sidebar.right")
+                    Image(systemName: "sidebar.right")
                         .foregroundStyle(inspectorVisible ? Color.accentColor : Color.secondary)
                 }
                 .help("切换检视面板 (⌘⇧I)")

@@ -175,6 +175,22 @@ class Autumn:
         ):
             yield chunk
 
+    async def stream_with_trace(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
+    ) -> AsyncIterator[str | WorkflowRun]:
+        """Stream chunks and finish with the WorkflowRun produced by the same turn."""
+        async for event in self.wp1.stream_with_trace(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        ):
+            yield event
+
     def describe_terrs(self) -> list[dict]:
         """Return serializable Terr summaries for desktop/debug UI."""
         summaries: list[dict] = []

@@ -198,6 +198,10 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
     )
 
 
+def _trace_payload(run: WorkflowRun) -> dict:
+    return json.loads(_trace_response(run).json())
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Autumn HTTP API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -304,7 +308,7 @@ def create_app() -> FastAPI:
         async def event_stream():
             disconnected = False
             try:
-                async for chunk in autumn.stream(
+                async for event in autumn.stream_with_trace(
                     input,
                     mission_route=route,
                     input_type=input_type,
@@ -313,7 +317,10 @@ def create_app() -> FastAPI:
                     if await request.is_disconnected():
                         disconnected = True
                         break
-                    payload = json.dumps({"chunk": chunk}, ensure_ascii=False)
+                    if isinstance(event, WorkflowRun):
+                        payload = json.dumps({"trace": _trace_payload(event)}, ensure_ascii=False)
+                    else:
+                        payload = json.dumps({"chunk": event}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
                 if not disconnected:
                     yield "data: [DONE]\n\n"

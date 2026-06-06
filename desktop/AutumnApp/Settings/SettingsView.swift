@@ -6,7 +6,6 @@ struct SettingsView: View {
     @State private var connectionState: ConnectionState = .unknown
     @State private var isChecking: Bool = false
     @State private var modelOptions: [ModelSlot: [String]] = [:]
-    @State private var loadingSlots: Set<ModelSlot> = []
     @State private var modelErrors: [ModelSlot: String] = [:]
     @State private var refreshTasks: [ModelSlot: Task<Void, Never>] = [:]
     @State private var isApplying: Bool = false
@@ -260,10 +259,8 @@ struct SettingsView: View {
             return
         }
 
-        loadingSlots.insert(slot)
         settings.setModelState(.connecting, for: slot)
         modelErrors[slot] = nil
-        defer { loadingSlots.remove(slot) }
 
         do {
             let client = AutumnClient(baseURL: url)

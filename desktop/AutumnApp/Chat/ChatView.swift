@@ -13,6 +13,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             messagesList
             errorBanner
+            runStatusBar
             inputBar
         }
         .background(Color.clear)
@@ -44,8 +45,8 @@ struct ChatView: View {
                     if vm.messages.isEmpty {
                         EmptyStateView(
                             icon: "leaf.fill",
-                            title: "开始一次协作",
-                            message: "输入任务或问题，Autumn 会路由给合适的工作区并把过程展示在这里。"
+                            title: "协作工作台",
+                            message: "A1 分类 · A2 执行 · A3 路由"
                         )
                         .frame(minHeight: 360)
                     } else {
@@ -106,10 +107,42 @@ struct ChatView: View {
         }
     }
 
+    @ViewBuilder
+    private var runStatusBar: some View {
+        if vm.isRunning {
+            HStack(spacing: Autumn.spacing.sm) {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.74)
+                AutumnBadge("流式运行", icon: "waveform.path", tone: .info)
+                if let kind = vm.effectiveInputKind {
+                    AutumnBadge(kind.badgeTitle, icon: kind.icon, tone: .accent)
+                }
+                if let task = vm.effectiveTaskKind {
+                    AutumnBadge(task.badgeTitle, tone: .neutral)
+                } else if vm.effectiveInputKind == .mission {
+                    AutumnBadge(vm.effectiveRoute.title, icon: vm.effectiveRoute.icon, tone: .neutral)
+                }
+                Spacer()
+                AutumnBadge("Trace 同步", icon: "point.3.connected.trianglepath.dotted", tone: .info)
+            }
+            .padding(.horizontal, Autumn.spacing.md)
+            .padding(.vertical, Autumn.spacing.sm)
+            .background(Autumn.colors.info.opacity(0.08))
+            .overlay(
+                Rectangle()
+                    .fill(Autumn.colors.info.opacity(0.18))
+                    .frame(height: Autumn.stroke.hairline),
+                alignment: .top
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: Autumn.spacing.sm) {
             ZStack(alignment: .topTrailing) {
-                TextField("输入消息…  ⌘L 聚焦此处", text: $vm.input, axis: .vertical)
+                TextField("输入消息…", text: $vm.input, axis: .vertical)
                     .lineLimit(1...8)
                     .textFieldStyle(.plain)
                     .font(Autumn.typography.body)

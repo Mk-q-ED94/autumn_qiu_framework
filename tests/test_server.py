@@ -73,6 +73,34 @@ class _MockAutumn:
         for chunk in ["hello ", "world", " ", text]:
             yield chunk
 
+    async def stream_with_trace(self, text: str, mission_route=None, input_type=None, task_type=None):
+        self.stream_calls.append((text, mission_route))
+        for chunk in ["hello ", "world", " ", text]:
+            yield chunk
+        route = MissionRoute.CONVERT if mission_route == "convert" else MissionRoute.DIRECT
+        yield WorkflowRun(
+            output=f"hello world {text}",
+            input_type=input_type or InputType.MISSION,
+            route=None if input_type == InputType.TASK else route,
+            task_type=task_type,
+            stages=[
+                WorkflowStage(
+                    id="wp1.select",
+                    title="A1 分类",
+                    detail="输入被识别为 mission",
+                    workspace="WP1",
+                    duration_ms=1.0,
+                ),
+                WorkflowStage(
+                    id="wp1.final_check",
+                    title="A1 最终检查",
+                    detail="WP1 已完成流式输出观察检查",
+                    workspace="WP1",
+                    duration_ms=2.0,
+                ),
+            ],
+        )
+
     async def classify_intent(self, text: str, mission_route=None, input_type=None, task_type=None):
         sel = SelectorResult(
             input_type or InputType.TASK,
@@ -451,8 +479,13 @@ def test_stream_yields_chunks_then_done(configured_client):
                 chunks.append(line[len("data: "):])
 
     assert chunks[-1] == "[DONE]"
-    decoded = [json.loads(c)["chunk"] for c in chunks[:-1]]
+    events = [json.loads(c) for c in chunks[:-1]]
+    decoded = [e["chunk"] for e in events if "chunk" in e]
     assert "".join(decoded) == "hello world hi"
+    traces = [e["trace"] for e in events if "trace" in e]
+    assert traces[-1]["output"] == "hello world hi"
+    assert traces[-1]["stages"][-1]["id"] == "wp1.final_check"
+    assert configured_client.app.state.autumn.process_calls == []
 
 
 def test_stream_passes_route_override(configured_client):

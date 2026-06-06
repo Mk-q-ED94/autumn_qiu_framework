@@ -118,7 +118,7 @@ final class AutumnClient {
         route: String? = nil,
         inputType: String? = nil,
         taskType: String? = nil
-    ) -> AsyncThrowingStream<String, Error> {
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
         let baseURL = self.baseURL
 
         return AsyncThrowingStream { continuation in
@@ -166,7 +166,10 @@ final class AutumnClient {
                             throw AutumnClientError.serverError(err)
                         }
                         if let chunk = event.chunk {
-                            continuation.yield(chunk)
+                            continuation.yield(.chunk(chunk))
+                        }
+                        if let trace = event.trace {
+                            continuation.yield(.trace(trace))
                         }
                     }
                     continuation.finish()

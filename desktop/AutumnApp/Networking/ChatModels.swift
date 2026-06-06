@@ -50,6 +50,18 @@ struct WorkflowTrace: Decodable, Equatable {
         stages.contains { $0.status == "active" || $0.status == "pending" }
     }
 
+    var hasFailedStage: Bool {
+        stages.contains { $0.status == "failed" }
+    }
+
+    var completedStageCount: Int {
+        stages.filter { $0.status == "completed" }.count
+    }
+
+    var toolStageCount: Int {
+        stages.filter { $0.kind == "tool" }.count
+    }
+
     var totalDurationMS: Double? {
         let values = stages.compactMap(\.durationMS)
         guard !values.isEmpty else { return nil }
@@ -180,7 +192,13 @@ struct TerrMCP: Decodable, Identifiable, Equatable {
 
 struct StreamPayload: Decodable {
     let chunk: String?
+    let trace: WorkflowTrace?
     let error: String?
+}
+
+enum StreamEvent {
+    case chunk(String)
+    case trace(WorkflowTrace)
 }
 
 struct HealthResponse: Decodable {

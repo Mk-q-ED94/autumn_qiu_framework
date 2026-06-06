@@ -336,6 +336,22 @@ class WP1Tot(WorkspaceBase):
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
     ) -> AsyncIterator[str]:
+        async for event in self.stream_with_trace(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        ):
+            if isinstance(event, str):
+                yield event
+
+    async def stream_with_trace(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
+    ) -> AsyncIterator[str | WorkflowRun]:
         """Real-time streaming: classify once, then forward tokens from the
         chosen workspace. After the stream ends, the Checker is run once as
         an *advisory* — if it flags an issue, one final chunk is appended
@@ -345,51 +361,138 @@ class WP1Tot(WorkspaceBase):
         the conversion is a non-streamed model call; it falls back to a
         buffered run that is chunked at the end.
         """
+        stages: list[WorkflowStage] = []
+        tool_stages: list[WorkflowStage] = []
+
+        select_started = time.perf_counter()
         sel = await self._select_intent(user_input, input_type=input_type, task_type=task_type)
         input_type = sel.input_type
         task_type = sel.task_type
+        stages.append(WorkflowStage(
+            id="wp1.select",
+            title="A1 分类",
+            detail=_classify_detail(input_type, task_type),
+            workspace="WP1",
+            duration_ms=_duration_ms(select_started),
+        ))
 
         if input_type == InputType.TASK:
-            gen = self.wp2.stream(user_input, task_type=task_type)
+            task_started = time.perf_counter()
+            gen = self.wp2.stream_with_trace(user_input, task_type=task_type)
             chosen_route: MissionRoute | None = None
         else:
+            route_started = time.perf_counter()
             route = await self._resolve_headless_route(user_input, mission_route)
             chosen_route = route
+            stages.append(WorkflowStage(
+                id="wp3.route",
+                title="A3 路由",
+                detail=f"Mission 路由为 {route.value}",
+                workspace="WP3",
+                duration_ms=_duration_ms(route_started),
+            ))
             if route == MissionRoute.DIRECT:
+                direct_started = time.perf_counter()
                 gen = self.wp3.stream_direct(user_input)
             else:
-                gen = self._stream_convert_path(user_input)
+                convert_started = time.perf_counter()
+                task_form = await self.wp3.convert_to_task(user_input)
+                stages.append(WorkflowStage(
+                    id="wp3.convert",
+                    title="A3 转换任务",
+                    detail="WP3 已将 mission 转为可执行任务",
+                    workspace="WP3",
+                    duration_ms=_duration_ms(convert_started),
+                ))
+                if self.wp3.checker:
+                    check_started = time.perf_counter()
+                    _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+                    stages.append(WorkflowStage(
+                        id="wp3.check",
+                        title="WP3 检查",
+                        detail="转换后的任务已通过 WP3 检查",
+                        workspace="WP3",
+                        duration_ms=_duration_ms(check_started),
+                    ))
+                if self.checker:
+                    handoff_started = time.perf_counter()
+                    _, task_form = await self.checker.validate(task_form, self.memory)
+                    stages.append(WorkflowStage(
+                        id="wp1.handoff_check",
+                        title="A1 交接检查",
+                        detail="A1 已检查 mission 到 task 的交接内容",
+                        workspace="WP1",
+                        duration_ms=_duration_ms(handoff_started),
+                    ))
+                task_started = time.perf_counter()
+                gen = self.wp2.stream_with_trace(task_form)
 
         buf: list[str] = []
-        async for tok in gen:
-            buf.append(tok)
-            yield tok
+        async for event in gen:
+            if isinstance(event, str):
+                buf.append(event)
+                yield event
+            else:
+                tool_stages.extend(event)
+
+        if input_type == InputType.TASK:
+            stages.extend(tool_stages)
+            stages.append(WorkflowStage(
+                id="wp2.task",
+                title="A2 执行任务",
+                detail="WP2 已完成结构化任务执行",
+                workspace="WP2",
+                duration_ms=_duration_ms(task_started),
+            ))
+        elif chosen_route == MissionRoute.DIRECT:
+            stages.append(WorkflowStage(
+                id="wp3.direct",
+                title="A3 直接回答",
+                detail="WP3 已生成 mission 回答",
+                workspace="WP3",
+                duration_ms=_duration_ms(direct_started),
+            ))
+        else:
+            stages.extend(tool_stages)
+            stages.append(WorkflowStage(
+                id="wp2.task",
+                title="A2 执行任务",
+                detail="WP2 已完成转换任务执行",
+                workspace="WP2",
+                duration_ms=_duration_ms(task_started),
+            ))
 
         full = "".join(buf)
 
         # Post-hoc advisory: rule check + model check, no auto-correction.
+        check_started = time.perf_counter()
         if self.checker:
             ok, issues = await self.checker.inspect(full, self.memory)
             if not ok and issues:
                 advisory = f"{_ADVISORY_PREFIX}{issues}"
                 buf.append(advisory)
                 yield advisory
+        stages.append(WorkflowStage(
+            id="wp1.final_check",
+            title="A1 最终检查",
+            detail="WP1 已完成流式输出观察检查",
+            workspace="WP1",
+            duration_ms=_duration_ms(check_started),
+        ))
 
         # Mom1 carries the full conversation log; mirror process_with_trace().
+        final_output = "".join(buf)
         await self.memory.append_history({
             "ts": time.time(),
             "input": user_input,
             "type": input_type.value,
             "route": chosen_route.value if chosen_route else None,
-            "output": "".join(buf),
+            "output": final_output,
         })
-
-    async def _stream_convert_path(self, mission_input: str) -> AsyncIterator[str]:
-        """Mission/convert: WP3 converts (buffered), then WP2 streams the task."""
-        task_form = await self.wp3.convert_to_task(mission_input)
-        if self.wp3.checker:
-            _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
-        if self.checker:
-            _, task_form = await self.checker.validate(task_form, self.memory)
-        async for tok in self.wp2.stream(task_form):
-            yield tok
+        yield WorkflowRun(
+            output=final_output,
+            input_type=input_type,
+            route=chosen_route,
+            stages=stages,
+            task_type=task_type if input_type == InputType.TASK else None,
+        )

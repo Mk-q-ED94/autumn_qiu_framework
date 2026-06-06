@@ -35,30 +35,47 @@ struct WorkflowTraceView: View {
             RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
                 .strokeBorder(Color.secondary.opacity(0.16), lineWidth: Autumn.stroke.hairline)
         )
+        .onChange(of: trace.isLive) { _, isLive in
+            withAnimation(Autumn.motion.snappy) {
+                isExpanded = isLive || trace.hasFailedStage
+            }
+        }
     }
 
     private var header: some View {
-        HStack(spacing: Autumn.spacing.sm) {
-            AutumnBadge(inputTitle, icon: inputIcon, tone: trace.isLive ? .info : .accent)
-            if let taskTitle = taskTypeTitle {
-                AutumnBadge(taskTitle, tone: .accent)
+        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            HStack(spacing: Autumn.spacing.sm) {
+                AutumnBadge(statusTitle, icon: statusIcon, tone: statusTone)
+                AutumnBadge(inputTitle, icon: inputIcon, tone: trace.isLive ? .info : .accent)
+                if let taskTitle = taskTypeTitle {
+                    AutumnBadge(taskTitle, tone: .accent)
+                }
+                if let routeTitle {
+                    AutumnBadge(routeTitle, tone: .neutral)
+                }
+                Spacer()
+                Button {
+                    withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
-            if let routeTitle {
-                AutumnBadge(routeTitle, tone: .neutral)
-            }
-            Text(summary)
-                .font(Autumn.typography.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Spacer()
-            Button {
-                withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
-            } label: {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.caption2.weight(.semibold))
+
+            HStack(spacing: Autumn.spacing.sm) {
+                TraceProgressMeter(
+                    completed: trace.completedStageCount,
+                    total: trace.stages.count,
+                    tone: statusColor
+                )
+                Text(summary)
+                    .font(Autumn.typography.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -81,15 +98,63 @@ struct WorkflowTraceView: View {
     }
 
     private var summary: String {
-        let toolCount = trace.stages.filter { $0.kind == "tool" }.count
         var parts = ["\(trace.stages.count) 阶段"]
-        if toolCount > 0 {
-            parts.append("\(toolCount) 工具")
+        if trace.toolStageCount > 0 {
+            parts.append("\(trace.toolStageCount) 工具")
         }
         if let total = trace.totalDurationMS {
             parts.append(formatDuration(total))
         }
         return parts.joined(separator: " · ")
+    }
+
+    private var statusTitle: String {
+        if trace.hasFailedStage { return "失败" }
+        if trace.isLive { return "运行中" }
+        return "已同步"
+    }
+
+    private var statusIcon: String {
+        if trace.hasFailedStage { return "xmark.circle.fill" }
+        if trace.isLive { return "bolt.fill" }
+        return "checkmark.seal.fill"
+    }
+
+    private var statusTone: AutumnBadge.Tone {
+        if trace.hasFailedStage { return .danger }
+        return trace.isLive ? .info : .success
+    }
+
+    private var statusColor: Color {
+        if trace.hasFailedStage { return Autumn.colors.danger }
+        return trace.isLive ? Autumn.colors.info : Autumn.colors.success
+    }
+}
+
+private struct TraceProgressMeter: View {
+    let completed: Int
+    let total: Int
+    let tone: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.secondary.opacity(0.14))
+                Capsule(style: .continuous)
+                    .fill(tone.opacity(0.78))
+                    .frame(width: progressWidth(totalWidth: width))
+            }
+        }
+        .frame(width: 54, height: 4)
+        .accessibilityLabel("\(completed)/\(max(total, 1))")
+    }
+
+    private func progressWidth(totalWidth: CGFloat) -> CGFloat {
+        guard total > 0 else { return 0 }
+        let ratio = min(max(Double(completed) / Double(total), 0), 1)
+        return max(4, totalWidth * CGFloat(ratio))
     }
 }
 

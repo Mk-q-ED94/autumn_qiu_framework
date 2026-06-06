@@ -13,6 +13,7 @@ from autumn.core.types import (
     Protocol,
     SelectorResult,
     TaskType,
+    WorkflowRun,
 )
 from autumn.core.workspace.wp1 import WP1Tot, _ADVISORY_PREFIX
 from autumn.core.workspace.wp2 import WP2Tas
@@ -266,6 +267,31 @@ async def test_wp1_stream_writes_mom1_history():
     assert entry["type"] == "task"
     assert entry["output"] == "Final Answer"
     assert entry["route"] is None  # task path has no mission route
+
+
+async def test_wp1_stream_with_trace_finishes_with_workflow_run():
+    wp1, _, _, mom1 = make_wp1(
+        task_tokens=["Final ", "Answer"],
+        sel_result=SelectorResult(InputType.TASK, 0.9, TaskType.CODE),
+        checker=PassingChecker(),
+    )
+
+    events = [event async for event in wp1.stream_with_trace("code something")]
+    chunks = [event for event in events if isinstance(event, str)]
+    runs = [event for event in events if isinstance(event, WorkflowRun)]
+
+    assert "".join(chunks) == "Final Answer"
+    assert len(runs) == 1
+    assert runs[0].output == "Final Answer"
+    assert runs[0].input_type == InputType.TASK
+    assert runs[0].task_type == TaskType.CODE
+    assert [stage.id for stage in runs[0].stages] == [
+        "wp1.select",
+        "wp2.task",
+        "wp1.final_check",
+    ]
+    history = await mom1.get_history()
+    assert len(history) == 1
 
 
 async def test_wp1_stream_advisory_included_in_mom1_output():

@@ -151,34 +151,38 @@ final class ChatViewModel: ObservableObject {
 
         do {
             var streamed = ""
-            for try await chunk in client.stream(
+            var finalTrace: WorkflowTrace?
+            for try await event in client.stream(
                 text,
                 route: effectiveRoute.rawValue,
                 inputType: intentOverride?.rawValue,
                 taskType: effectiveTaskKind?.rawValue
             ) {
                 try Task.checkCancellation()
-                streamed += chunk
-                messages[assistantIndex].text = streamed
+                switch event {
+                case .chunk(let chunk):
+                    streamed += chunk
+                    messages[assistantIndex].text = streamed
+                case .trace(let trace):
+                    finalTrace = trace
+                }
             }
             if Task.isCancelled { return }
 
-            let trace = try await client.trace(
-                text,
-                route: effectiveRoute.rawValue,
-                inputType: intentOverride?.rawValue,
-                taskType: effectiveTaskKind?.rawValue
-            )
-            withAnimation(Autumn.motion.smooth) {
-                messages[assistantIndex].text = trace.output.isEmpty ? "(empty response)" : trace.output
-                messages[assistantIndex].trace = trace
+            if let trace = finalTrace {
+                withAnimation(Autumn.motion.smooth) {
+                    messages[assistantIndex].text = trace.output.isEmpty ? "(empty response)" : trace.output
+                    messages[assistantIndex].trace = trace
+                }
+                intentPreview = IntentPreview(
+                    inputType: trace.inputType,
+                    taskType: trace.taskType,
+                    route: trace.route,
+                    confidence: 1.0
+                )
+            } else if streamed.isEmpty {
+                messages[assistantIndex].text = "(empty response)"
             }
-            intentPreview = IntentPreview(
-                inputType: trace.inputType,
-                taskType: trace.taskType,
-                route: trace.route,
-                confidence: 1.0
-            )
         } catch is CancellationError {
             if messages.indices.contains(assistantIndex), messages[assistantIndex].text.isEmpty {
                 messages[assistantIndex].text = "已停止"

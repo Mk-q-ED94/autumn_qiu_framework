@@ -145,6 +145,16 @@ class WP2Tas(WorkspaceBase):
         task_type: TaskType | None = None,
         chunk_size: int = 64,
     ) -> AsyncIterator[str]:
+        async for event in self.stream_with_trace(task_input, task_type, chunk_size):
+            if isinstance(event, str):
+                yield event
+
+    async def stream_with_trace(
+        self,
+        task_input: str,
+        task_type: TaskType | None = None,
+        chunk_size: int = 64,
+    ) -> AsyncIterator[str | list[WorkflowStage]]:
         """Token-level streaming. Bypasses the checker — caller is responsible
         for post-hoc validation.
 
@@ -157,7 +167,8 @@ class WP2Tas(WorkspaceBase):
 
         if tools or skills:
             # Tool-driven turn cannot be true-streamed; buffer then chunk.
-            result = await self._run_with_agent(task_input, tools, skills, None, task_type)
+            steps: list[AgentStep] = []
+            result = await self._run_with_agent(task_input, tools, skills, steps, task_type)
             for i in range(0, len(result), chunk_size):
                 yield result[i:i + chunk_size]
                 await asyncio.sleep(0)
@@ -166,6 +177,7 @@ class WP2Tas(WorkspaceBase):
                 "task": task_input,
                 "output": result,
             })
+            yield [_step_to_stage(i, s) for i, s in enumerate(steps)]
             return
 
         messages = [
@@ -182,3 +194,4 @@ class WP2Tas(WorkspaceBase):
             "task": task_input,
             "output": full,
         })
+        yield []
