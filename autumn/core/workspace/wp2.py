@@ -1,5 +1,6 @@
+import asyncio
 import time
-from typing import Callable
+from typing import AsyncIterator, Callable
 
 from .base import WorkspaceBase
 from ..types import Message, Role, TaskType, WorkflowStage, AgentStep
@@ -136,3 +137,47 @@ class WP2Tas(WorkspaceBase):
             instructions=_apply_hint(self._system, task_type),
         )
         return await agent.run(task_input, memory=self.memory, steps=steps)
+
+    async def stream(
+        self,
+        task_input: str,
+        task_type: TaskType | None = None,
+        chunk_size: int = 64,
+    ) -> AsyncIterator[str]:
+        """Token-level streaming. Bypasses the checker — caller is responsible
+        for post-hoc validation.
+
+        When tools or skills are registered, the agent loop needs whole
+        responses to dispatch tool calls; in that case we fall back to a
+        buffered run and chunk the result. Either way, mom2 history is
+        persisted after the stream completes.
+        """
+        tools, skills = self._tool_provider() if self._tool_provider else ([], [])
+
+        if tools or skills:
+            # Tool-driven turn cannot be true-streamed; buffer then chunk.
+            result = await self._run_with_agent(task_input, tools, skills, None, task_type)
+            for i in range(0, len(result), chunk_size):
+                yield result[i:i + chunk_size]
+                await asyncio.sleep(0)
+            await self.memory.append_history({
+                "ts": time.time(),
+                "task": task_input,
+                "output": result,
+            })
+            return
+
+        messages = [
+            Message(role=Role.SYSTEM, content=_apply_hint(self._system, task_type)),
+            Message(role=Role.USER, content=task_input),
+        ]
+        buf: list[str] = []
+        async for tok in self.api.stream_complete(messages):
+            buf.append(tok)
+            yield tok
+        full = "".join(buf)
+        await self.memory.append_history({
+            "ts": time.time(),
+            "task": task_input,
+            "output": full,
+        })

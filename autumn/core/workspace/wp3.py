@@ -1,4 +1,5 @@
 import time
+from typing import AsyncIterator
 from .base import WorkspaceBase
 from ..types import Message, MissionRoute, Role
 
@@ -70,3 +71,23 @@ class WP3Mis(WorkspaceBase):
     async def process(self, mission_input: str) -> str:
         """Interface compliance. Actual routing is handled by WP1."""
         return await self.answer_directly(mission_input)
+
+    async def stream_direct(self, mission_input: str) -> AsyncIterator[str]:
+        """Token-level streaming for the direct path. Bypasses the checker —
+        caller handles post-hoc validation. Mom3 history is written when the
+        stream completes."""
+        messages = [
+            Message(role=Role.SYSTEM, content=self._direct_system),
+            Message(role=Role.USER, content=mission_input),
+        ]
+        buf: list[str] = []
+        async for tok in self.api.stream_complete(messages):
+            buf.append(tok)
+            yield tok
+        full = "".join(buf)
+        await self.memory.append_history({
+            "ts": time.time(),
+            "mission": mission_input,
+            "route": MissionRoute.DIRECT.value,
+            "output": full,
+        })
