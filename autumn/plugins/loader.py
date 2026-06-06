@@ -3,16 +3,17 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from ..core.components import Agent, Skill, Tool, MCPClient
+from ..core.components import Agent, Skill, Tool, MCPClient, Terr
 
 _PLUGIN_TYPES = (Agent, Skill, Tool, MCPClient)
 
 
 class PluginLoader:
-    """Loads and manages agent, skill, tool, and mcp plugins."""
+    """Loads and manages agent, skill, tool, mcp, and terr plugins."""
 
     def __init__(self):
         self._registry: dict[str, Any] = {}
+        self._terrs: dict[str, Terr] = {}
 
     def register(self, name: str, plugin: Any) -> None:
         existing = self._registry.get(name)
@@ -30,6 +31,17 @@ class PluginLoader:
 
     def all(self) -> dict[str, Any]:
         return dict(self._registry)
+
+    def register_terr(self, terr: Terr) -> None:
+        """Record a Terr domain by name. Individual tools/skills it contains must
+        be registered separately (Autumn.add_terr handles this automatically)."""
+        self._terrs[terr.name] = terr
+
+    def get_terr(self, name: str) -> Terr:
+        return self._terrs[name]
+
+    def all_terrs(self) -> dict[str, Terr]:
+        return dict(self._terrs)
 
     def load_from_directory(self, plugin_dir: str | Path) -> None:
         plugin_dir = Path(plugin_dir)

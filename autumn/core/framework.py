@@ -17,6 +17,7 @@ from .components.checker import Checker
 from .components.agent import Agent
 from .components.skill import Skill
 from .components.tool import Tool
+from .components.terr import Terr
 from .components.mcp import MCPClient
 from .components.mcp_bridge import mcp_to_tools
 from .types import MissionRoute, WorkflowRun
@@ -176,6 +177,37 @@ class Autumn:
         for tool in tools:
             self.register_tool(tool)
         return tools
+
+    def register_terr(self, terr: Terr) -> None:
+        """Register a capability domain whose tools/skills need no async setup.
+
+        MCP clients inside the Terr are NOT connected — use add_terr() if the
+        domain contains MCP servers that must be started first.
+        """
+        for tool in terr.tools:
+            self.register_tool(tool)
+        for skill in terr.skills:
+            self.register_skill(skill)
+        self.plugins.register_terr(terr)
+
+    async def add_terr(self, terr: Terr) -> None:
+        """Register a capability domain, connecting any embedded MCP servers.
+
+        All MCP clients in the Terr are connected and their tools are bridged to
+        Tool objects and registered alongside the Terr's direct tools and skills.
+        The MCP clients are owned by Autumn after this call and disconnected on
+        close().
+        """
+        for client in terr.mcps:
+            await client.connect()
+            self._mcp_clients.append(client)
+            for tool in await mcp_to_tools(client):
+                self.register_tool(tool)
+        for tool in terr.tools:
+            self.register_tool(tool)
+        for skill in terr.skills:
+            self.register_skill(skill)
+        self.plugins.register_terr(terr)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
