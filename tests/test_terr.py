@@ -1,4 +1,6 @@
 """Tests for the Terr (域) capability domain abstraction."""
+import warnings
+
 import pytest
 
 from autumn.core.components.terr import Terr
@@ -249,3 +251,231 @@ def test_plugin_loader_terrs_isolated_from_regular_registry():
     assert "search" not in loader.all()  # terr name not in flat registry
     assert loader.get_terr("search") is terr
     assert "brave" not in loader.all_terrs()
+
+
+# ── 1. open_terr context manager ──────────────────────────────────────────────
+
+
+class _FakeAutumn:
+    """Minimal Autumn stand-in that borrows open_terr without needing real config."""
+
+    def __init__(self):
+        from autumn.plugins.loader import PluginLoader
+        self.plugins = PluginLoader()
+
+    def register_tool(self, tool):
+        self.plugins.register(tool.name, tool)
+
+    def register_skill(self, skill):
+        self.plugins.register(skill.name, skill)
+
+    # Borrow the real implementation — Python's descriptor protocol passes self.
+    from autumn.core.framework import Autumn
+    open_terr = Autumn.open_terr
+
+
+class _MockMCPClient:
+    def __init__(self, tool_specs: list[dict] | None = None):
+        self._tool_specs = tool_specs or []
+        self.connected = False
+        self.disconnected = False
+
+    async def connect(self):
+        self.connected = True
+
+    async def disconnect(self):
+        self.disconnected = True
+
+    async def list_tools(self):
+        return self._tool_specs
+
+    async def call_tool(self, name, arguments):
+        return f"result:{name}"
+
+
+async def test_open_terr_registers_on_entry_and_unregisters_on_exit():
+    fa = _FakeAutumn()
+    tool = _make_tool("brave")
+    skill = _make_skill("summarize")
+    terr = Terr("search", "search domain", tools=[tool], skills=[skill])
+
+    async with fa.open_terr(terr):
+        assert "brave" in fa.plugins.all()
+        assert "summarize" in fa.plugins.all()
+        assert fa.plugins.get_terr("search") is terr
+
+    assert "brave" not in fa.plugins.all()
+    assert "summarize" not in fa.plugins.all()
+    assert "search" not in fa.plugins.all_terrs()
+
+
+async def test_open_terr_connects_mcp_on_entry_disconnects_on_exit():
+    mcp = _MockMCPClient()
+    terr = Terr("empty", "no static tools", mcps=[mcp])
+    fa = _FakeAutumn()
+
+    async with fa.open_terr(terr):
+        assert mcp.connected
+        assert not mcp.disconnected
+
+    assert mcp.disconnected
+
+
+async def test_open_terr_bridges_mcp_tools_into_registry():
+    mcp = _MockMCPClient(tool_specs=[
+        {"name": "web_search", "description": "Search the web",
+         "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    ])
+    terr = Terr("search", "search", mcps=[mcp])
+    fa = _FakeAutumn()
+
+    async with fa.open_terr(terr):
+        assert "web_search" in fa.plugins.all()
+
+    assert "web_search" not in fa.plugins.all()
+
+
+async def test_open_terr_cleans_up_even_on_exception():
+    fa = _FakeAutumn()
+    tool = _make_tool("brave")
+    terr = Terr("s", "s", tools=[tool])
+
+    with pytest.raises(RuntimeError, match="deliberate"):
+        async with fa.open_terr(terr):
+            assert "brave" in fa.plugins.all()
+            raise RuntimeError("deliberate")
+
+    assert "brave" not in fa.plugins.all()
+
+
+async def test_open_terr_disconnects_mcp_on_exception():
+    mcp = _MockMCPClient()
+    terr = Terr("s", "s", mcps=[mcp])
+    fa = _FakeAutumn()
+
+    with pytest.raises(RuntimeError):
+        async with fa.open_terr(terr):
+            raise RuntimeError("deliberate")
+
+    assert mcp.disconnected
+
+
+# ── 2. load_from_directory discovers Terr ─────────────────────────────────────
+
+
+def test_plugin_loader_load_from_directory_discovers_terr(tmp_path):
+    (tmp_path / "web_domain.py").write_text(
+        "from autumn.core.components.terr import Terr\n"
+        "from autumn.core.components.tool import Tool\n"
+        "\n"
+        "_fetch = Tool('fetch', 'fetch url', lambda url: url, [])\n"
+        "web_terr = Terr('web', 'web capabilities', tools=[_fetch])\n"
+    )
+    from autumn.plugins.loader import PluginLoader
+
+    loader = PluginLoader()
+    loader.load_from_directory(tmp_path)
+
+    assert "web" in loader.all_terrs()
+    assert "fetch" in loader.all()
+
+
+def test_plugin_loader_load_from_directory_terr_with_skills(tmp_path):
+    (tmp_path / "code_domain.py").write_text(
+        "from autumn.core.components.terr import Terr\n"
+        "from autumn.core.components.skill import Skill\n"
+        "\n"
+        "code_terr = Terr(\n"
+        "    'code', 'code ops',\n"
+        "    skills=[Skill('review_pr', 'review pr', lambda **kw: 'ok')],\n"
+        ")\n"
+    )
+    from autumn.plugins.loader import PluginLoader
+
+    loader = PluginLoader()
+    loader.load_from_directory(tmp_path)
+
+    assert "code" in loader.all_terrs()
+    assert "review_pr" in loader.all()
+
+
+def test_plugin_loader_load_from_directory_terr_not_in_flat_registry(tmp_path):
+    """The Terr object itself must not appear in the flat tool/skill registry."""
+    (tmp_path / "search_domain.py").write_text(
+        "from autumn.core.components.terr import Terr\n"
+        "search_terr = Terr('search', 'search')\n"
+    )
+    from autumn.plugins.loader import PluginLoader
+
+    loader = PluginLoader()
+    loader.load_from_directory(tmp_path)
+
+    flat = loader.all()
+    assert not any(isinstance(v, Terr) for v in flat.values())
+
+
+def test_plugin_loader_load_from_directory_terr_and_standalone_tool_coexist(tmp_path):
+    (tmp_path / "mixed.py").write_text(
+        "from autumn.core.components.terr import Terr\n"
+        "from autumn.core.components.tool import Tool\n"
+        "\n"
+        "standalone = Tool('noop', '', lambda: None, [])\n"
+        "my_terr = Terr('x', 'x', tools=[Tool('inner', '', lambda: None, [])])\n"
+    )
+    from autumn.plugins.loader import PluginLoader
+
+    loader = PluginLoader()
+    loader.load_from_directory(tmp_path)
+
+    assert "noop" in loader.all()
+    assert "inner" in loader.all()
+    assert "x" in loader.all_terrs()
+
+
+# ── 3. cross-terr same-type collision warning ─────────────────────────────────
+
+
+def test_agent_cross_terr_tool_tool_collision_warns():
+    t1 = Terr("a", "a", tools=[_make_tool("search")])
+    t2 = Terr("b", "b", tools=[_make_tool("search")])
+
+    with pytest.warns(UserWarning, match="search"):
+        agent = Agent("ag", _MockAPI([]), terrs=[t1, t2])
+
+    assert "search" in agent.tools  # last terr wins
+
+
+def test_agent_cross_terr_skill_skill_collision_warns():
+    s1 = Terr("a", "a", skills=[_make_skill("summarize")])
+    s2 = Terr("b", "b", skills=[_make_skill("summarize")])
+
+    with pytest.warns(UserWarning, match="summarize"):
+        Agent("ag", _MockAPI([]), terrs=[s1, s2])
+
+
+def test_agent_cross_terr_warning_names_both_terrs():
+    t1 = Terr("alpha", "a", tools=[_make_tool("fetch")])
+    t2 = Terr("beta", "b", tools=[_make_tool("fetch")])
+
+    with pytest.warns(UserWarning) as record:
+        Agent("ag", _MockAPI([]), terrs=[t1, t2])
+
+    msg = str(record[0].message)
+    assert "alpha" in msg and "beta" in msg
+
+
+def test_agent_no_warning_for_single_terr():
+    terr = Terr("x", "x", tools=[_make_tool("foo")], skills=[_make_skill("bar")])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        Agent("ag", _MockAPI([]), terrs=[terr])  # no warning → no exception
+
+
+def test_agent_no_warning_when_explicit_overrides_terr():
+    """Explicit tools/skills silently overriding a terr entry is intentional — no warn."""
+    terr = Terr("x", "x", tools=[_make_tool("fetch")])
+    explicit = _make_tool("fetch")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        agent = Agent("ag", _MockAPI([]), tools=[explicit], terrs=[terr])
+    assert agent.tools["fetch"] is explicit

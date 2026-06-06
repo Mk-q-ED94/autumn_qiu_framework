@@ -43,6 +43,12 @@ class PluginLoader:
     def all_terrs(self) -> dict[str, Terr]:
         return dict(self._terrs)
 
+    def unregister(self, name: str) -> None:
+        self._registry.pop(name, None)
+
+    def unregister_terr(self, name: str) -> None:
+        self._terrs.pop(name, None)
+
     def load_from_directory(self, plugin_dir: str | Path) -> None:
         plugin_dir = Path(plugin_dir)
         if not plugin_dir.exists():
@@ -55,5 +61,15 @@ class PluginLoader:
             spec.loader.exec_module(module)
             for attr_name in dir(module):
                 obj = getattr(module, attr_name)
-                if isinstance(obj, _PLUGIN_TYPES):
+                if isinstance(obj, Terr):
+                    # Register constituent tools/skills individually so
+                    # _collect_plugins() can pick them up, and track the terr
+                    # as a unit. MCP clients in the terr are NOT connected here
+                    # (sync context) — use Autumn.add_terr() for that.
+                    for tool in obj.tools:
+                        self.register(tool.name, tool)
+                    for skill in obj.skills:
+                        self.register(skill.name, skill)
+                    self.register_terr(obj)
+                elif isinstance(obj, _PLUGIN_TYPES):
                     self.register(obj.name, obj)

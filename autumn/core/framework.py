@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Literal
 
@@ -189,6 +190,49 @@ class Autumn:
         for skill in terr.skills:
             self.register_skill(skill)
         self.plugins.register_terr(terr)
+
+    @asynccontextmanager
+    async def open_terr(self, terr: Terr):
+        """Register a capability domain for the duration of the ``async with`` block.
+
+        On entry: MCP servers are connected, their tools bridged and registered
+        alongside the Terr's direct tools and skills.
+        On exit: MCP servers are disconnected and every tool/skill added by this
+        call is removed from the plugin registry.
+
+        Use this for one-shot sessions or when a domain should not outlive a
+        single operation. For permanent registration use ``add_terr()`` instead.
+        """
+        registered_tool_names: list[str] = []
+        registered_skill_names: list[str] = []
+        connected_clients: list[MCPClient] = []
+
+        try:
+            for client in terr.mcps:
+                await client.connect()
+                connected_clients.append(client)
+                for tool in await mcp_to_tools(client):
+                    self.register_tool(tool)
+                    registered_tool_names.append(tool.name)
+
+            for tool in terr.tools:
+                self.register_tool(tool)
+                registered_tool_names.append(tool.name)
+
+            for skill in terr.skills:
+                self.register_skill(skill)
+                registered_skill_names.append(skill.name)
+
+            self.plugins.register_terr(terr)
+            yield terr
+        finally:
+            for client in connected_clients:
+                await client.disconnect()
+            for name in registered_tool_names:
+                self.plugins.unregister(name)
+            for name in registered_skill_names:
+                self.plugins.unregister(name)
+            self.plugins.unregister_terr(terr.name)
 
     async def add_terr(self, terr: Terr) -> None:
         """Register a capability domain, connecting any embedded MCP servers.
