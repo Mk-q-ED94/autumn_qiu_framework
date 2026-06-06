@@ -87,10 +87,10 @@ async def test_agent_react_loop_executes_tool(protocol):
 
 
 async def test_agent_exposes_skill_as_function_and_invokes_it():
-    invoked = {"ctx": None}
+    captured = {}
 
-    async def handler(ctx):
-        invoked["ctx"] = ctx
+    async def handler(**kwargs):
+        captured.update(kwargs)
         return "summary text"
 
     skill = Skill("summarize", "summarize text", handler,
@@ -103,7 +103,7 @@ async def test_agent_exposes_skill_as_function_and_invokes_it():
     agent = Agent("tester", api, skills=[skill])
     result = await agent.run("Summarize this.")
     assert result == "Done summarizing"
-    assert invoked["ctx"] == {"text": "long input"}
+    assert captured == {"text": "long input"}
 
     # The skill must have been advertised to the model as a function schema
     # (the MockAPI ignores tools, so assert on what Agent built instead).
@@ -119,7 +119,7 @@ async def test_agent_skill_schema_sent_to_model():
             seen_schemas["tools"] = tools
             return await super().complete_with_tools_raw(messages, tools, system, **kwargs)
 
-    skill = Skill("translate", "translate text", lambda ctx: "hola")
+    skill = Skill("translate", "translate text", lambda **kw: "hola")
     tool = Tool("noop", "noop", lambda: "x", [])
     api = CapturingAPI(Protocol.OPENAI, [("final", [])])
     agent = Agent("tester", api, tools=[tool], skills=[skill])
@@ -141,6 +141,81 @@ async def test_agent_unknown_tool_returns_error_to_model():
     second = api.message_log[1]
     tool_results = [m for m in second if m.get("role") == "tool"]
     assert tool_results and "unknown tool" in tool_results[0]["content"]
+
+
+def test_agent_raises_on_tool_skill_name_collision():
+    """A tool and skill with the same name would shadow at the model layer —
+    must be caught at construction, not silently."""
+    tool = Tool("search", "atomic search", lambda q: q,
+                [ToolParameter(name="q", type="string", description="q")])
+    skill = Skill("search", "high-level search", lambda **kw: "x",
+                  [ToolParameter(name="q", type="string", description="q")])
+    with pytest.raises(ValueError) as exc_info:
+        Agent("tester", MockAPI(Protocol.OPENAI, []), tools=[tool], skills=[skill])
+    assert "search" in str(exc_info.value)
+    assert "collision" in str(exc_info.value)
+
+
+def test_agent_multiple_collisions_listed():
+    t1 = Tool("foo", "", lambda: None, [])
+    t2 = Tool("bar", "", lambda: None, [])
+    s1 = Skill("foo", "", lambda **kw: None)
+    s2 = Skill("bar", "", lambda **kw: None)
+    with pytest.raises(ValueError) as exc_info:
+        Agent("x", MockAPI(Protocol.OPENAI, []), tools=[t1, t2], skills=[s1, s2])
+    msg = str(exc_info.value)
+    assert "foo" in msg and "bar" in msg
+
+
+async def test_agent_max_steps_default_is_10():
+    """Empty script + endless tool calls would loop forever; verify default cap."""
+    # Construct a script that always issues a tool call, never finishes.
+    api = MockAPI(Protocol.OPENAI, [
+        (f"step {i}", [ToolCall(id=f"t{i}", name="noop", arguments={})])
+        for i in range(20)
+    ])
+    tool = Tool("noop", "noop", lambda: "ok", [])
+    agent = Agent("tester", api, tools=[tool])
+    result = await agent.run("...")
+    assert "max steps reached" in result
+    assert agent.max_steps == 10
+    # The mock got exactly max_steps tool-issuing turns
+    assert len(api.message_log) == 10
+
+
+async def test_agent_max_steps_configurable():
+    """Custom max_steps bounds the loop differently."""
+    api = MockAPI(Protocol.OPENAI, [
+        (f"step {i}", [ToolCall(id=f"t{i}", name="noop", arguments={})])
+        for i in range(20)
+    ])
+    tool = Tool("noop", "noop", lambda: "ok", [])
+    agent = Agent("tester", api, tools=[tool], max_steps=3)
+    result = await agent.run("...")
+    assert "max steps reached" in result
+    assert len(api.message_log) == 3
+
+
+async def test_agent_skill_handler_receives_kwargs_not_dict():
+    """G4: Skill handler signature is unified with Tool — receives **kwargs."""
+    received = {}
+
+    def handler(text: str, n: int):
+        received["text"] = text
+        received["n"] = n
+        return "done"
+
+    skill = Skill("op", "op", handler, [
+        ToolParameter(name="text", type="string", description="t"),
+        ToolParameter(name="n", type="integer", description="n"),
+    ])
+    api = MockAPI(Protocol.OPENAI, [
+        ("calling", [ToolCall(id="s1", name="op", arguments={"text": "hi", "n": 3})]),
+        ("done", []),
+    ])
+    agent = Agent("tester", api, skills=[skill])
+    await agent.run("...")
+    assert received == {"text": "hi", "n": 3}
 
 
 async def test_agent_tool_exception_is_caught():

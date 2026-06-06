@@ -106,7 +106,7 @@ async def test_wp2_runs_agent_when_tool_present():
 
 async def test_wp2_runs_agent_when_only_skill_present():
     api = ScriptedAPI(script=[("done", [])])
-    skill = Skill("greet", "greets", lambda ctx: "hi")
+    skill = Skill("greet", "greets", lambda **kw: "hi")
     wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([], [skill]))
     await wp2.process("x")
     assert api.tools_called
@@ -329,7 +329,7 @@ def test_collect_plugins_separates_tools_and_skills(tmp_path):
     from autumn import Autumn
     autumn = Autumn(_autumn_config(tmp_path))
     tool = Tool("mytool", "d", lambda: "x", [])
-    skill = Skill("myskill", "d", lambda ctx: "y")
+    skill = Skill("myskill", "d", lambda **kw: "y")
     autumn.register_tool(tool)
     autumn.register_skill(skill)
     tools, skills = autumn._collect_plugins()
