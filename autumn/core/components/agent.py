@@ -1,3 +1,5 @@
+import warnings
+
 from .tool import Tool
 from .skill import Skill
 from .terr import Terr
@@ -83,11 +85,38 @@ class Agent:
 
         # Expand terrs into flat lists; explicit tools/skills take precedence
         # (they're registered last, so the dict overwrites any same-name terr entry).
+        # Warn when the same name appears in two different terrs under the same type —
+        # that is usually an accidental naming conflict across domains.
         all_tools: list[Tool] = []
         all_skills: list[Skill] = []
+        _seen_tool_src: dict[str, str] = {}   # name → terr name that introduced it
+        _seen_skill_src: dict[str, str] = {}
+
         for terr in (terrs or []):
-            all_tools.extend(terr.tools)
-            all_skills.extend(terr.skills)
+            for tool in terr.tools:
+                if tool.name in _seen_tool_src:
+                    warnings.warn(
+                        f"Agent {name!r}: tool {tool.name!r} defined in both "
+                        f"terr {_seen_tool_src[tool.name]!r} and terr {terr.name!r}; "
+                        "the later definition wins.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                _seen_tool_src[tool.name] = terr.name
+                all_tools.append(tool)
+
+            for skill in terr.skills:
+                if skill.name in _seen_skill_src:
+                    warnings.warn(
+                        f"Agent {name!r}: skill {skill.name!r} defined in both "
+                        f"terr {_seen_skill_src[skill.name]!r} and terr {terr.name!r}; "
+                        "the later definition wins.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                _seen_skill_src[skill.name] = terr.name
+                all_skills.append(skill)
+
         all_tools.extend(tools or [])
         all_skills.extend(skills or [])
 
