@@ -56,6 +56,8 @@ struct PersistableTrace: Codable, Equatable {
     let route: String?
     let taskType: String?
     let stages: [PersistableStage]
+    let totalPromptTokens: Int?
+    let totalCompletionTokens: Int?
 
     init(from trace: WorkflowTrace) {
         self.output = trace.output
@@ -63,6 +65,24 @@ struct PersistableTrace: Codable, Equatable {
         self.route = trace.route
         self.taskType = trace.taskType
         self.stages = trace.stages.map { PersistableStage(from: $0) }
+        self.totalPromptTokens = trace.totalPromptTokens
+        self.totalCompletionTokens = trace.totalCompletionTokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        output = try c.decode(String.self, forKey: .output)
+        inputType = try c.decode(String.self, forKey: .inputType)
+        route = try c.decodeIfPresent(String.self, forKey: .route)
+        taskType = try c.decodeIfPresent(String.self, forKey: .taskType)
+        stages = try c.decode([PersistableStage].self, forKey: .stages)
+        totalPromptTokens = try c.decodeIfPresent(Int.self, forKey: .totalPromptTokens)
+        totalCompletionTokens = try c.decodeIfPresent(Int.self, forKey: .totalCompletionTokens)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case output, inputType, route, taskType, stages
+        case totalPromptTokens, totalCompletionTokens
     }
 
     func toWorkflowTrace() -> WorkflowTrace {
@@ -71,7 +91,9 @@ struct PersistableTrace: Codable, Equatable {
             inputType: inputType,
             route: route,
             taskType: taskType,
-            stages: stages.map { $0.toWorkflowStage() }
+            stages: stages.map { $0.toWorkflowStage() },
+            totalPromptTokens: totalPromptTokens,
+            totalCompletionTokens: totalCompletionTokens
         )
     }
 }
@@ -84,6 +106,8 @@ struct PersistableStage: Codable, Equatable {
     let status: String
     let kind: String
     let durationMS: Double?
+    let promptTokens: Int?
+    let completionTokens: Int?
 
     init(from stage: WorkflowStage) {
         self.id = stage.id
@@ -93,6 +117,8 @@ struct PersistableStage: Codable, Equatable {
         self.status = stage.status
         self.kind = stage.kind
         self.durationMS = stage.durationMS
+        self.promptTokens = stage.promptTokens
+        self.completionTokens = stage.completionTokens
     }
 
     init(from decoder: Decoder) throws {
@@ -104,11 +130,14 @@ struct PersistableStage: Codable, Equatable {
         status = try c.decode(String.self, forKey: .status)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
         durationMS = try c.decodeIfPresent(Double.self, forKey: .durationMS)
+        promptTokens = try c.decodeIfPresent(Int.self, forKey: .promptTokens)
+        completionTokens = try c.decodeIfPresent(Int.self, forKey: .completionTokens)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, detail, workspace, status, kind
         case durationMS
+        case promptTokens, completionTokens
     }
 
     func toWorkflowStage() -> WorkflowStage {
@@ -119,7 +148,9 @@ struct PersistableStage: Codable, Equatable {
             workspace: workspace,
             status: status,
             kind: kind,
-            durationMS: durationMS
+            durationMS: durationMS,
+            promptTokens: promptTokens,
+            completionTokens: completionTokens
         )
     }
 }

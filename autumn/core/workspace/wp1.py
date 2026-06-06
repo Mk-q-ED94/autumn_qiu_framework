@@ -33,6 +33,28 @@ def _duration_ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+def _capture_usage(api) -> tuple[int | None, int | None]:
+    """Read and clear ``api.last_usage`` — returns ``(prompt_tokens, completion_tokens)``.
+
+    Called immediately after a model invocation that the workflow wants to attribute
+    to a specific WorkflowStage. Clearing prevents stale usage from leaking into a
+    downstream stage whose call didn't return ``usage``. Tolerates mock APIs that
+    don't expose ``last_usage`` (returns ``(None, None)``).
+    """
+    if api is None:
+        return None, None
+    usage = getattr(api, "last_usage", None) or {}
+    try:
+        api.last_usage = None
+    except AttributeError:
+        pass
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    if prompt is None and completion is None:
+        return None, None
+    return prompt, completion
+
+
 def _classify_detail(input_type: InputType, task_type: TaskType | None) -> str:
     if input_type == InputType.TASK and task_type and task_type != TaskType.GENERAL:
         return f"输入被识别为 task · {task_type.value}"
@@ -92,17 +114,22 @@ class WP1Tot(WorkspaceBase):
         sel = await self._select_intent(user_input, input_type=input_type, task_type=task_type)
         input_type = sel.input_type
         task_type = sel.task_type
+        select_prompt, select_completion = _capture_usage(self.api)
         stages.append(WorkflowStage(
             id="wp1.select",
             title="A1 分类",
             detail=_classify_detail(input_type, task_type),
             workspace="WP1",
             duration_ms=_duration_ms(select_started),
+            prompt_tokens=select_prompt,
+            completion_tokens=select_completion,
         ))
 
         if input_type == InputType.TASK:
             task_started = time.perf_counter()
-            result, tool_stages = await self.wp2.process_with_trace(user_input, task_type=task_type)
+            result, tool_stages, wp2_prompt, wp2_completion = (
+                await self.wp2.process_with_trace(user_input, task_type=task_type)
+            )
             stages.extend(tool_stages)
             stages.append(WorkflowStage(
                 id="wp2.task",
@@ -110,15 +137,20 @@ class WP1Tot(WorkspaceBase):
                 detail="WP2 已完成结构化任务执行",
                 workspace="WP2",
                 duration_ms=_duration_ms(task_started),
+                prompt_tokens=wp2_prompt,
+                completion_tokens=wp2_completion,
             ))
             check_started = time.perf_counter()
             final = await self._wp1_check(result)
+            check_prompt, check_completion = _capture_usage(self.api)
             stages.append(WorkflowStage(
                 id="wp1.final_check",
                 title="A1 最终检查",
                 detail="WP1 已完成最终质量检查",
                 workspace="WP1",
                 duration_ms=_duration_ms(check_started),
+                prompt_tokens=check_prompt,
+                completion_tokens=check_completion,
             ))
             chosen_route = None
         else:
@@ -190,67 +222,86 @@ class WP1Tot(WorkspaceBase):
         else:
             route = await self._resolve_headless_route(mission_input, mission_route)
 
+        # auto_decide_route calls A3; headless/static paths don't. Capture either way.
+        route_prompt, route_completion = _capture_usage(self.wp3.api)
         stages.append(WorkflowStage(
             id="wp3.route",
             title="A3 路由",
             detail=f"Mission 路由为 {route.value}",
             workspace="WP3",
             duration_ms=_duration_ms(route_started),
+            prompt_tokens=route_prompt,
+            completion_tokens=route_completion,
         ))
 
         if route == MissionRoute.DIRECT:
             direct_started = time.perf_counter()
             result = await self.wp3.answer_directly(mission_input)
+            direct_prompt, direct_completion = _capture_usage(self.wp3.api)
             stages.append(WorkflowStage(
                 id="wp3.direct",
                 title="A3 直接回答",
                 detail="WP3 已生成 mission 回答",
                 workspace="WP3",
                 duration_ms=_duration_ms(direct_started),
+                prompt_tokens=direct_prompt,
+                completion_tokens=direct_completion,
             ))
             check_started = time.perf_counter()
             final = await self._wp1_check(result)
+            check_prompt, check_completion = _capture_usage(self.api)
             stages.append(WorkflowStage(
                 id="wp1.final_check",
                 title="A1 最终检查",
                 detail="WP1 已完成最终质量检查",
                 workspace="WP1",
                 duration_ms=_duration_ms(check_started),
+                prompt_tokens=check_prompt,
+                completion_tokens=check_completion,
             ))
             return final, route
 
         convert_started = time.perf_counter()
         task_form = await self.wp3.convert_to_task(mission_input)
+        convert_prompt, convert_completion = _capture_usage(self.wp3.api)
         stages.append(WorkflowStage(
             id="wp3.convert",
             title="A3 转换任务",
             detail="WP3 已将 mission 转为可执行任务",
             workspace="WP3",
             duration_ms=_duration_ms(convert_started),
+            prompt_tokens=convert_prompt,
+            completion_tokens=convert_completion,
         ))
         if self.wp3.checker:
             check_started = time.perf_counter()
             _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+            wp3check_prompt, wp3check_completion = _capture_usage(self.wp3.api)
             stages.append(WorkflowStage(
                 id="wp3.check",
                 title="WP3 检查",
                 detail="转换后的任务已通过 WP3 检查",
                 workspace="WP3",
                 duration_ms=_duration_ms(check_started),
+                prompt_tokens=wp3check_prompt,
+                completion_tokens=wp3check_completion,
             ))
         if self.checker:
             handoff_started = time.perf_counter()
             _, task_form = await self.checker.validate(task_form, self.memory)
+            handoff_prompt, handoff_completion = _capture_usage(self.api)
             stages.append(WorkflowStage(
                 id="wp1.handoff_check",
                 title="A1 交接检查",
                 detail="A1 已检查 mission 到 task 的交接内容",
                 workspace="WP1",
                 duration_ms=_duration_ms(handoff_started),
+                prompt_tokens=handoff_prompt,
+                completion_tokens=handoff_completion,
             ))
 
         task_started = time.perf_counter()
-        result, tool_stages = await self.wp2.process_with_trace(task_form)
+        result, tool_stages, wp2_prompt, wp2_completion = await self.wp2.process_with_trace(task_form)
         stages.extend(tool_stages)
         stages.append(WorkflowStage(
             id="wp2.task",
@@ -258,15 +309,20 @@ class WP1Tot(WorkspaceBase):
             detail="WP2 已完成转换任务执行",
             workspace="WP2",
             duration_ms=_duration_ms(task_started),
+            prompt_tokens=wp2_prompt,
+            completion_tokens=wp2_completion,
         ))
         check_started = time.perf_counter()
         final = await self._wp1_check(result)
+        check_prompt, check_completion = _capture_usage(self.api)
         stages.append(WorkflowStage(
             id="wp1.final_check",
             title="A1 最终检查",
             detail="WP1 已完成最终质量检查",
             workspace="WP1",
             duration_ms=_duration_ms(check_started),
+            prompt_tokens=check_prompt,
+            completion_tokens=check_completion,
         ))
         return final, route
 

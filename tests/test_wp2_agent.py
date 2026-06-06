@@ -153,9 +153,10 @@ async def test_wp2_plain_task_type_hint_in_system():
     assert api.completion_called
     # verify via the messages recorded if available (ScriptedAPI.complete doesn't record)
     # just confirm no crash and correct output
-    output, stages = await wp2.process_with_trace("find info", task_type=TaskType.SEARCH)
+    output, stages, prompt, completion = await wp2.process_with_trace("find info", task_type=TaskType.SEARCH)
     assert output == "plain answer"
     assert stages == []
+    assert prompt is None and completion is None
 
 
 async def test_wp2_agent_injects_memory_history():
@@ -181,7 +182,7 @@ async def test_wp2_process_with_trace_emits_tool_stages():
         ("It's sunny in Paris.", []),
     ])
     wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([tool], []))
-    output, stages = await wp2.process_with_trace("weather in Paris?")
+    output, stages, _, _ = await wp2.process_with_trace("weather in Paris?")
 
     assert output == "It's sunny in Paris."
     assert len(stages) == 1
@@ -196,7 +197,7 @@ async def test_wp2_process_with_trace_emits_tool_stages():
 async def test_wp2_process_with_trace_no_tools_empty_stages():
     api = ScriptedAPI(completion="plain answer")
     wp2 = WP2Tas(api, make_memory())
-    output, stages = await wp2.process_with_trace("hello")
+    output, stages, _, _ = await wp2.process_with_trace("hello")
     assert output == "plain answer"
     assert stages == []
 
@@ -211,7 +212,7 @@ async def test_wp2_tool_stage_truncates_long_result():
         ("done", []),
     ])
     wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([tool], []))
-    _, stages = await wp2.process_with_trace("t")
+    _, stages, _, _ = await wp2.process_with_trace("t")
     assert "…" in stages[0].detail
     assert len(stages[0].detail) < 200
 
@@ -404,7 +405,7 @@ async def test_wp1_trace_includes_wp2_tool_stages():
             return "wp2 output", [WorkflowStage(
                 id="wp2.tool.0.search", title="search", detail="q=x → result",
                 workspace="WP2", status="completed", kind="tool",
-            )]
+            )], None, None
 
     class StubSelector:
         async def classify_and_maybe_confirm(self, inp, interaction):

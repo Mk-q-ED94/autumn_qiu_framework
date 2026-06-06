@@ -47,6 +47,8 @@ class WorkflowStage:
     status: str = "completed"
     kind: str = "stage"   # "stage" = workflow step, "tool" = an agent tool call
     duration_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 @dataclass
@@ -56,6 +58,8 @@ class AgentStep:
     arguments: dict
     result: str
     duration_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 @dataclass

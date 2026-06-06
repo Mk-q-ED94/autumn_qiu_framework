@@ -154,6 +154,7 @@ class HermesAPIInterface(ModelAPIInterface):
         system: str | None = None,
         **kwargs,
     ) -> tuple[str, list[ToolCall]]:
+        self.last_usage = None
         full: list[dict] = []
         if system:
             full.append({"role": "system", "content": system})
@@ -162,6 +163,7 @@ class HermesAPIInterface(ModelAPIInterface):
 
         payload = {"model": self.model, "messages": full, **kwargs}
         data = await self._post_with_retry(self._completion_endpoint, payload)
+        self._record_usage(data)
         raw = data["choices"][0]["message"].get("content") or ""
 
         # Strip <thinking> first, then look for tool calls in the remainder.

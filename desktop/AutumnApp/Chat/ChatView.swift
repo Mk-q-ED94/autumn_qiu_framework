@@ -304,10 +304,7 @@ private struct MessageRow: View {
             if message.text.isEmpty {
                 TypingIndicator()
             } else {
-                Text(message.text)
-                    .font(Autumn.typography.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                MessageContentView(text: message.text)
             }
 
             if message.role == .assistant, let trace = message.trace {

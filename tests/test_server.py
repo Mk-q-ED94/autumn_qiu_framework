@@ -56,6 +56,8 @@ class _MockAutumn:
                     detail=f"Mission 路由为 {route.value}",
                     workspace="WP3",
                     duration_ms=12.5,
+                    prompt_tokens=120,
+                    completion_tokens=15,
                 ),
                 WorkflowStage(
                     id="wp2.tool.0.search",
@@ -64,6 +66,8 @@ class _MockAutumn:
                     workspace="WP2",
                     status="completed",
                     kind="tool",
+                    prompt_tokens=240,
+                    completion_tokens=18,
                 ),
             ],
         )
@@ -408,6 +412,26 @@ def test_trace_includes_tool_stage_kind(configured_client):
     tool_stages = [s for s in stages if s["kind"] == "tool"]
     assert len(tool_stages) == 1
     assert tool_stages[0]["title"] == "search"
+
+
+def test_trace_includes_token_usage_per_stage(configured_client):
+    """Token fields propagate from WorkflowStage → TraceStageResponse."""
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 200
+    stages = r.json()["stages"]
+    assert stages[0]["prompt_tokens"] == 120
+    assert stages[0]["completion_tokens"] == 15
+    assert stages[1]["prompt_tokens"] == 240
+    assert stages[1]["completion_tokens"] == 18
+
+
+def test_trace_includes_aggregate_token_totals(configured_client):
+    """TraceResponse sums per-stage tokens into top-level totals."""
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_prompt_tokens"] == 360       # 120 + 240
+    assert body["total_completion_tokens"] == 33    # 15 + 18
 
 
 def test_trace_503_when_unconfigured(unconfigured_client):

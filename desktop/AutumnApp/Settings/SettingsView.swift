@@ -351,6 +351,26 @@ private struct ModelConfigRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Menu {
+                    ForEach(ProviderPresets.all) { preset in
+                        Button {
+                            baseURL = preset.baseURL
+                            apiProtocol = preset.apiProtocol
+                        } label: {
+                            if let note = preset.note {
+                                Text("\(preset.name) · \(note)")
+                            } else {
+                                Text(preset.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("预置", systemImage: "wand.and.stars")
+                        .font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("快速填入常见服务商")
                 AutumnBadge(state.title, tone: state.tone)
                 if state == .connecting {
                     ProgressView()
@@ -369,10 +389,20 @@ private struct ModelConfigRow: View {
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
                 #endif
+                .onChange(of: baseURL) { _, newValue in
+                    // Auto-detect protocol on URL change unless the user has selected hermes,
+                    // which deliberately shares the Ollama URL.
+                    guard apiProtocol != "hermes" else { return }
+                    let detected = ProviderPresets.detectProtocol(baseURL: newValue)
+                    if detected != apiProtocol {
+                        apiProtocol = detected
+                    }
+                }
 
             Picker("协议", selection: $apiProtocol) {
                 Text("OpenAI").tag("openai")
                 Text("Anthropic").tag("anthropic")
+                Text("Hermes").tag("hermes")
             }
             .pickerStyle(.segmented)
 

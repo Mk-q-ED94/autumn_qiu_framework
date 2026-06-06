@@ -38,6 +38,8 @@ class TraceStageResponse(BaseModel):
     status: str
     kind: str = "stage"
     duration_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class TraceResponse(BaseModel):
@@ -46,6 +48,8 @@ class TraceResponse(BaseModel):
     route: MissionRoute | None = None
     task_type: TaskType | None = None
     stages: list[TraceStageResponse]
+    total_prompt_tokens: int | None = None
+    total_completion_tokens: int | None = None
 
 
 class IntentRequest(BaseModel):
@@ -189,12 +193,17 @@ def _autumn_or_503(request: Request) -> Autumn:
 
 
 def _trace_response(run: WorkflowRun) -> TraceResponse:
+    stages = [TraceStageResponse(**stage.__dict__) for stage in run.stages]
+    prompt_sum = sum((s.prompt_tokens or 0) for s in stages)
+    completion_sum = sum((s.completion_tokens or 0) for s in stages)
     return TraceResponse(
         output=run.output,
         input_type=run.input_type,
         route=run.route,
         task_type=run.task_type,
-        stages=[TraceStageResponse(**stage.__dict__) for stage in run.stages],
+        stages=stages,
+        total_prompt_tokens=prompt_sum or None,
+        total_completion_tokens=completion_sum or None,
     )
 
 
