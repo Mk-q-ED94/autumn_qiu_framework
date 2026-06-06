@@ -64,6 +64,7 @@ class IntentResponse(BaseModel):
     task_type: TaskType | None = None
     route: MissionRoute | None = None
     confidence: float
+    reasoning: str | None = None
 
 
 class TerrParameterResponse(BaseModel):
@@ -303,6 +304,7 @@ def create_app() -> FastAPI:
             task_type=sel.task_type,
             route=route,
             confidence=sel.confidence,
+            reasoning=sel.reasoning,
         )
 
     @app.get("/stream")

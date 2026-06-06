@@ -213,12 +213,14 @@ private struct IntentBadgeButton: View {
                 selectedInput: inputKind ?? .mission,
                 selectedTask: taskKind ?? .general,
                 routeOverride: routeOverride,
+                reasoning: preview?.reasoning,
+                confidence: preview?.confidence,
                 setInput: setInput,
                 setTask: setTask,
                 setRoute: setRoute
             )
         }
-        .help("查看或覆盖本次输入意图")
+        .help(preview?.reasoning ?? "查看或覆盖本次输入意图")
     }
 
     private var title: String {
@@ -245,14 +247,31 @@ private struct IntentOverridePopover: View {
     let selectedInput: WorkflowInputKind
     let selectedTask: WorkflowTaskKind
     let routeOverride: MissionRouteMode?
+    let reasoning: String?
+    let confidence: Double?
     let setInput: (WorkflowInputKind) -> Void
     let setTask: (WorkflowTaskKind) -> Void
     let setRoute: (MissionRouteMode?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.md) {
-            Text("本次意图")
-                .font(Autumn.typography.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text("本次意图")
+                    .font(Autumn.typography.headline)
+                Spacer()
+                if let confidence {
+                    Text(String(format: "%.0f%%", confidence * 100))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(confidence < 0.7 ? Autumn.colors.danger : .secondary)
+                }
+            }
+
+            if let reasoning, !reasoning.isEmpty {
+                Text(reasoning)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Picker("输入", selection: inputBinding) {
                 ForEach(WorkflowInputKind.allCases) { kind in
@@ -277,7 +296,7 @@ private struct IntentOverridePopover: View {
             }
         }
         .padding(Autumn.spacing.lg)
-        .frame(width: 260)
+        .frame(width: 280)
     }
 
     private var inputBinding: Binding<WorkflowInputKind> {

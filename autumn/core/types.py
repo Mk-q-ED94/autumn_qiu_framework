@@ -83,6 +83,7 @@ class SelectorResult:
     input_type: InputType
     confidence: float
     task_type: "TaskType | None" = None
+    reasoning: str | None = None
 
 
 @dataclass

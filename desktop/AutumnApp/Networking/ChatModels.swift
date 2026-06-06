@@ -157,6 +157,7 @@ struct IntentPreview: Decodable, Equatable {
     let taskType: String?
     let route: String?
     let confidence: Double
+    let reasoning: String?
 
     var inputKind: WorkflowInputKind {
         WorkflowInputKind(rawValue: inputType) ?? .mission
@@ -184,6 +185,7 @@ struct IntentPreview: Decodable, Equatable {
         case taskType = "task_type"
         case route
         case confidence
+        case reasoning
     }
 }
 

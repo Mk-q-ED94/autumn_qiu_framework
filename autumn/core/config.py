@@ -72,6 +72,14 @@ class AutumnConfig:
     headless_mission_route: MissionRoute | Literal["auto"] = "auto"
     embedding: EmbeddingConfig | None = None
     auto_index: bool = False   # when embedding is set, auto-embed each history entry
+    validate_before_stream: bool = True
+    """When True (default), the streaming endpoint buffers the full pipeline
+    response — including the WP1 checker — before chunking it back to the
+    client. Trades real-time feedback for guaranteed validated output.
+
+    When False, tokens flow live as they're produced; the checker runs once
+    after the stream completes and appends an advisory chunk if it finds
+    issues."""
 
     @classmethod
     def from_env(cls, prefix: str = "", env_file: str | None = None) -> "AutumnConfig":
@@ -118,6 +126,7 @@ class AutumnConfig:
             headless_mission_route=route,
             embedding=EmbeddingConfig.from_env(f"{prefix}EMBEDDING_"),
             auto_index=env("AUTO_INDEX", "false").lower() in ("1", "true", "yes"),
+            validate_before_stream=env("VALIDATE_BEFORE_STREAM", "true").lower() in ("1", "true", "yes"),
         )
 
 

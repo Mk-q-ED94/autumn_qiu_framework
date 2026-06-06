@@ -99,6 +99,7 @@ class Autumn:
             interaction=interaction,
             selector_prompt=p.selector,
             headless_mission_route=config.headless_mission_route,
+            validate_before_stream=config.validate_before_stream,
         )
 
         self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker)

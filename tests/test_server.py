@@ -445,12 +445,12 @@ def test_trace_503_when_unconfigured(unconfigured_client):
 def test_intent_returns_selector_preview(configured_client):
     r = configured_client.post("/intent", json={"input": "find docs"})
     assert r.status_code == 200
-    assert r.json() == {
-        "input_type": "task",
-        "task_type": "search",
-        "route": None,
-        "confidence": 0.66,
-    }
+    payload = r.json()
+    assert payload["input_type"] == "task"
+    assert payload["task_type"] == "search"
+    assert payload["route"] is None
+    assert payload["confidence"] == 0.66
+    assert "reasoning" in payload  # may be None — added for selector improvement
 
 
 def test_intent_accepts_manual_override(configured_client):

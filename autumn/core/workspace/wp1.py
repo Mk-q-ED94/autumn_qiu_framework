@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import AsyncIterator, Literal
@@ -79,6 +80,7 @@ class WP1Tot(WorkspaceBase):
         interaction: UserInteraction | None = None,
         selector_prompt: str | None = None,
         headless_mission_route: MissionRoute | Literal["auto"] = "auto",
+        validate_before_stream: bool = True,
     ):
         super().__init__(api, memory)
         self.wp2 = wp2
@@ -86,6 +88,7 @@ class WP1Tot(WorkspaceBase):
         self.selector = Selector(api, system_prompt=selector_prompt)
         self.interaction = interaction
         self._headless_route = headless_mission_route
+        self._validate_before_stream = validate_before_stream
 
     async def process(
         self,
@@ -391,16 +394,32 @@ class WP1Tot(WorkspaceBase):
         mission_route: MissionRoute | Literal["auto"] | None = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        chunk_size: int = 48,
     ) -> AsyncIterator[str]:
-        """Real-time streaming: classify once, then forward tokens from the
-        chosen workspace. After the stream ends, the Checker is run once as
-        an *advisory* — if it flags an issue, one final chunk is appended
-        with a clear separator. The Checker no longer gates output.
+        """Stream output to the caller.
 
-        The convert path (mission → task) cannot stream end-to-end because
-        the conversion is a non-streamed model call; it falls back to a
-        buffered run that is chunked at the end.
+        Two modes, controlled by ``AutumnConfig.validate_before_stream``:
+
+        * ``True`` (default): runs the full validated pipeline — every
+          checker stage — to completion, then chunks the validated result
+          back to the caller.  Trades real-time feedback for guaranteed
+          quality.
+        * ``False``: classifies once, then forwards live tokens from the
+          chosen workspace.  After the stream ends, the Checker runs as
+          an advisory; if it flags an issue, one final chunk is appended
+          with a clear separator.
         """
+        if self._validate_before_stream:
+            async for chunk in self._stream_validated(
+                user_input,
+                mission_route=mission_route,
+                input_type=input_type,
+                task_type=task_type,
+                chunk_size=chunk_size,
+            ):
+                yield chunk
+            return
+
         sel = await self._select_intent(user_input, input_type=input_type, task_type=task_type)
         input_type = sel.input_type
         task_type = sel.task_type
@@ -439,6 +458,27 @@ class WP1Tot(WorkspaceBase):
             "route": chosen_route.value if chosen_route else None,
             "output": "".join(buf),
         })
+
+    async def _stream_validated(
+        self,
+        user_input: str,
+        mission_route: MissionRoute | Literal["auto"] | None = None,
+        input_type: InputType | None = None,
+        task_type: TaskType | None = None,
+        chunk_size: int = 48,
+    ) -> AsyncIterator[str]:
+        """Validate-then-stream: run the full pipeline (including checker)
+        and chunk the validated output for delivery."""
+        run = await self.process_with_trace(
+            user_input,
+            mission_route=mission_route,
+            input_type=input_type,
+            task_type=task_type,
+        )
+        text = run.output
+        for i in range(0, len(text), chunk_size):
+            yield text[i:i + chunk_size]
+            await asyncio.sleep(0)
 
     async def _stream_convert_path(self, mission_input: str) -> AsyncIterator[str]:
         """Mission/convert: WP3 converts (buffered), then WP2 streams the task."""
