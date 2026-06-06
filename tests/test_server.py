@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 os.environ["AUTUMN_SKIP_INIT"] = "1"
 
 from autumn.server.app import create_app  # noqa: E402
-from autumn.core.types import InputType, MissionRoute, WorkflowRun, WorkflowStage  # noqa: E402
+from autumn.core.types import InputType, MissionRoute, TaskType, WorkflowRun, WorkflowStage  # noqa: E402
 
 server_app = importlib.import_module("autumn.server.app")
 
@@ -48,6 +48,7 @@ class _MockAutumn:
             output=f"processed: {text}",
             input_type=InputType.MISSION,
             route=route,
+            task_type=None,
             stages=[
                 WorkflowStage(
                     id="wp3.route",
@@ -323,8 +324,24 @@ def test_trace_returns_workflow_run(configured_client):
     assert payload["output"] == "processed: hi"
     assert payload["input_type"] == "mission"
     assert payload["route"] == "convert"
+    assert payload["task_type"] is None
     assert payload["stages"][0]["id"] == "wp3.route"
     assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert")
+
+
+def test_trace_includes_task_type(configured_client, monkeypatch):
+    """task_type is forwarded from WorkflowRun to the trace response."""
+    original = configured_client.app.state.autumn.process_with_trace
+
+    async def patched(text, mission_route=None):
+        run = await original(text, mission_route)
+        run.task_type = TaskType.CODE
+        return run
+
+    configured_client.app.state.autumn.process_with_trace = patched
+    r = configured_client.post("/trace", json={"input": "fix bug"})
+    assert r.status_code == 200
+    assert r.json()["task_type"] == "code"
 
 
 def test_trace_includes_tool_stage_kind(configured_client):

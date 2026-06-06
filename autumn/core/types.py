@@ -25,6 +25,14 @@ class InputType(str, Enum):
     MISSION = "mission"
 
 
+class TaskType(str, Enum):
+    CODE = "code"
+    SEARCH = "search"
+    WRITE = "write"
+    DATA = "data"
+    GENERAL = "general"
+
+
 class MissionRoute(str, Enum):
     DIRECT = "direct"
     CONVERT = "convert"
@@ -54,6 +62,7 @@ class WorkflowRun:
     input_type: InputType
     route: MissionRoute | None
     stages: list[WorkflowStage]
+    task_type: "TaskType | None" = None
 
 
 @dataclass
@@ -67,6 +76,7 @@ class ToolCall:
 class SelectorResult:
     input_type: InputType
     confidence: float
+    task_type: "TaskType | None" = None
 
 
 @dataclass

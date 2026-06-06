@@ -9,6 +9,7 @@ _EXPORTS = {
     "EmbeddingConfig": ("autumn.core.config", "EmbeddingConfig"),
     "Protocol": ("autumn.core.types", "Protocol"),
     "InputType": ("autumn.core.types", "InputType"),
+    "TaskType": ("autumn.core.types", "TaskType"),
     "MissionRoute": ("autumn.core.types", "MissionRoute"),
     "WorkflowRun": ("autumn.core.types", "WorkflowRun"),
     "WorkflowStage": ("autumn.core.types", "WorkflowStage"),

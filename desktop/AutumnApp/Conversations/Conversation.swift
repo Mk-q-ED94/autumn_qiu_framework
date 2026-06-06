@@ -54,12 +54,14 @@ struct PersistableTrace: Codable, Equatable {
     let output: String
     let inputType: String
     let route: String?
+    let taskType: String?
     let stages: [PersistableStage]
 
     init(from trace: WorkflowTrace) {
         self.output = trace.output
         self.inputType = trace.inputType
         self.route = trace.route
+        self.taskType = trace.taskType
         self.stages = trace.stages.map { PersistableStage(from: $0) }
     }
 
@@ -68,6 +70,7 @@ struct PersistableTrace: Codable, Equatable {
             output: output,
             inputType: inputType,
             route: route,
+            taskType: taskType,
             stages: stages.map { $0.toWorkflowStage() }
         )
     }
