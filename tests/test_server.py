@@ -212,13 +212,13 @@ def unconfigured_client():
 def test_health_unconfigured(unconfigured_client):
     r = unconfigured_client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "configured": False}
+    assert r.json() == {"status": "ok", "configured": False, "last_error": None}
 
 
 def test_health_configured(configured_client):
     r = configured_client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "configured": True}
+    assert r.json() == {"status": "ok", "configured": True, "last_error": None}
 
 
 # ── /models ───────────────────────────────────────────────────────────────────
@@ -388,6 +388,50 @@ def test_process_503_when_unconfigured(unconfigured_client):
     assert r.status_code == 503
 
 
+def test_process_pipeline_failure_returns_502(configured_client):
+    """An exception inside the framework should surface as a structured 502
+    with the message, not a 500 with no detail."""
+    async def boom(*args, **kwargs):
+        raise RuntimeError("model API exploded")
+
+    configured_client.app.state.autumn.process = boom
+    r = configured_client.post("/process", json={"input": "hi"})
+    assert r.status_code == 502
+    assert "model API exploded" in r.json()["detail"]
+    # /health surfaces the last failure so the desktop client can recover gracefully.
+    health = configured_client.get("/health").json()
+    assert health["last_error"] == "model API exploded"
+
+
+def test_trace_pipeline_failure_returns_502(configured_client):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("trace failed")
+
+    configured_client.app.state.autumn.process_with_trace = boom
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 502
+    assert configured_client.app.state.last_error == "trace failed"
+
+
+def test_intent_pipeline_failure_returns_502(configured_client):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("intent failed")
+
+    configured_client.app.state.autumn.classify_intent = boom
+    r = configured_client.post("/intent", json={"input": "hi"})
+    assert r.status_code == 502
+
+
+def test_apply_config_clears_last_error(configured_client, monkeypatch):
+    """A successful re-apply clears the stale last_error so /health goes green
+    again without forcing the user to restart the server."""
+    configured_client.app.state.last_error = "stale"
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+    r = configured_client.post("/config/apply", json=_config_payload())
+    assert r.status_code == 200
+    assert configured_client.get("/health").json()["last_error"] is None
+
+
 # ── /trace ────────────────────────────────────────────────────────────────────
 
 
@@ -539,9 +583,33 @@ def test_history_returns_list(configured_client):
     assert r.json() == [{"turn": 1, "input": "hi", "output": "ok"}]
 
 
-def test_history_unknown_area_404(configured_client):
+def test_history_unknown_area_rejected(configured_client):
+    """Path parameter is validated by FastAPI/Pydantic, returning 422 for
+    anything outside {mom1, mom2, mom3}."""
     r = configured_client.get("/memory/bogus/history")
-    assert r.status_code == 404
+    assert r.status_code == 422
+
+
+def test_history_pagination_slices_results(configured_client):
+    """Limit + offset return a window over the full history so big sessions
+    don't blow up the wire."""
+    entries = [{"turn": i} for i in range(10)]
+    configured_client.app.state.autumn.mom1 = _MockMemory(entries)
+
+    r = configured_client.get("/memory/mom1/history", params={"limit": 3, "offset": 2})
+    assert r.status_code == 200
+    assert r.json() == [{"turn": 2}, {"turn": 3}, {"turn": 4}]
+
+
+def test_history_pagination_rejects_negative_offset(configured_client):
+    r = configured_client.get("/memory/mom1/history", params={"offset": -1})
+    assert r.status_code == 422
+
+
+def test_history_pagination_caps_limit(configured_client):
+    """The hard cap protects against accidentally fetching unbounded data."""
+    r = configured_client.get("/memory/mom1/history", params={"limit": 999_999})
+    assert r.status_code == 422
 
 
 # ── /session/end ──────────────────────────────────────────────────────────────

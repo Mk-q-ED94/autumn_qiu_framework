@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -14,6 +14,18 @@ from pydantic import BaseModel, Field
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
+
+
+# How long an SSE stream can sit idle before we emit an `: ping` comment.
+# Most corporate proxies kill idle SSE connections at 30–60s; 15s is safe.
+_SSE_HEARTBEAT_SECONDS = 15.0
+
+# Default page size for the memory history endpoint; capped to keep responses
+# bounded regardless of how many turns a session has accumulated.
+_HISTORY_PAGE_DEFAULT = 200
+_HISTORY_PAGE_MAX = 2000
+
+MemoryArea = Literal["mom1", "mom2", "mom3"]
 
 
 RequestRoute = MissionRoute | Literal["auto"] | None
@@ -200,6 +212,10 @@ def _require_model_config(slot: str, req: ProviderConfigRequest) -> ModelConfig:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.autumn = _try_build_from_env()
+    # apply_lock serialises swap-out of state.autumn so two concurrent
+    # /config/apply calls can't leak an Autumn instance whose close() never runs.
+    app.state.apply_lock = asyncio.Lock()
+    app.state.last_error = None
     try:
         yield
     finally:
@@ -215,6 +231,14 @@ def _autumn_or_503(request: Request) -> Autumn:
             detail="Autumn not configured. Set A1/A2/A3 env vars and restart the server.",
         )
     return autumn
+
+
+def _record_failure(request: Request, exc: Exception) -> HTTPException:
+    """Stash a short failure summary on app.state so /health can report it,
+    then return a 502 the caller can `raise from exc`."""
+    message = str(exc) or exc.__class__.__name__
+    request.app.state.last_error = message
+    return HTTPException(status_code=502, detail=message)
 
 
 def _trace_response(run: WorkflowRun) -> TraceResponse:
@@ -247,8 +271,11 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
-        configured = app.state.autumn is not None
-        return {"status": "ok", "configured": configured}
+        return {
+            "status": "ok",
+            "configured": app.state.autumn is not None,
+            "last_error": app.state.last_error,
+        }
 
     @app.post("/models", response_model=ModelsResponse)
     async def models(req: ModelsRequest):
@@ -282,39 +309,54 @@ def create_app() -> FastAPI:
         a4_config: ModelConfig | None = None
         if req.a4 and req.a4.api_key.strip():
             a4_config = _require_model_config("A4", req.a4)
-        config = AutumnConfig(
-            a1=_require_model_config("A1", req.a1),
-            a2=_require_model_config("A2", req.a2),
-            a3=_require_model_config("A3", req.a3),
-            a4=a4_config,
-        )
+        try:
+            config = AutumnConfig(
+                a1=_require_model_config("A1", req.a1),
+                a2=_require_model_config("A2", req.a2),
+                a3=_require_model_config("A3", req.a3),
+                a4=a4_config,
+            )
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        old: Autumn | None = request.app.state.autumn
-        request.app.state.autumn = Autumn(config)
-        if old is not None:
-            await old.close()
+        async with request.app.state.apply_lock:
+            old: Autumn | None = request.app.state.autumn
+            request.app.state.autumn = Autumn(config)
+            request.app.state.last_error = None
+            if old is not None:
+                await old.close()
         return ApplyConfigResponse(status="ok", configured=True)
 
     @app.post("/process", response_model=ProcessResponse)
     async def process(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
-        output = await autumn.process(
-            _apply_project_context(req.input, req.project_instructions),
-            mission_route=req.route,
-            input_type=req.input_type,
-            task_type=req.task_type,
-        )
+        try:
+            output = await autumn.process(
+                _apply_project_context(req.input, req.project_instructions),
+                mission_route=req.route,
+                input_type=req.input_type,
+                task_type=req.task_type,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
         return ProcessResponse(output=output)
 
     @app.post("/trace", response_model=TraceResponse)
     async def trace(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
-        run = await autumn.process_with_trace(
-            _apply_project_context(req.input, req.project_instructions),
-            mission_route=req.route,
-            input_type=req.input_type,
-            task_type=req.task_type,
-        )
+        try:
+            run = await autumn.process_with_trace(
+                _apply_project_context(req.input, req.project_instructions),
+                mission_route=req.route,
+                input_type=req.input_type,
+                task_type=req.task_type,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
         return _trace_response(run)
 
     @app.post("/intent", response_model=IntentResponse)
@@ -323,12 +365,17 @@ def create_app() -> FastAPI:
         # Project instructions are advisory for intent classification too —
         # they may shift the classifier's read (e.g. a project full of code
         # work is more likely to interpret short prompts as TASK).
-        sel, route = await autumn.classify_intent(
-            _apply_project_context(req.input, req.project_instructions),
-            mission_route=req.route,
-            input_type=req.input_type,
-            task_type=req.task_type,
-        )
+        try:
+            sel, route = await autumn.classify_intent(
+                _apply_project_context(req.input, req.project_instructions),
+                mission_route=req.route,
+                input_type=req.input_type,
+                task_type=req.task_type,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
         return IntentResponse(
             input_type=sel.input_type,
             task_type=sel.task_type,
@@ -352,31 +399,66 @@ def create_app() -> FastAPI:
         _ = project_id  # reserved for future per-project memory scoping
 
         async def event_stream():
-            disconnected = False
+            stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
+            iterator = stream_fn(
+                effective_input,
+                mission_route=route,
+                input_type=input_type,
+                task_type=task_type,
+            ).__aiter__()
+            next_task: asyncio.Task | None = None
             try:
-                stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
-                async for event in stream_fn(
-                    effective_input,
-                    mission_route=route,
-                    input_type=input_type,
-                    task_type=task_type,
-                ):
+                while True:
                     if await request.is_disconnected():
-                        disconnected = True
-                        break
+                        return
+                    if next_task is None:
+                        next_task = asyncio.ensure_future(iterator.__anext__())
+                    # Race the next event against an idle timer so a slow model
+                    # call still gives us a chance to ping the proxy and to
+                    # re-check the client connection.
+                    done, _ = await asyncio.wait(
+                        [next_task], timeout=_SSE_HEARTBEAT_SECONDS
+                    )
+                    if next_task not in done:
+                        yield ": ping\n\n"
+                        continue
+                    completed = next_task
+                    next_task = None
+                    try:
+                        event = completed.result()
+                    except StopAsyncIteration:
+                        yield "data: [DONE]\n\n"
+                        return
                     if isinstance(event, WorkflowRun):
-                        payload = json.dumps({"trace": _trace_payload(event)}, ensure_ascii=False)
+                        payload = json.dumps(
+                            {"trace": _trace_payload(event)}, ensure_ascii=False
+                        )
                     else:
                         payload = json.dumps({"chunk": event}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
-                if not disconnected:
-                    yield "data: [DONE]\n\n"
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
+                request.app.state.last_error = str(exc)
                 payload = json.dumps({"error": str(exc)}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
                 yield "data: [DONE]\n\n"
+            finally:
+                # If we exit while a next_task is still pending (disconnect or
+                # error), cancel it so the upstream model isn't billed for a
+                # response no one is going to read.
+                if next_task is not None and not next_task.done():
+                    next_task.cancel()
+                    try:
+                        await next_task
+                    except (asyncio.CancelledError, StopAsyncIteration, Exception):
+                        pass
+                aclose = getattr(iterator, "aclose", None)
+                if aclose is not None:
+                    try:
+                        await aclose()
+                    except Exception:  # noqa: BLE001
+                        pass
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -386,12 +468,16 @@ def create_app() -> FastAPI:
         return autumn.describe_terrs()
 
     @app.get("/memory/{area}/history")
-    async def get_history(area: str, request: Request):
+    async def get_history(
+        area: MemoryArea,
+        request: Request,
+        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+        offset: int = Query(0, ge=0),
+    ):
         autumn = _autumn_or_503(request)
-        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}.get(area)
-        if mom is None:
-            raise HTTPException(status_code=404, detail=f"Unknown memory area: {area}")
-        return await mom.get_history()
+        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        history = await mom.get_history()
+        return history[offset:offset + limit]
 
     @app.post("/session/end")
     async def end_session(request: Request):
