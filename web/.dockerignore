@@ -1,0 +1,11 @@
+desktop/
+web/
+examples/
+tests/
+*.egg-info/
+__pycache__/
+*.pyc
+.git/
+.env
+*.db
+*.db-journal

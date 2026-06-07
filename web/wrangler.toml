@@ -1,0 +1,49 @@
+# Autumn Web — Cloudflare Containers + Workers + Pages Assets
+# Docs: https://developers.cloudflare.com/containers/
+#
+# Deploy:
+#   cd web && npm run build && npx wrangler deploy
+#
+# Local dev (requires Docker):
+#   cd web && npm run build && npx wrangler dev
+
+name            = "autumn-web"
+main            = "worker/src/index.ts"
+compatibility_date = "2025-06-01"
+
+# ── Static SPA assets ─────────────────────────────────────────────────────────
+# Built from web/frontend/ via `npm run build`
+[assets]
+directory = "./frontend/dist"
+binding   = "ASSETS"
+
+# ── Container binding (Durable Object namespace) ──────────────────────────────
+[[durable_objects.bindings]]
+name       = "AUTUMN"
+class_name = "AutumnContainer"
+
+[[migrations]]
+tag         = "v1"
+new_classes = ["AutumnContainer"]
+
+# ── Container image ───────────────────────────────────────────────────────────
+# build_context = ".." means the repo root is the Docker build context,
+# allowing the Dockerfile to COPY autumn/ and pyproject.toml.
+[[containers]]
+class_name    = "AutumnContainer"
+name          = "AUTUMN"
+
+[containers.image]
+path          = "./Dockerfile"
+build_context = ".."
+
+# ── Environment variables ─────────────────────────────────────────────────────
+# Sensitive secrets (AUTH_TOKEN, A1_API_KEY, …) are set via:
+#   npx wrangler secret put AUTH_TOKEN
+#
+# If you pre-configure the model via env vars instead of the UI, add them here:
+# [vars]
+# A1_BASE_URL  = "https://api.openai.com"
+# A1_MODEL     = "gpt-4o-mini"
+# A1_PROTOCOL  = "openai"
+# … same pattern for A2/A3
