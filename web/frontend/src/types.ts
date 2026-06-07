@@ -80,6 +80,41 @@ export interface SlotConfig {
   protocol: Protocol;
 }
 
+// ── Ollama (local model) management ─────────────────────────────────────────────
+
+/** A model already installed in the local Ollama daemon. */
+export interface OllamaModel {
+  name: string;
+  size?: number;
+  parameter_size?: string;
+  family?: string;
+  modified_at?: string;
+}
+
+/** A curated model the user can pull with one click. */
+export interface OllamaRecommended {
+  name: string;
+  label: string;
+  size: string;
+  note: string;
+  recommended: boolean;
+}
+
+export interface OllamaStatus {
+  running: boolean;
+  base_url: string;
+  version?: string;
+  error?: string;
+}
+
+/** One NDJSON progress line from `ollama pull`, or a terminal error. */
+export type OllamaPullEvent =
+  | { status: string; digest?: string; total?: number; completed?: number }
+  | { error: string };
+
+/** Default endpoint of a local Ollama daemon (its OpenAI-compat base, no /v1). */
+export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+
 export interface Settings {
   /** URL of the Autumn server (the /api proxy prefix or direct). */
   serverUrl: string;

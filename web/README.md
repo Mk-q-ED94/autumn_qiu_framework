@@ -67,6 +67,26 @@ The Vite proxy rewrites `/api/*` → `http://127.0.0.1:8765/*` so no CORS setup 
 
 In local mode the Worker and Container are not involved — the SPA talks directly to the local Python server via the Vite proxy.
 
+## Local models for A4 (Ollama)
+
+A4 is the optional **memory model** (recall synthesis) — a good fit for a cheap
+local LLM. The app can deploy and wire one up for you:
+
+1. Install [Ollama](https://ollama.com/download) on the machine running the
+   Autumn server, and `ollama serve`.
+2. In the app: **Settings → 模型 → enable A4**. The **本地模型 · Ollama** panel
+   appears, shows daemon status, and lists installed + recommended models.
+3. Click **拉取** on a recommended model (e.g. `qwen2.5:1.5b`) — it downloads
+   with a progress bar and, when done, auto-configures A4 to use it. Or click
+   **用于 A4** on any already-installed model.
+4. **应用配置** to activate.
+
+The server proxies Ollama's API under `/api/ollama/*`, so model management and
+A4 inference always hit the *same* daemon. This means local models work when the
+server can reach Ollama — i.e. **local dev or self-host**. On a cloud Container
+the daemon isn't reachable, and the panel correctly reports "未运行"; point the
+panel's *Ollama 地址* at a reachable host if you self-host Ollama elsewhere.
+
 ## Environment variables / secrets
 
 | Name | Where | Description |

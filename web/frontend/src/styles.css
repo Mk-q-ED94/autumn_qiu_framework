@@ -735,3 +735,157 @@ a { color: var(--accent); text-decoration: none; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255 255 255 / 0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255 255 255 / 0.2); }
+
+/* ── Button sizes/variants used by the Ollama panel ─────────────────────────── */
+.btn--xs { padding: 3px 9px; font-size: 11px; border-radius: var(--r-xs); }
+.btn--ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+/* ── Ollama (local model) manager ───────────────────────────────────────────── */
+.ollama {
+  margin-top: var(--md);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md);
+}
+.ollama__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ollama__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sm);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ollama__logo { font-size: 16px; }
+.ollama__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.ollama__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  background: var(--muted);
+}
+.ollama__status.up .ollama__dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.ollama__status.down .ollama__dot { background: var(--danger); }
+
+.ollama__url { display: flex; gap: var(--sm); }
+.ollama__url input { flex: 1; }
+
+.ollama__hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sm) var(--md);
+}
+.ollama__hint code {
+  background: var(--surface-elevated);
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin: 0 2px;
+}
+.ollama__hint a { color: var(--accent); }
+
+.ollama__section { display: flex; flex-direction: column; gap: var(--sm); }
+.ollama__section-title {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: 600;
+}
+.ollama__list { display: flex; flex-direction: column; gap: 6px; }
+
+.ollama__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px var(--md);
+}
+.ollama__row.active { border-color: var(--accent); background: rgba(129 140 248 / 0.08); }
+.ollama__row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ollama__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ollama__star { color: var(--warning); font-size: 11px; }
+.ollama__meta {
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ollama__row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.ollama__badge {
+  font-size: 10.5px;
+  color: var(--accent);
+  background: rgba(129 140 248 / 0.12);
+  border: 1px solid rgba(129 140 248 / 0.25);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  white-space: nowrap;
+}
+.ollama__badge--ok {
+  color: var(--success);
+  background: rgba(52 211 153 / 0.12);
+  border-color: rgba(52 211 153 / 0.25);
+}
+
+.ollama__progress { display: flex; align-items: center; gap: var(--sm); margin-top: 4px; }
+.ollama__bar {
+  flex: 1;
+  height: 5px;
+  background: var(--surface-elevated);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.ollama__bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-full);
+  transition: width 0.2s ease;
+}
+.ollama__bar-fill.indeterminate {
+  width: 40%;
+  animation: ollama-slide 1.1s ease-in-out infinite;
+}
+@keyframes ollama-slide {
+  0%   { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+.ollama__progress-text {
+  font-size: 10.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

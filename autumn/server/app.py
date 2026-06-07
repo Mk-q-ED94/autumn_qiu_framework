@@ -25,6 +25,24 @@ _SSE_HEARTBEAT_SECONDS = 15.0
 _HISTORY_PAGE_DEFAULT = 200
 _HISTORY_PAGE_MAX = 2000
 
+# Curated small chat models well-suited to the A4 memory role (recall synthesis):
+# fast, low-RAM, strong multilingual (esp. Chinese). Sizes are approximate
+# default-quant pull sizes.
+_OLLAMA_RECOMMENDED = [
+    {"name": "qwen2.5:0.5b", "label": "Qwen2.5 0.5B", "size": "~0.4 GB",
+     "note": "极速 · 中英双语 · 记忆合成够用", "recommended": False},
+    {"name": "qwen2.5:1.5b", "label": "Qwen2.5 1.5B", "size": "~1.0 GB",
+     "note": "速度/质量平衡 · A4 推荐", "recommended": True},
+    {"name": "qwen2.5:3b", "label": "Qwen2.5 3B", "size": "~2.0 GB",
+     "note": "更强理解 · 仍然轻量", "recommended": False},
+    {"name": "llama3.2:1b", "label": "Llama 3.2 1B", "size": "~1.3 GB",
+     "note": "Meta 轻量模型", "recommended": False},
+    {"name": "llama3.2:3b", "label": "Llama 3.2 3B", "size": "~2.0 GB",
+     "note": "Meta 通用小模型", "recommended": False},
+    {"name": "gemma2:2b", "label": "Gemma 2 2B", "size": "~1.6 GB",
+     "note": "Google 高效小模型", "recommended": False},
+]
+
 MemoryArea = Literal["mom1", "mom2", "mom3"]
 
 
@@ -159,6 +177,14 @@ class ModelsResponse(BaseModel):
     models: list[str]
 
 
+class OllamaTarget(BaseModel):
+    base_url: str = "http://localhost:11434"
+
+
+class OllamaDeleteRequest(OllamaTarget):
+    name: str
+
+
 def _try_build_from_env() -> Autumn | None:
     if os.environ.get("AUTUMN_SKIP_INIT") == "1":
         return None
@@ -176,6 +202,19 @@ def _model_endpoint(base_url: str) -> str:
     if root.endswith("/v1"):
         return f"{root}/models"
     return f"{root}/v1/models"
+
+
+def _ollama_base(base_url: str) -> str:
+    """Normalise an Ollama base URL for the native /api/* endpoints.
+
+    Drops a trailing slash and a trailing ``/v1`` (the OpenAI-compat suffix the
+    A4 chat client appends), so the same URL the user configures for A4 chat can
+    be reused here for model management.
+    """
+    root = (base_url or "").strip().rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    return root or "http://localhost:11434"
 
 
 def _headers_for(protocol: Protocol, api_key: str) -> dict[str, str]:
@@ -498,6 +537,113 @@ def create_app() -> FastAPI:
         autumn = _autumn_or_503(request)
         await autumn.end_session()
         return {"status": "ok"}
+
+    # ── Ollama (local model) management ──────────────────────────────────────
+    # Proxy to a local Ollama daemon so the user can deploy and wire up a local
+    # A4 memory model from inside the app. These do NOT require Autumn to be
+    # configured — you set up the local model *before* applying config.
+    #
+    # The model must be reachable by *this server*: local models work when the
+    # server runs alongside Ollama (local dev / self-host). A cloud container
+    # can't see your machine's localhost, so there /ollama/status reports down —
+    # which is correct, because A4 inference couldn't reach it either.
+
+    @app.post("/ollama/status")
+    async def ollama_status(req: OllamaTarget):
+        base = _ollama_base(req.base_url)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base}/api/version")
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            return {"running": False, "base_url": base, "error": str(exc)}
+        return {"running": True, "base_url": base, "version": data.get("version")}
+
+    @app.post("/ollama/models")
+    async def ollama_models(req: OllamaTarget):
+        base = _ollama_base(req.base_url)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{base}/api/tags")
+                resp.raise_for_status()
+                payload = resp.json()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Ollama 未响应: {exc}") from exc
+        models = []
+        for item in payload.get("models", []):
+            details = item.get("details") or {}
+            models.append(
+                {
+                    "name": item.get("name"),
+                    "size": item.get("size"),
+                    "parameter_size": details.get("parameter_size"),
+                    "family": details.get("family"),
+                    "modified_at": item.get("modified_at"),
+                }
+            )
+        return {"models": models}
+
+    @app.delete("/ollama/models")
+    async def ollama_delete(req: OllamaDeleteRequest):
+        base = _ollama_base(req.base_url)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.request(
+                    "DELETE",
+                    f"{base}/api/delete",
+                    json={"name": req.name, "model": req.name},
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"删除失败: {exc}") from exc
+        return {"status": "ok", "name": req.name}
+
+    @app.get("/ollama/recommended")
+    async def ollama_recommended():
+        return {"models": _OLLAMA_RECOMMENDED}
+
+    @app.get("/ollama/pull")
+    async def ollama_pull(
+        name: str,
+        request: Request,
+        base_url: str = "http://localhost:11434",
+    ):
+        base = _ollama_base(base_url)
+
+        async def event_stream():
+            # No read timeout — a pull can take minutes — but bound the connect.
+            timeout = httpx.Timeout(None, connect=5.0)
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{base}/api/pull",
+                        json={"name": name, "model": name, "stream": True},
+                    ) as resp:
+                        if resp.status_code != 200:
+                            body = (await resp.aread()).decode("utf-8", "ignore")
+                            err = json.dumps(
+                                {"error": f"HTTP {resp.status_code}: {body[:200]}"},
+                                ensure_ascii=False,
+                            )
+                            yield f"data: {err}\n\n"
+                            yield "data: [DONE]\n\n"
+                            return
+                        async for line in resp.aiter_lines():
+                            if await request.is_disconnected():
+                                return
+                            line = line.strip()
+                            if line:
+                                # Ollama emits NDJSON progress; forward each verbatim.
+                                yield f"data: {line}\n\n"
+                yield "data: [DONE]\n\n"
+            except httpx.HTTPError as exc:
+                err = json.dumps({"error": f"Ollama 未响应: {exc}"}, ensure_ascii=False)
+                yield f"data: {err}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     return app
 

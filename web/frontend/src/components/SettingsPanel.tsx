@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import * as client from "../api/client";
+import { DEFAULT_OLLAMA_URL } from "../types";
 import type { Protocol, Settings, SlotConfig } from "../types";
+import { OllamaManager } from "./OllamaManager";
 
 type Tab = "server" | "models" | "advanced";
 
@@ -161,6 +163,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
   const [applying, setApplying] = useState(false);
   const [applyMsg, setApplyMsg] = useState("");
   const [a4Enabled, setA4Enabled] = useState(!!settings.a4?.api_key);
+  const [ollamaUrl, setOllamaUrl] = useState(settings.a4?.base_url || DEFAULT_OLLAMA_URL);
 
   useEffect(() => {
     checkHealth();
@@ -300,6 +303,24 @@ export function SettingsPanel({ settings, onChange }: Props) {
                 if (!on) onChange({ ...settings, a4: undefined });
               }}
             />
+
+            {a4Enabled && (
+              <OllamaManager
+                settings={settings}
+                ollamaUrl={ollamaUrl}
+                onUrlChange={setOllamaUrl}
+                currentA4Model={settings.a4?.model}
+                onSelectModel={(name, baseUrl) => {
+                  // One-click wire: a local Ollama model needs only a dummy key
+                  // (Ollama ignores it) and the OpenAI-compat protocol.
+                  onChange({
+                    ...settings,
+                    a4: { api_key: "ollama", base_url: baseUrl, model: name, protocol: "openai" },
+                  });
+                  setA4Enabled(true);
+                }}
+              />
+            )}
 
             <div style={{ display: "flex", alignItems: "center", gap: "var(--md)" }}>
               <button className="btn btn--primary" onClick={applyConfig} disabled={applying}>

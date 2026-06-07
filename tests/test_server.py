@@ -694,3 +694,156 @@ def test_terrs_can_toggle_domain(configured_client):
 def test_terrs_toggle_unknown_domain_404(configured_client):
     r = configured_client.patch("/terrs/missing", json={"enabled": False})
     assert r.status_code == 404
+
+
+# ── /ollama (local model management) ────────────────────────────────────────────
+
+
+class _FakeStreamResponse:
+    def __init__(self, lines, status_code=200):
+        self._lines = lines
+        self.status_code = status_code
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+    async def aread(self):
+        return b"boom"
+
+
+class _FakeOllamaClient:
+    version = {"version": "0.5.7"}
+    tags = {
+        "models": [
+            {
+                "name": "qwen2.5:1.5b",
+                "size": 986000000,
+                "modified_at": "2025-06-01T00:00:00Z",
+                "details": {"parameter_size": "1.5B", "family": "qwen2"},
+            }
+        ]
+    }
+    pull_lines = [
+        '{"status":"pulling manifest"}',
+        '{"status":"downloading","total":1000,"completed":1000}',
+        '{"status":"success"}',
+    ]
+    pull_status = 200
+    deleted = []
+    seen_urls = []
+
+    def __init__(self, timeout=None, headers=None):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def get(self, url):
+        self.__class__.seen_urls.append(url)
+        if url.endswith("/api/version"):
+            return _FakeHTTPResponse(self.__class__.version)
+        if url.endswith("/api/tags"):
+            return _FakeHTTPResponse(self.__class__.tags)
+        return _FakeHTTPResponse({}, 404)
+
+    async def request(self, method, url, json=None):
+        if url.endswith("/api/delete"):
+            self.__class__.deleted.append(json)
+            return _FakeHTTPResponse({})
+        return _FakeHTTPResponse({}, 404)
+
+    def stream(self, method, url, json=None):
+        self.__class__.seen_urls.append(url)
+        return _FakeStreamResponse(self.__class__.pull_lines, self.__class__.pull_status)
+
+
+class _DownOllamaClient(_FakeOllamaClient):
+    async def get(self, url):
+        raise server_app.httpx.ConnectError("connection refused")
+
+
+def test_ollama_status_running(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    r = unconfigured_client.post("/ollama/status", json={"base_url": "http://localhost:11434"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["running"] is True
+    assert body["version"] == "0.5.7"
+
+
+def test_ollama_status_down_is_graceful(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _DownOllamaClient)
+    r = unconfigured_client.post("/ollama/status", json={"base_url": "http://x:1"})
+    assert r.status_code == 200
+    assert r.json()["running"] is False
+
+
+def test_ollama_models_strips_v1_suffix(unconfigured_client, monkeypatch):
+    _FakeOllamaClient.seen_urls = []
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    # A /v1 base (the A4 chat URL) must be normalised to the native /api endpoint.
+    r = unconfigured_client.post("/ollama/models", json={"base_url": "http://localhost:11434/v1"})
+    assert r.status_code == 200
+    models = r.json()["models"]
+    assert models[0]["name"] == "qwen2.5:1.5b"
+    assert models[0]["parameter_size"] == "1.5B"
+    assert any(u == "http://localhost:11434/api/tags" for u in _FakeOllamaClient.seen_urls)
+
+
+def test_ollama_models_error_returns_502(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _DownOllamaClient)
+    r = unconfigured_client.post("/ollama/models", json={})
+    assert r.status_code == 502
+
+
+def test_ollama_recommended_has_a_default(unconfigured_client):
+    r = unconfigured_client.get("/ollama/recommended")
+    assert r.status_code == 200
+    models = r.json()["models"]
+    assert len(models) >= 1
+    assert any(m["recommended"] for m in models)
+    assert all({"name", "label", "size", "note"} <= set(m) for m in models)
+
+
+def test_ollama_delete_forwards_name(unconfigured_client, monkeypatch):
+    _FakeOllamaClient.deleted = []
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    r = unconfigured_client.request(
+        "DELETE",
+        "/ollama/models",
+        json={"base_url": "http://localhost:11434", "name": "qwen2.5:1.5b"},
+    )
+    assert r.status_code == 200
+    assert _FakeOllamaClient.deleted[0]["name"] == "qwen2.5:1.5b"
+
+
+def test_ollama_pull_streams_progress_then_done(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    r = unconfigured_client.get("/ollama/pull", params={"name": "qwen2.5:1.5b"})
+    assert r.status_code == 200
+    datas = [line[6:] for line in r.text.splitlines() if line.startswith("data: ")]
+    assert datas[-1] == "[DONE]"
+    parsed = [json.loads(d) for d in datas if d != "[DONE]"]
+    assert any(p.get("status") == "success" for p in parsed)
+
+
+def test_ollama_pull_http_error_emits_error_event(unconfigured_client, monkeypatch):
+    class _ErrClient(_FakeOllamaClient):
+        pull_status = 500
+
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _ErrClient)
+    r = unconfigured_client.get("/ollama/pull", params={"name": "x"})
+    assert r.status_code == 200
+    datas = [line[6:] for line in r.text.splitlines() if line.startswith("data: ")]
+    assert any("error" in d for d in datas)
+    assert datas[-1] == "[DONE]"
