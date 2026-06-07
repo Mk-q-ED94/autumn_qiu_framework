@@ -6,6 +6,7 @@ struct ChatView: View {
     @EnvironmentObject private var conversationStore: ConversationStore
     @EnvironmentObject private var projectStore: ProjectStore
     @FocusState private var composerFocused: Bool
+    @State private var inspectorVisible: Bool = false
 
     init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
         _vm = StateObject(wrappedValue: ChatViewModel(
@@ -13,6 +14,12 @@ struct ChatView: View {
             store: store,
             projects: projects
         ))
+    }
+
+    /// The trace surfaced in the inspector — the most recent assistant turn
+    /// that finished classification (i.e. has a populated trace).
+    private var inspectorTrace: WorkflowTrace? {
+        vm.messages.reversed().first(where: { $0.role == .assistant && $0.trace != nil })?.trace
     }
 
     var body: some View {
@@ -25,7 +32,21 @@ struct ChatView: View {
             inputBar
         }
         .background(Color.clear)
+        .inspector(isPresented: $inspectorVisible) {
+            MessageInspectorView(trace: inspectorTrace)
+                .inspectorColumnWidth(min: 260, ideal: 296, max: 360)
+        }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(Autumn.motion.snappy) { inspectorVisible.toggle() }
+                } label: {
+                    Image(systemName: inspectorVisible
+                          ? "sidebar.trailing"
+                          : "sidebar.squares.trailing")
+                }
+                .help(inspectorVisible ? "隐藏流水线详情" : "显示流水线详情")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("清空对话", role: .destructive) { vm.clear() }
