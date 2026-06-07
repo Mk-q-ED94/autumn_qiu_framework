@@ -56,6 +56,8 @@ class _MockAutumn:
                     detail=f"Mission 路由为 {route.value}",
                     workspace="WP3",
                     duration_ms=12.5,
+                    prompt_tokens=120,
+                    completion_tokens=15,
                 ),
                 WorkflowStage(
                     id="wp2.tool.0.search",
@@ -64,6 +66,8 @@ class _MockAutumn:
                     workspace="WP2",
                     status="completed",
                     kind="tool",
+                    prompt_tokens=240,
+                    completion_tokens=18,
                 ),
             ],
         )
@@ -438,6 +442,26 @@ def test_trace_includes_tool_stage_kind(configured_client):
     assert tool_stages[0]["title"] == "search"
 
 
+def test_trace_includes_token_usage_per_stage(configured_client):
+    """Token fields propagate from WorkflowStage → TraceStageResponse."""
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 200
+    stages = r.json()["stages"]
+    assert stages[0]["prompt_tokens"] == 120
+    assert stages[0]["completion_tokens"] == 15
+    assert stages[1]["prompt_tokens"] == 240
+    assert stages[1]["completion_tokens"] == 18
+
+
+def test_trace_includes_aggregate_token_totals(configured_client):
+    """TraceResponse sums per-stage tokens into top-level totals."""
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_prompt_tokens"] == 360       # 120 + 240
+    assert body["total_completion_tokens"] == 33    # 15 + 18
+
+
 def test_trace_503_when_unconfigured(unconfigured_client):
     r = unconfigured_client.post("/trace", json={"input": "hi"})
     assert r.status_code == 503
@@ -449,12 +473,12 @@ def test_trace_503_when_unconfigured(unconfigured_client):
 def test_intent_returns_selector_preview(configured_client):
     r = configured_client.post("/intent", json={"input": "find docs"})
     assert r.status_code == 200
-    assert r.json() == {
-        "input_type": "task",
-        "task_type": "search",
-        "route": None,
-        "confidence": 0.66,
-    }
+    payload = r.json()
+    assert payload["input_type"] == "task"
+    assert payload["task_type"] == "search"
+    assert payload["route"] is None
+    assert payload["confidence"] == 0.66
+    assert "reasoning" in payload  # may be None — added for selector improvement
 
 
 def test_intent_accepts_manual_override(configured_client):

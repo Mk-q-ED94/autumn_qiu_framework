@@ -5,12 +5,23 @@ struct ProcessRequest: Encodable {
     let route: String?
     let inputType: String?
     let taskType: String?
+    let projectInstructions: String?
+    let projectID: String?
 
-    init(input: String, route: String? = nil, inputType: String? = nil, taskType: String? = nil) {
+    init(
+        input: String,
+        route: String? = nil,
+        inputType: String? = nil,
+        taskType: String? = nil,
+        projectInstructions: String? = nil,
+        projectID: String? = nil
+    ) {
         self.input = input
         self.route = route
         self.inputType = inputType
         self.taskType = taskType
+        self.projectInstructions = projectInstructions
+        self.projectID = projectID
     }
 
     enum CodingKeys: String, CodingKey {
@@ -18,6 +29,8 @@ struct ProcessRequest: Encodable {
         case route
         case inputType = "input_type"
         case taskType = "task_type"
+        case projectInstructions = "project_instructions"
+        case projectID = "project_id"
     }
 }
 
@@ -31,6 +44,37 @@ struct WorkflowTrace: Decodable, Equatable {
     let route: String?
     let taskType: String?
     let stages: [WorkflowStage]
+    let totalPromptTokens: Int?
+    let totalCompletionTokens: Int?
+
+    init(
+        output: String,
+        inputType: String,
+        route: String?,
+        taskType: String?,
+        stages: [WorkflowStage],
+        totalPromptTokens: Int? = nil,
+        totalCompletionTokens: Int? = nil
+    ) {
+        self.output = output
+        self.inputType = inputType
+        self.route = route
+        self.taskType = taskType
+        self.stages = stages
+        self.totalPromptTokens = totalPromptTokens
+        self.totalCompletionTokens = totalCompletionTokens
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        output = try c.decode(String.self, forKey: .output)
+        inputType = try c.decode(String.self, forKey: .inputType)
+        route = try c.decodeIfPresent(String.self, forKey: .route)
+        taskType = try c.decodeIfPresent(String.self, forKey: .taskType)
+        stages = try c.decode([WorkflowStage].self, forKey: .stages)
+        totalPromptTokens = try c.decodeIfPresent(Int.self, forKey: .totalPromptTokens)
+        totalCompletionTokens = try c.decodeIfPresent(Int.self, forKey: .totalCompletionTokens)
+    }
 
     var inputKind: WorkflowInputKind {
         WorkflowInputKind(rawValue: inputType) ?? .mission
@@ -74,6 +118,8 @@ struct WorkflowTrace: Decodable, Equatable {
         case route
         case taskType = "task_type"
         case stages
+        case totalPromptTokens = "total_prompt_tokens"
+        case totalCompletionTokens = "total_completion_tokens"
     }
 }
 
@@ -85,6 +131,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     let status: String
     let kind: String   // "stage" = workflow step, "tool" = an agent tool call
     let durationMS: Double?
+    let promptTokens: Int?
+    let completionTokens: Int?
 
     init(
         id: String,
@@ -93,7 +141,9 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         workspace: String,
         status: String,
         kind: String = "stage",
-        durationMS: Double? = nil
+        durationMS: Double? = nil,
+        promptTokens: Int? = nil,
+        completionTokens: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -102,6 +152,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         self.status = status
         self.kind = kind
         self.durationMS = durationMS
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
     }
 
     init(from decoder: Decoder) throws {
@@ -113,11 +165,15 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         status = try c.decode(String.self, forKey: .status)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
         durationMS = try c.decodeIfPresent(Double.self, forKey: .durationMS)
+        promptTokens = try c.decodeIfPresent(Int.self, forKey: .promptTokens)
+        completionTokens = try c.decodeIfPresent(Int.self, forKey: .completionTokens)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, detail, workspace, status, kind
         case durationMS = "duration_ms"
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
     }
 }
 
@@ -126,6 +182,7 @@ struct IntentPreview: Decodable, Equatable {
     let taskType: String?
     let route: String?
     let confidence: Double
+    let reasoning: String?
 
     var inputKind: WorkflowInputKind {
         WorkflowInputKind(rawValue: inputType) ?? .mission
@@ -153,6 +210,7 @@ struct IntentPreview: Decodable, Equatable {
         case taskType = "task_type"
         case route
         case confidence
+        case reasoning
     }
 }
 
@@ -224,6 +282,7 @@ struct ApplyConfigRequest: Encodable {
     let a1: ProviderConfigRequest
     let a2: ProviderConfigRequest
     let a3: ProviderConfigRequest
+    let a4: ProviderConfigRequest?
 }
 
 struct ApplyConfigResponse: Decodable {

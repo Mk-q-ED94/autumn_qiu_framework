@@ -2,15 +2,23 @@ import SwiftUI
 
 struct ChatView: View {
     @StateObject private var vm: ChatViewModel
+    @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var conversationStore: ConversationStore
+    @EnvironmentObject private var projectStore: ProjectStore
     @FocusState private var composerFocused: Bool
     @State private var intentPopoverVisible: Bool = false
 
-    init(settings: AppSettings, store: ConversationStore) {
-        _vm = StateObject(wrappedValue: ChatViewModel(settings: settings, store: store))
+    init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
+        _vm = StateObject(wrappedValue: ChatViewModel(
+            settings: settings,
+            store: store,
+            projects: projects
+        ))
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            projectBanner
             messagesList
             errorBanner
             runStatusBar
@@ -36,6 +44,49 @@ struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: .autumnFocusComposer)) { _ in
             composerFocused = true
         }
+    }
+
+    @ViewBuilder
+    private var projectBanner: some View {
+        if let project = activeProject {
+            HStack(spacing: Autumn.spacing.sm) {
+                Image(systemName: ProjectPalette.icon(for: project.colorTag))
+                    .foregroundStyle(ProjectPalette.color(for: project.colorTag))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(project.name)
+                        .font(Autumn.typography.captionStrong)
+                    if !project.trimmedInstructions.isEmpty {
+                        Text(project.trimmedInstructions)
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    } else {
+                        Text("项目无附加指令")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, Autumn.spacing.lg)
+            .padding(.vertical, Autumn.spacing.sm)
+            .background(ProjectPalette.color(for: project.colorTag).opacity(0.08))
+            .overlay(
+                Rectangle()
+                    .fill(ProjectPalette.color(for: project.colorTag).opacity(0.25))
+                    .frame(height: 1),
+                alignment: .bottom
+            )
+        }
+    }
+
+    private var activeProject: Project? {
+        guard
+            let id = conversationStore.selectedID,
+            let convo = conversationStore.conversations.first(where: { $0.id == id }),
+            let projectID = convo.projectID
+        else { return nil }
+        return projectStore.project(id: projectID)
     }
 
     private var messagesList: some View {
@@ -167,6 +218,13 @@ struct ChatView: View {
                 .padding(.top, 7)
                 .padding(.trailing, 8)
                 .disabled(vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if !vm.input.isEmpty {
+                    tokenCounterLabel
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(.bottom, 7)
+                        .padding(.leading, 10)
+                }
             }
 
             runButton
@@ -179,6 +237,16 @@ struct ChatView: View {
                 .frame(height: Autumn.stroke.hairline),
             alignment: .top
         )
+    }
+
+    private var tokenCounterLabel: some View {
+        let tokens = ContextLimit.estimateTokens(vm.input)
+        let limit = ContextLimit.limit(for: settings.a2Model)
+        let ratio = Double(tokens) / Double(limit)
+        let color: Color = ratio > 0.8 ? Autumn.colors.danger : (ratio > 0.6 ? .orange : Autumn.colors.muted)
+        return Text("\(ContextLimit.format(tokens)) / \(ContextLimit.format(limit))")
+            .font(.system(size: 10, weight: .regular, design: .monospaced))
+            .foregroundStyle(color)
     }
 
     private var runButton: some View {
@@ -228,12 +296,14 @@ private struct IntentBadgeButton: View {
                 selectedInput: inputKind ?? .mission,
                 selectedTask: taskKind ?? .general,
                 routeOverride: routeOverride,
+                reasoning: preview?.reasoning,
+                confidence: preview?.confidence,
                 setInput: setInput,
                 setTask: setTask,
                 setRoute: setRoute
             )
         }
-        .help("查看或覆盖本次输入意图")
+        .help(preview?.reasoning ?? "查看或覆盖本次输入意图")
     }
 
     private var title: String {
@@ -260,14 +330,31 @@ private struct IntentOverridePopover: View {
     let selectedInput: WorkflowInputKind
     let selectedTask: WorkflowTaskKind
     let routeOverride: MissionRouteMode?
+    let reasoning: String?
+    let confidence: Double?
     let setInput: (WorkflowInputKind) -> Void
     let setTask: (WorkflowTaskKind) -> Void
     let setRoute: (MissionRouteMode?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.md) {
-            Text("本次意图")
-                .font(Autumn.typography.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text("本次意图")
+                    .font(Autumn.typography.headline)
+                Spacer()
+                if let confidence {
+                    Text(String(format: "%.0f%%", confidence * 100))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(confidence < 0.7 ? Autumn.colors.danger : .secondary)
+                }
+            }
+
+            if let reasoning, !reasoning.isEmpty {
+                Text(reasoning)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Picker("输入", selection: inputBinding) {
                 ForEach(WorkflowInputKind.allCases) { kind in
@@ -292,7 +379,7 @@ private struct IntentOverridePopover: View {
             }
         }
         .padding(Autumn.spacing.lg)
-        .frame(width: 260)
+        .frame(width: 280)
     }
 
     private var inputBinding: Binding<WorkflowInputKind> {
@@ -337,10 +424,7 @@ private struct MessageRow: View {
             if message.text.isEmpty {
                 TypingIndicator()
             } else {
-                Text(message.text)
-                    .font(Autumn.typography.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                MessageContentView(text: message.text)
             }
 
             if message.role == .assistant, let trace = message.trace {

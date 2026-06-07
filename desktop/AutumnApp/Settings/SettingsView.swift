@@ -84,6 +84,40 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                Toggle("启用记忆模型 A4", isOn: $settings.a4Enabled)
+
+                if settings.a4Enabled {
+                    SecureField("API Key（本地模型可留空）", text: $settings.a4APIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+
+                    TextField("Base URL", text: $settings.a4BaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+
+                    Picker("协议", selection: $settings.a4Protocol) {
+                        Text("OpenAI").tag("openai")
+                        Text("Anthropic").tag("anthropic")
+                        Text("Hermes").tag("hermes")
+                    }
+                    .pickerStyle(.segmented)
+
+                    TextField("模型名称", text: $settings.a4Model)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                }
+            } header: {
+                Text("记忆模型 A4（可选）")
+            } footer: {
+                Text("A4 用于 recall 技能中向量搜索结果的合成，建议配置本地 Ollama 模型以降低成本。未启用时 recall 直接返回原始片段。")
+                    .font(.caption)
+            }
+
             Section("Mission 默认路由") {
                 Picker("路由模式", selection: $settings.routeMode) {
                     Text("自动 (A3 决定)").tag("auto")
@@ -348,6 +382,26 @@ private struct ModelConfigRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Menu {
+                    ForEach(ProviderPresets.all) { preset in
+                        Button {
+                            baseURL = preset.baseURL
+                            apiProtocol = preset.apiProtocol
+                        } label: {
+                            if let note = preset.note {
+                                Text("\(preset.name) · \(note)")
+                            } else {
+                                Text(preset.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Label("预置", systemImage: "wand.and.stars")
+                        .font(.caption)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("快速填入常见服务商")
                 AutumnBadge(state.title, tone: state.tone)
                 if state == .connecting {
                     ProgressView()
@@ -366,10 +420,20 @@ private struct ModelConfigRow: View {
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
                 #endif
+                .onChange(of: baseURL) { _, newValue in
+                    // Auto-detect protocol on URL change unless the user has selected hermes,
+                    // which deliberately shares the Ollama URL.
+                    guard apiProtocol != "hermes" else { return }
+                    let detected = ProviderPresets.detectProtocol(baseURL: newValue)
+                    if detected != apiProtocol {
+                        apiProtocol = detected
+                    }
+                }
 
             Picker("协议", selection: $apiProtocol) {
                 Text("OpenAI").tag("openai")
                 Text("Anthropic").tag("anthropic")
+                Text("Hermes").tag("hermes")
             }
             .pickerStyle(.segmented)
 

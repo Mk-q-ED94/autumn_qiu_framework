@@ -66,11 +66,20 @@ class AutumnConfig:
     a1: ModelConfig
     a2: ModelConfig
     a3: ModelConfig
+    a4: ModelConfig | None = None  # optional memory model (recall synthesis, cheap local LLM)
     prompts: WorkspacePrompts = field(default_factory=WorkspacePrompts)
     storage: StorageConfig = field(default_factory=StorageConfig)
     headless_mission_route: MissionRoute | Literal["auto"] = "auto"
     embedding: EmbeddingConfig | None = None
     auto_index: bool = False   # when embedding is set, auto-embed each history entry
+    validate_before_stream: bool = True
+    """When True (default), the streaming endpoint buffers the full pipeline
+    response — including the WP1 checker — before chunking it back to the
+    client. Trades real-time feedback for guaranteed validated output.
+
+    When False, tokens flow live as they're produced; the checker runs once
+    after the stream completes and appends an advisory chunk if it finds
+    issues."""
 
     @classmethod
     def from_env(cls, prefix: str = "", env_file: str | None = None) -> "AutumnConfig":
@@ -78,6 +87,7 @@ class AutumnConfig:
 
         Variables (all optionally prefixed by `prefix`):
             A1_API_KEY / A1_BASE_URL / A1_MODEL / A1_PROTOCOL  (A2/A3 likewise)
+            A4_API_KEY / A4_BASE_URL / A4_MODEL / A4_PROTOCOL  (optional memory model)
             EMBEDDING_API_KEY / _BASE_URL / _MODEL / _DIMENSIONS  (optional)
             STORAGE_DB_PATH                          (default: autumn_memory.db)
             HEADLESS_MISSION_ROUTE                   (auto | direct | convert)
@@ -97,14 +107,26 @@ class AutumnConfig:
             "auto" if route_raw == "auto" else MissionRoute(route_raw)
         )
 
+        a4_key = env("A4_API_KEY")
+        a4: ModelConfig | None = None
+        if a4_key:
+            a4 = ModelConfig(
+                api_key=a4_key,
+                base_url=env("A4_BASE_URL", "http://localhost:11434"),
+                model=env("A4_MODEL", ""),
+                protocol=Protocol(env("A4_PROTOCOL", "openai")),
+            )
+
         return cls(
             a1=ModelConfig.from_env(f"{prefix}A1"),
             a2=ModelConfig.from_env(f"{prefix}A2"),
             a3=ModelConfig.from_env(f"{prefix}A3"),
+            a4=a4,
             storage=StorageConfig(db_path=env("STORAGE_DB_PATH", "autumn_memory.db")),
             headless_mission_route=route,
             embedding=EmbeddingConfig.from_env(f"{prefix}EMBEDDING_"),
             auto_index=env("AUTO_INDEX", "false").lower() in ("1", "true", "yes"),
+            validate_before_stream=env("VALIDATE_BEFORE_STREAM", "true").lower() in ("1", "true", "yes"),
         )
 
 

@@ -62,4 +62,5 @@ struct ContentView: View {
         .environmentObject(AppSettings())
         .environmentObject(LocalServerManager())
         .environmentObject(ConversationStore())
+        .environmentObject(ProjectStore())
 }

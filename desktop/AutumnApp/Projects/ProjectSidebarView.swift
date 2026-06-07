@@ -1,0 +1,361 @@
+import SwiftUI
+
+/// Sidebar conversation/project explorer.
+///
+/// Layout:
+///   • Header (label + "+" 新建项目 + "+" 新建对话)
+///   • DisclosureGroup per project — header shows project chip & instructions hint
+///     • New chat button (creates a conversation under this project)
+///     • Conversation rows
+///   • DisclosureGroup "未分组" — conversations without a project
+struct ProjectSidebarView: View {
+    @EnvironmentObject private var store: ConversationStore
+    @EnvironmentObject private var projects: ProjectStore
+
+    @State private var renamingConversationID: UUID?
+    @State private var draftTitle: String = ""
+
+    @State private var editorMode: ProjectEditorView.Mode?
+    @State private var projectPendingDelete: Project?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            if store.isLoading {
+                skeletons
+            } else {
+                content
+            }
+        }
+        .sheet(item: Binding(
+            get: { editorMode.map(EditorPresentation.init) },
+            set: { editorMode = $0?.mode }
+        )) { presentation in
+            ProjectEditorView(
+                mode: presentation.mode,
+                onSubmit: { name, instructions, color in
+                    handleEditorSubmit(mode: presentation.mode,
+                                       name: name,
+                                       instructions: instructions,
+                                       colorTag: color)
+                },
+                onCancel: { editorMode = nil }
+            )
+        }
+        .alert(
+            "删除项目「\(projectPendingDelete?.name ?? "")」?",
+            isPresented: Binding(
+                get: { projectPendingDelete != nil },
+                set: { if !$0 { projectPendingDelete = nil } }
+            ),
+            presenting: projectPendingDelete
+        ) { project in
+            Button("删除项目", role: .destructive) {
+                store.unfileConversations(belongingTo: project.id)
+                projects.delete(project.id)
+            }
+            Button("取消", role: .cancel) { }
+        } message: { _ in
+            Text("项目下的对话不会被删除，将移至未分组。")
+        }
+    }
+
+    // ── header ───────────────────────────────────────────────────────────────
+
+    private var header: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            Text("项目与对话")
+                .font(Autumn.typography.captionStrong)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button(action: { editorMode = .create }) {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .help("新建项目")
+
+            Button(action: { store.newConversation() }) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .help("新建对话 (⌘N)")
+        }
+        .padding(.horizontal, Autumn.spacing.md)
+        .padding(.vertical, Autumn.spacing.sm)
+    }
+
+    // ── body content ─────────────────────────────────────────────────────────
+
+    private var content: some View {
+        List(selection: bindingSelection) {
+            ForEach(projects.projects) { project in
+                projectSection(project)
+            }
+            unfiledSection
+        }
+        .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private func projectSection(_ project: Project) -> some View {
+        let isExpanded = Binding<Bool>(
+            get: { projects.isExpanded(project.id) },
+            set: { projects.setExpanded(project.id, $0) }
+        )
+        let projectConversations = store.conversations(in: project.id)
+
+        DisclosureGroup(isExpanded: isExpanded) {
+            ForEach(projectConversations) { conversation in
+                conversationRow(conversation)
+            }
+            Button {
+                store.newConversation(projectID: project.id)
+            } label: {
+                HStack(spacing: Autumn.spacing.xs) {
+                    Image(systemName: "plus.circle")
+                    Text("在此项目新建对话")
+                        .font(Autumn.typography.caption)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.vertical, 2)
+        } label: {
+            projectHeader(project: project, count: projectConversations.count)
+                .contextMenu {
+                    Button("重命名 / 编辑指令") { editorMode = .edit(project) }
+                    Button("在此项目新建对话") {
+                        store.newConversation(projectID: project.id)
+                    }
+                    Divider()
+                    Button("删除项目", role: .destructive) {
+                        projectPendingDelete = project
+                    }
+                }
+        }
+    }
+
+    private func projectHeader(project: Project, count: Int) -> some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            Image(systemName: ProjectPalette.icon(for: project.colorTag))
+                .foregroundStyle(ProjectPalette.color(for: project.colorTag))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(project.name)
+                    .font(Autumn.typography.bodyMedium)
+                    .lineLimit(1)
+                if !project.trimmedInstructions.isEmpty {
+                    Text(project.trimmedInstructions)
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Text("\(count)")
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var unfiledSection: some View {
+        let unfiled = store.unfiledConversations
+        let isExpanded = Binding<Bool>(
+            get: { projects.unfiledExpanded },
+            set: { projects.unfiledExpanded = $0 }
+        )
+        return DisclosureGroup(isExpanded: isExpanded) {
+            if unfiled.isEmpty {
+                Text("空")
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, 2)
+            } else {
+                ForEach(unfiled) { conversation in
+                    conversationRow(conversation)
+                }
+            }
+        } label: {
+            HStack(spacing: Autumn.spacing.sm) {
+                Image(systemName: "tray")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text("未分组")
+                    .font(Autumn.typography.bodyMedium)
+                Spacer()
+                Text("\(unfiled.count)")
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    // ── conversation row ─────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private func conversationRow(_ conversation: Conversation) -> some View {
+        let isEditing = renamingConversationID == conversation.id
+        ConversationRowContent(
+            conversation: conversation,
+            isEditing: isEditing,
+            draftTitle: $draftTitle,
+            onCommitRename: {
+                store.rename(conversation.id, to: draftTitle)
+                renamingConversationID = nil
+            },
+            onCancelRename: { renamingConversationID = nil },
+            onStartFirstMessage: { store.select(conversation.id) }
+        )
+        .tag(conversation.id)
+        .contextMenu {
+            Button("重命名") {
+                draftTitle = conversation.title
+                renamingConversationID = conversation.id
+            }
+            Menu("移动到项目") {
+                ForEach(projects.projects) { project in
+                    Button(project.name) {
+                        store.moveConversation(conversation.id, toProject: project.id)
+                        projects.setExpanded(project.id, true)
+                    }
+                    .disabled(conversation.projectID == project.id)
+                }
+                if !projects.projects.isEmpty {
+                    Divider()
+                }
+                Button("移出项目") {
+                    store.moveConversation(conversation.id, toProject: nil)
+                }
+                .disabled(conversation.projectID == nil)
+            }
+            Divider()
+            Button("删除", role: .destructive) {
+                store.delete(conversation.id)
+            }
+        }
+    }
+
+    private var skeletons: some View {
+        VStack(spacing: Autumn.spacing.sm) {
+            ForEach(0..<5, id: \.self) { _ in
+                SidebarSkeletonRow()
+            }
+        }
+        .padding(.horizontal, Autumn.spacing.md)
+        .padding(.top, Autumn.spacing.sm)
+    }
+
+    // ── selection plumbing ───────────────────────────────────────────────────
+
+    private var bindingSelection: Binding<UUID?> {
+        Binding(
+            get: { store.selectedID },
+            set: { if let id = $0 { store.select(id) } }
+        )
+    }
+
+    private func handleEditorSubmit(
+        mode: ProjectEditorView.Mode,
+        name: String,
+        instructions: String,
+        colorTag: String
+    ) {
+        switch mode {
+        case .create:
+            projects.create(name: name, instructions: instructions, colorTag: colorTag)
+        case .edit(let project):
+            var updated = project
+            updated.name = name
+            updated.instructions = instructions
+            updated.colorTag = colorTag
+            projects.update(updated)
+        }
+        editorMode = nil
+    }
+}
+/// Sheet presentation wrapper so ``editorMode`` can be Identifiable.
+private struct EditorPresentation: Identifiable {
+    let mode: ProjectEditorView.Mode
+
+    var id: String {
+        switch mode {
+        case .create: return "create"
+        case .edit(let project): return "edit-\(project.id.uuidString)"
+        }
+    }
+}
+
+private struct ConversationRowContent: View {
+    let conversation: Conversation
+    let isEditing: Bool
+    @Binding var draftTitle: String
+    let onCommitRename: () -> Void
+    let onCancelRename: () -> Void
+    let onStartFirstMessage: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if isEditing {
+                TextField("标题", text: $draftTitle, onCommit: onCommitRename)
+                    .textFieldStyle(.plain)
+                    .font(Autumn.typography.callout)
+                    .autumnInputSurface(isFocused: focused)
+                    .focused($focused)
+                    .onAppear { focused = true }
+                    .onSubmit(onCommitRename)
+                    .onExitCommand(perform: onCancelRename)
+            } else {
+                Text(conversation.title)
+                    .font(Autumn.typography.callout)
+                    .lineLimit(1)
+            }
+
+            Text(subtitle)
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            if conversation.messages.isEmpty && !isEditing {
+                Button("发送第一条消息", action: onStartFirstMessage)
+                    .buttonStyle(.plain)
+                    .font(Autumn.typography.captionStrong)
+                    .foregroundStyle(.tint)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var subtitle: String {
+        let messageCount = conversation.messages.count
+        if messageCount == 0 { return "空对话" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let when = formatter.localizedString(for: conversation.updatedAt, relativeTo: Date())
+        return "\(messageCount) 条 · \(when)"
+    }
+}
+
+private struct SidebarSkeletonRow: View {
+    @State private var pulse = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            Capsule()
+                .fill(Color.secondary.opacity(pulse ? 0.18 : 0.08))
+                .frame(width: 120, height: 10)
+            Capsule()
+                .fill(Color.secondary.opacity(pulse ? 0.12 : 0.06))
+                .frame(width: 72, height: 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, Autumn.spacing.sm)
+        .onAppear {
+            withAnimation(Autumn.motion.pulse) { pulse = true }
+        }
+    }
+}

@@ -2,12 +2,8 @@ import SwiftUI
 
 struct WorkflowTraceView: View {
     let trace: WorkflowTrace
-    @State private var isExpanded: Bool
-
-    init(trace: WorkflowTrace) {
-        self.trace = trace
-        _isExpanded = State(initialValue: trace.isLive)
-    }
+    @State private var isExpanded: Bool = false
+    @State private var liveBlink: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
@@ -40,8 +36,21 @@ struct WorkflowTraceView: View {
                 isExpanded = isLive || trace.hasFailedStage
             }
         }
+        .onAppear {
+            isExpanded = trace.isLive || trace.hasFailedStage
+        }
+        .task(id: trace.isLive) {
+            guard trace.isLive else {
+                liveBlink = false
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                liveBlink.toggle()
+            }
+        }
     }
 
+    @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
             HStack(spacing: Autumn.spacing.sm) {
@@ -70,13 +79,42 @@ struct WorkflowTraceView: View {
                     total: trace.stages.count,
                     tone: statusColor
                 )
-                Text(summary)
-                    .font(Autumn.typography.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if trace.isLive, let live = liveStage {
+                    liveStatusLine(live)
+                } else {
+                    Text(summary)
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // The whole header is clickable to expand/collapse — clearer affordance
+            // than the small chevron alone.
+            withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
+        }
+    }
+
+    @ViewBuilder
+    private func liveStatusLine(_ stage: WorkflowStage) -> some View {
+        HStack(spacing: Autumn.spacing.xs) {
+            Circle()
+                .fill(Autumn.colors.info)
+                .frame(width: 6, height: 6)
+                .opacity(liveBlink ? 0.35 : 1.0)
+            Text("\(stage.workspace) · \(stage.title)")
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    /// The first stage with `status == "active"` — what we surface in the collapsed live header.
+    private var liveStage: WorkflowStage? {
+        trace.stages.first { $0.status == "active" }
     }
 
     private var inputTitle: String {
@@ -104,6 +142,9 @@ struct WorkflowTraceView: View {
         }
         if let total = trace.totalDurationMS {
             parts.append(formatDuration(total))
+        }
+        if let totalPrompt = trace.totalPromptTokens, let totalCompletion = trace.totalCompletionTokens {
+            parts.append("↑\(formatTokens(totalPrompt)) ↓\(formatTokens(totalCompletion))")
         }
         return parts.joined(separator: " · ")
     }
@@ -189,10 +230,17 @@ private struct WorkflowStageRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if let duration = stage.durationMS {
-                    Text(formatDuration(duration))
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.tertiary)
+                HStack(spacing: Autumn.spacing.xs) {
+                    if let duration = stage.durationMS {
+                        Text(formatDuration(duration))
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    if let prompt = stage.promptTokens, let completion = stage.completionTokens {
+                        Text("↑\(formatTokens(prompt)) ↓\(formatTokens(completion))")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
             .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
@@ -267,4 +315,13 @@ private func formatDuration(_ ms: Double) -> String {
         return String(format: "%.1fs", ms / 1000)
     }
     return "\(Int(ms.rounded()))ms"
+}
+
+/// Compact token formatter: 1240 → "1.2k", 980 → "980".
+private func formatTokens(_ count: Int) -> String {
+    if count >= 1000 {
+        let k = Double(count) / 1000
+        return String(format: "%.1fk", k)
+    }
+    return "\(count)"
 }

@@ -164,6 +164,11 @@ class Agent:
         If ``steps`` is provided, each tool/skill invocation is appended to it
         as an :class:`AgentStep` — letting callers surface the agent's actions
         in a workflow trace without changing the string return value.
+
+        After ``run`` returns, ``self.total_prompt_tokens`` and
+        ``self.total_completion_tokens`` hold the summed token usage across all
+        LLM calls in the loop, so workspaces can surface aggregate cost without
+        a second pass.
         """
         system = await self._build_system(memory)
         is_openai = self.api.protocol == Protocol.OPENAI
@@ -187,17 +192,36 @@ class Agent:
             for c in callables
         ]
 
+        # Token accumulators are reset on every run() so back-to-back invocations
+        # of the same Agent don't keep growing.
+        self.total_prompt_tokens: int = 0
+        self.total_completion_tokens: int = 0
+
         for _ in range(self.max_steps):
             text, tool_calls = await self.api.complete_with_tools_raw(
                 msgs, tool_schemas, system=api_system
             )
 
+            # Capture LLM usage from this turn; attribute it to any tool-call steps
+            # produced by it so the trace can show per-tool token cost.
+            # Tolerates mock APIs that don't expose ``last_usage``.
+            turn_usage = getattr(self.api, "last_usage", None) or {}
+            turn_prompt = turn_usage.get("prompt_tokens")
+            turn_completion = turn_usage.get("completion_tokens")
+            if turn_prompt is not None:
+                self.total_prompt_tokens += turn_prompt
+            if turn_completion is not None:
+                self.total_completion_tokens += turn_completion
+
             if not tool_calls:
                 return text
 
-            # Execute every requested tool
+            # Execute every requested tool. When one LLM turn yields several
+            # tool calls, the (single) token cost is attributed to the first
+            # step only; subsequent steps in the same turn report None so the
+            # workflow total doesn't multiply.
             results: list[str] = []
-            for tc in tool_calls:
+            for i, tc in enumerate(tool_calls):
                 started = time.perf_counter()
                 try:
                     if tc.name in self.tools:
@@ -216,6 +240,8 @@ class Agent:
                         arguments=dict(tc.arguments),
                         result=str(result),
                         duration_ms=duration_ms,
+                        prompt_tokens=turn_prompt if i == 0 else None,
+                        completion_tokens=turn_completion if i == 0 else None,
                     ))
 
             msgs.append(self.api.build_assistant_tool_message(text, tool_calls))

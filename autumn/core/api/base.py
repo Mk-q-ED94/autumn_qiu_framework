@@ -19,6 +19,36 @@ class ModelAPIInterface:
         self.model = model
         self.protocol = protocol
         self._client: httpx.AsyncClient | None = None
+        # Populated after each completion call from the provider's `usage` block.
+        # Callers that care about token accounting (WP1 trace, Agent loop) read this
+        # immediately after the call. It's reset to None when the next call begins
+        # so a missing `usage` does not leak stale data.
+        self.last_usage: dict[str, int] | None = None
+
+    def _record_usage(self, data: dict) -> None:
+        """Extract token usage from a provider response into ``self.last_usage``.
+
+        Normalises OpenAI's ``prompt_tokens`` / ``completion_tokens`` and Anthropic's
+        ``input_tokens`` / ``output_tokens`` into a single shape so callers don't have
+        to branch on protocol. Sets ``None`` when usage is absent or malformed.
+        """
+        usage = data.get("usage") if isinstance(data, dict) else None
+        if not isinstance(usage, dict):
+            self.last_usage = None
+            return
+        if self.protocol == Protocol.OPENAI:
+            prompt = usage.get("prompt_tokens")
+            completion = usage.get("completion_tokens")
+        else:  # Anthropic
+            prompt = usage.get("input_tokens")
+            completion = usage.get("output_tokens")
+        if prompt is None and completion is None:
+            self.last_usage = None
+            return
+        self.last_usage = {
+            "prompt_tokens": int(prompt) if prompt is not None else 0,
+            "completion_tokens": int(completion) if completion is not None else 0,
+        }
 
     # ── client ────────────────────────────────────────────────────────────────
 
@@ -90,8 +120,10 @@ class ModelAPIInterface:
     # ── completion ────────────────────────────────────────────────────────────
 
     async def complete(self, messages: list[Message], **kwargs) -> str:
+        self.last_usage = None
         endpoint, payload = self._build_request(messages, **kwargs)
         data = await self._post_with_retry(endpoint, payload)
+        self._record_usage(data)
         return self._extract_content(data)
 
     def _extract_content(self, data: dict) -> str:
@@ -163,6 +195,7 @@ class ModelAPIInterface:
         Returns (text, tool_calls). Both may be non-empty (text = reasoning, tool_calls = actions).
         Empty tool_calls means the model is done.
         """
+        self.last_usage = None
         if self.protocol == Protocol.OPENAI:
             payload = {"model": self.model, "messages": messages, "tools": tools, **kwargs}
         else:
@@ -177,6 +210,7 @@ class ModelAPIInterface:
                 payload["system"] = system
 
         data = await self._post_with_retry(self._completion_endpoint, payload)
+        self._record_usage(data)
         return self._parse_tool_response(data)
 
     def _parse_tool_response(self, data: dict) -> tuple[str, list[ToolCall]]:

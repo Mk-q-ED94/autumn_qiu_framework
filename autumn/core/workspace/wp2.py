@@ -42,6 +42,8 @@ def _step_to_stage(index: int, step: AgentStep) -> WorkflowStage:
         status="completed",
         kind="tool",
         duration_ms=step.duration_ms,
+        prompt_tokens=step.prompt_tokens,
+        completion_tokens=step.completion_tokens,
     )
 
 
@@ -77,41 +79,69 @@ class WP2Tas(WorkspaceBase):
         self._tool_provider = tool_provider
 
     async def process(self, task_input: str, task_type: TaskType | None = None) -> str:
-        output, _ = await self._execute(task_input, task_type)
+        output, *_ = await self._execute(task_input, task_type)
         return output
 
     async def process_with_trace(
         self,
         task_input: str,
         task_type: TaskType | None = None,
-    ) -> tuple[str, list[WorkflowStage]]:
-        """Execute the task and return (output, tool_stages)."""
+    ) -> tuple[str, list[WorkflowStage], int | None, int | None]:
+        """Execute the task and return (output, tool_stages, prompt_tokens, completion_tokens).
+
+        The token totals sum every A2 LLM call made during this turn — the agent
+        loop (or single plain completion) plus the checker validation pass — so
+        WP1 can attribute the full cost to its ``wp2.task`` stage.
+        """
         return await self._execute(task_input, task_type)
 
     async def _execute(
         self,
         task_input: str,
         task_type: TaskType | None = None,
-    ) -> tuple[str, list[WorkflowStage]]:
+    ) -> tuple[str, list[WorkflowStage], int | None, int | None]:
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
         tool_stages: list[WorkflowStage] = []
+        prompt_total = 0
+        completion_total = 0
+        any_usage = False
 
         if tools or skills:
             steps: list[AgentStep] = []
-            result = await self._run_with_agent(task_input, tools, skills, steps, task_type)
+            result, agent_prompt, agent_completion = await self._run_with_agent(
+                task_input, tools, skills, steps, task_type
+            )
             tool_stages = [_step_to_stage(i, s) for i, s in enumerate(steps)]
+            if agent_prompt or agent_completion:
+                prompt_total += agent_prompt
+                completion_total += agent_completion
+                any_usage = True
         else:
             result = await self._run_plain(task_input, task_type)
+            usage = getattr(self.api, "last_usage", None)
+            if usage:
+                prompt_total += usage.get("prompt_tokens") or 0
+                completion_total += usage.get("completion_tokens") or 0
+                any_usage = True
 
         if self.checker:
             _, result = await self.checker.validate(result, self.memory)
+            # Checker calls api.complete() once per validation pass; sum those into
+            # the WP2 total since they're part of WP2's accountable cost.
+            usage = getattr(self.api, "last_usage", None)
+            if usage:
+                prompt_total += usage.get("prompt_tokens") or 0
+                completion_total += usage.get("completion_tokens") or 0
+                any_usage = True
 
         await self.memory.append_history({
             "ts": time.time(),
             "task": task_input,
             "output": result,
         })
-        return result, tool_stages
+        if not any_usage:
+            return result, tool_stages, None, None
+        return result, tool_stages, prompt_total, completion_total
 
     async def _run_plain(self, task_input: str, task_type: TaskType | None = None) -> str:
         """Single completion — the original WP2 behavior, used when no tools exist."""
@@ -128,8 +158,13 @@ class WP2Tas(WorkspaceBase):
         skills: list[Skill],
         steps: list[AgentStep] | None = None,
         task_type: TaskType | None = None,
-    ) -> str:
-        """ReAct loop with tool access; carries WP2's persona + Mom2 history."""
+    ) -> tuple[str, int, int]:
+        """ReAct loop with tool access; carries WP2's persona + Mom2 history.
+
+        Returns ``(result, prompt_tokens, completion_tokens)`` where the token
+        totals are the agent loop's aggregate (0 when the provider doesn't return
+        usage stats).
+        """
         agent = Agent(
             name="WP2-Tas",
             api=self.api,
@@ -137,7 +172,8 @@ class WP2Tas(WorkspaceBase):
             skills=skills,
             instructions=_apply_hint(self._system, task_type),
         )
-        return await agent.run(task_input, memory=self.memory, steps=steps)
+        result = await agent.run(task_input, memory=self.memory, steps=steps)
+        return result, agent.total_prompt_tokens, agent.total_completion_tokens
 
     async def stream(
         self,
@@ -168,7 +204,7 @@ class WP2Tas(WorkspaceBase):
         if tools or skills:
             # Tool-driven turn cannot be true-streamed; buffer then chunk.
             steps: list[AgentStep] = []
-            result = await self._run_with_agent(task_input, tools, skills, steps, task_type)
+            result, _, _ = await self._run_with_agent(task_input, tools, skills, steps, task_type)
             for i in range(0, len(result), chunk_size):
                 yield result[i:i + chunk_size]
                 await asyncio.sleep(0)

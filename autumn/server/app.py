@@ -24,10 +24,31 @@ class ProcessRequest(BaseModel):
     route: RequestRoute = None
     input_type: InputType | None = None
     task_type: TaskType | None = None
+    project_instructions: str | None = None
+    project_id: str | None = None
 
 
 class ProcessResponse(BaseModel):
     output: str
+
+
+def _apply_project_context(user_input: str, project_instructions: str | None) -> str:
+    """Wrap ``user_input`` with a project-instructions preamble when set.
+
+    The instructions are inserted as a clearly-tagged block so the
+    workflow sees them as part of the user turn but A1 can distinguish
+    them in its trace.  Returns the original input unchanged when no
+    instructions are present.
+    """
+    instructions = (project_instructions or "").strip()
+    if not instructions:
+        return user_input
+    return (
+        "[项目指令 / Project Instructions]\n"
+        f"{instructions}\n\n"
+        "[用户输入 / User Input]\n"
+        f"{user_input}"
+    )
 
 
 class TraceStageResponse(BaseModel):
@@ -38,6 +59,8 @@ class TraceStageResponse(BaseModel):
     status: str
     kind: str = "stage"
     duration_ms: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class TraceResponse(BaseModel):
@@ -46,6 +69,8 @@ class TraceResponse(BaseModel):
     route: MissionRoute | None = None
     task_type: TaskType | None = None
     stages: list[TraceStageResponse]
+    total_prompt_tokens: int | None = None
+    total_completion_tokens: int | None = None
 
 
 class IntentRequest(BaseModel):
@@ -53,6 +78,8 @@ class IntentRequest(BaseModel):
     route: RequestRoute = None
     input_type: InputType | None = None
     task_type: TaskType | None = None
+    project_instructions: str | None = None
+    project_id: str | None = None
 
 
 class IntentResponse(BaseModel):
@@ -60,6 +87,7 @@ class IntentResponse(BaseModel):
     task_type: TaskType | None = None
     route: MissionRoute | None = None
     confidence: float
+    reasoning: str | None = None
 
 
 class TerrParameterResponse(BaseModel):
@@ -95,6 +123,7 @@ class ApplyConfigRequest(BaseModel):
     a1: ProviderConfigRequest
     a2: ProviderConfigRequest
     a3: ProviderConfigRequest
+    a4: ProviderConfigRequest | None = None
 
 
 class ApplyConfigResponse(BaseModel):
@@ -189,12 +218,17 @@ def _autumn_or_503(request: Request) -> Autumn:
 
 
 def _trace_response(run: WorkflowRun) -> TraceResponse:
+    stages = [TraceStageResponse(**stage.__dict__) for stage in run.stages]
+    prompt_sum = sum((s.prompt_tokens or 0) for s in stages)
+    completion_sum = sum((s.completion_tokens or 0) for s in stages)
     return TraceResponse(
         output=run.output,
         input_type=run.input_type,
         route=run.route,
         task_type=run.task_type,
-        stages=[TraceStageResponse(**stage.__dict__) for stage in run.stages],
+        stages=stages,
+        total_prompt_tokens=prompt_sum or None,
+        total_completion_tokens=completion_sum or None,
     )
 
 
@@ -245,10 +279,14 @@ def create_app() -> FastAPI:
 
     @app.post("/config/apply", response_model=ApplyConfigResponse)
     async def apply_config(req: ApplyConfigRequest, request: Request):
+        a4_config: ModelConfig | None = None
+        if req.a4 and req.a4.api_key.strip():
+            a4_config = _require_model_config("A4", req.a4)
         config = AutumnConfig(
             a1=_require_model_config("A1", req.a1),
             a2=_require_model_config("A2", req.a2),
             a3=_require_model_config("A3", req.a3),
+            a4=a4_config,
         )
 
         old: Autumn | None = request.app.state.autumn
@@ -261,7 +299,7 @@ def create_app() -> FastAPI:
     async def process(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
         output = await autumn.process(
-            req.input,
+            _apply_project_context(req.input, req.project_instructions),
             mission_route=req.route,
             input_type=req.input_type,
             task_type=req.task_type,
@@ -272,7 +310,7 @@ def create_app() -> FastAPI:
     async def trace(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
         run = await autumn.process_with_trace(
-            req.input,
+            _apply_project_context(req.input, req.project_instructions),
             mission_route=req.route,
             input_type=req.input_type,
             task_type=req.task_type,
@@ -282,8 +320,11 @@ def create_app() -> FastAPI:
     @app.post("/intent", response_model=IntentResponse)
     async def intent(req: IntentRequest, request: Request):
         autumn = _autumn_or_503(request)
+        # Project instructions are advisory for intent classification too —
+        # they may shift the classifier's read (e.g. a project full of code
+        # work is more likely to interpret short prompts as TASK).
         sel, route = await autumn.classify_intent(
-            req.input,
+            _apply_project_context(req.input, req.project_instructions),
             mission_route=req.route,
             input_type=req.input_type,
             task_type=req.task_type,
@@ -293,6 +334,7 @@ def create_app() -> FastAPI:
             task_type=sel.task_type,
             route=route,
             confidence=sel.confidence,
+            reasoning=sel.reasoning,
         )
 
     @app.get("/stream")
@@ -302,14 +344,19 @@ def create_app() -> FastAPI:
         route: RequestRoute = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        project_instructions: str | None = None,
+        project_id: str | None = None,
     ):
         autumn = _autumn_or_503(request)
+        effective_input = _apply_project_context(input, project_instructions)
+        _ = project_id  # reserved for future per-project memory scoping
 
         async def event_stream():
             disconnected = False
             try:
-                async for event in autumn.stream_with_trace(
-                    input,
+                stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
+                async for event in stream_fn(
+                    effective_input,
                     mission_route=route,
                     input_type=input_type,
                     task_type=task_type,

@@ -84,13 +84,14 @@ def make_memories():
 
 
 def make_wp1(task_tokens=None, mission_tokens=None, sel_result=None, checker=None,
-             headless_route=MissionRoute.DIRECT):
+             headless_route=MissionRoute.DIRECT, validate_before_stream=False):
     mom1, mom2, mom3 = make_memories()
     wp2 = WP2Tas(StreamingAPI(task_tokens or []), mom2)
     wp3 = WP3Mis(StreamingAPI(mission_tokens or []), mom3)
     wp1 = WP1Tot(
         api=None, memory=mom1, wp2=wp2, wp3=wp3,
         headless_mission_route=headless_route,
+        validate_before_stream=validate_before_stream,
     )
     wp1.selector = StubSelector(
         sel_result or SelectorResult(InputType.MISSION, 0.9, None)
@@ -330,7 +331,8 @@ async def test_wp1_stream_convert_path_uses_buffered_wp2():
     wp3 = WP3Mis(ConvertingAPI(), mom3)
     wp2 = WP2Tas(WP2StreamingAPI(), mom2)
     wp1 = WP1Tot(api=None, memory=mom1, wp2=wp2, wp3=wp3,
-                 headless_mission_route=MissionRoute.CONVERT)
+                 headless_mission_route=MissionRoute.CONVERT,
+                 validate_before_stream=False)
     wp1.selector = StubSelector(SelectorResult(InputType.MISSION, 0.9, None))
     wp1.checker = PassingChecker()
 
