@@ -18,6 +18,9 @@ struct ProjectSidebarView: View {
     @State private var editorMode: ProjectEditorView.Mode?
     @State private var projectPendingDelete: Project?
 
+    @State private var dragTargetedProjectID: UUID?
+    @State private var unfiledDropTargeted: Bool = false
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -123,24 +126,36 @@ struct ProjectSidebarView: View {
             .buttonStyle(.plain)
             .padding(.vertical, 2)
         } label: {
-            projectHeader(project: project, count: projectConversations.count)
-                .contextMenu {
-                    Button("重命名 / 编辑指令") { editorMode = .edit(project) }
-                    Button("在此项目新建对话") {
-                        store.newConversation(projectID: project.id)
-                    }
-                    Divider()
-                    Button("删除项目", role: .destructive) {
-                        projectPendingDelete = project
-                    }
+            projectHeader(
+                project: project,
+                count: projectConversations.count,
+                isDropTarget: dragTargetedProjectID == project.id
+            )
+            .contextMenu {
+                Button("重命名 / 编辑指令") { editorMode = .edit(project) }
+                Button("在此项目新建对话") {
+                    store.newConversation(projectID: project.id)
                 }
+                Divider()
+                Button("删除项目", role: .destructive) {
+                    projectPendingDelete = project
+                }
+            }
+            .dropDestination(for: String.self) { items, _ in
+                guard let first = items.first, let id = UUID(uuidString: first) else { return false }
+                store.moveConversation(id, toProject: project.id)
+                projects.setExpanded(project.id, true)
+                return true
+            } isTargeted: { targeted in
+                dragTargetedProjectID = targeted ? project.id : nil
+            }
         }
     }
 
-    private func projectHeader(project: Project, count: Int) -> some View {
+    private func projectHeader(project: Project, count: Int, isDropTarget: Bool = false) -> some View {
         HStack(spacing: Autumn.spacing.sm) {
             Image(systemName: ProjectPalette.icon(for: project.colorTag))
-                .foregroundStyle(ProjectPalette.color(for: project.colorTag))
+                .foregroundStyle(isDropTarget ? Color.accentColor : ProjectPalette.color(for: project.colorTag))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 Text(project.name)
@@ -181,7 +196,7 @@ struct ProjectSidebarView: View {
         } label: {
             HStack(spacing: Autumn.spacing.sm) {
                 Image(systemName: "tray")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(unfiledDropTargeted ? Color.accentColor : Color.secondary)
                     .frame(width: 18)
                 Text("未分组")
                     .font(Autumn.typography.bodyMedium)
@@ -191,6 +206,13 @@ struct ProjectSidebarView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 2)
+            .dropDestination(for: String.self) { items, _ in
+                guard let first = items.first, let id = UUID(uuidString: first) else { return false }
+                store.moveConversation(id, toProject: nil)
+                return true
+            } isTargeted: { targeted in
+                unfiledDropTargeted = targeted
+            }
         }
     }
 
@@ -211,6 +233,7 @@ struct ProjectSidebarView: View {
             onStartFirstMessage: { store.select(conversation.id) }
         )
         .tag(conversation.id)
+        .draggable(conversation.id.uuidString)
         .contextMenu {
             Button("重命名") {
                 draftTitle = conversation.title

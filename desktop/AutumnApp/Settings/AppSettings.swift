@@ -3,164 +3,102 @@ import SwiftUI
 
 @MainActor
 final class AppSettings: ObservableObject {
-    @Published var serverURL: String {
-        didSet { UserDefaults.standard.set(serverURL, forKey: Self.serverURLKey) }
-    }
+    @Published var serverURL: String { didSet { _schedulePersist() } }
+    @Published var routeMode: String { didSet { _schedulePersist() } }
 
-    @Published var routeMode: String {
-        didSet { UserDefaults.standard.set(routeMode, forKey: Self.routeModeKey) }
-    }
+    @Published var a1APIKey: String   { didSet { _schedulePersist() } }
+    @Published var a1BaseURL: String  { didSet { _schedulePersist() } }
+    @Published var a1Protocol: String { didSet { _schedulePersist() } }
+    @Published var a1Model: String    { didSet { _schedulePersist() } }
 
-    @Published var a1APIKey: String {
-        didSet { UserDefaults.standard.set(a1APIKey, forKey: Self.a1APIKeyKey) }
-    }
+    @Published var a2APIKey: String   { didSet { _schedulePersist() } }
+    @Published var a2BaseURL: String  { didSet { _schedulePersist() } }
+    @Published var a2Protocol: String { didSet { _schedulePersist() } }
+    @Published var a2Model: String    { didSet { _schedulePersist() } }
 
-    @Published var a1BaseURL: String {
-        didSet { UserDefaults.standard.set(a1BaseURL, forKey: Self.a1BaseURLKey) }
-    }
+    @Published var a3APIKey: String   { didSet { _schedulePersist() } }
+    @Published var a3BaseURL: String  { didSet { _schedulePersist() } }
+    @Published var a3Protocol: String { didSet { _schedulePersist() } }
+    @Published var a3Model: String    { didSet { _schedulePersist() } }
 
-    @Published var a1Protocol: String {
-        didSet { UserDefaults.standard.set(a1Protocol, forKey: Self.a1ProtocolKey) }
-    }
-
-    @Published var a1Model: String {
-        didSet { UserDefaults.standard.set(a1Model, forKey: Self.a1ModelKey) }
-    }
-
-    @Published var a2APIKey: String {
-        didSet { UserDefaults.standard.set(a2APIKey, forKey: Self.a2APIKeyKey) }
-    }
-
-    @Published var a2BaseURL: String {
-        didSet { UserDefaults.standard.set(a2BaseURL, forKey: Self.a2BaseURLKey) }
-    }
-
-    @Published var a2Protocol: String {
-        didSet { UserDefaults.standard.set(a2Protocol, forKey: Self.a2ProtocolKey) }
-    }
-
-    @Published var a2Model: String {
-        didSet { UserDefaults.standard.set(a2Model, forKey: Self.a2ModelKey) }
-    }
-
-    @Published var a3APIKey: String {
-        didSet { UserDefaults.standard.set(a3APIKey, forKey: Self.a3APIKeyKey) }
-    }
-
-    @Published var a3BaseURL: String {
-        didSet { UserDefaults.standard.set(a3BaseURL, forKey: Self.a3BaseURLKey) }
-    }
-
-    @Published var a3Protocol: String {
-        didSet { UserDefaults.standard.set(a3Protocol, forKey: Self.a3ProtocolKey) }
-    }
-
-    @Published var a3Model: String {
-        didSet { UserDefaults.standard.set(a3Model, forKey: Self.a3ModelKey) }
-    }
-
-    @Published var a4Enabled: Bool {
-        didSet { UserDefaults.standard.set(a4Enabled, forKey: Self.a4EnabledKey) }
-    }
-
-    @Published var a4APIKey: String {
-        didSet { UserDefaults.standard.set(a4APIKey, forKey: Self.a4APIKeyKey) }
-    }
-
-    @Published var a4BaseURL: String {
-        didSet { UserDefaults.standard.set(a4BaseURL, forKey: Self.a4BaseURLKey) }
-    }
-
-    @Published var a4Protocol: String {
-        didSet { UserDefaults.standard.set(a4Protocol, forKey: Self.a4ProtocolKey) }
-    }
-
-    @Published var a4Model: String {
-        didSet { UserDefaults.standard.set(a4Model, forKey: Self.a4ModelKey) }
-    }
+    @Published var a4Enabled: Bool    { didSet { _schedulePersist() } }
+    @Published var a4APIKey: String   { didSet { _schedulePersist() } }
+    @Published var a4BaseURL: String  { didSet { _schedulePersist() } }
+    @Published var a4Protocol: String { didSet { _schedulePersist() } }
+    @Published var a4Model: String    { didSet { _schedulePersist() } }
 
     @Published private(set) var a1ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a2ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a3ModelState: ModelConnectionState = .unconfigured
     @Published var activeRouteOverride: String? = nil
 
-    private static let serverURLKey = "AutumnDesktop.serverURL"
-    private static let routeModeKey = "AutumnDesktop.routeMode"
-    private static let a1APIKeyKey = "AutumnDesktop.a1APIKey"
-    private static let a1BaseURLKey = "AutumnDesktop.a1BaseURL"
+    private static let serverURLKey  = "AutumnDesktop.serverURL"
+    private static let routeModeKey  = "AutumnDesktop.routeMode"
+    private static let a1APIKeyKey   = "AutumnDesktop.a1APIKey"
+    private static let a1BaseURLKey  = "AutumnDesktop.a1BaseURL"
     private static let a1ProtocolKey = "AutumnDesktop.a1Protocol"
-    private static let a1ModelKey = "AutumnDesktop.a1Model"
-    private static let a2APIKeyKey = "AutumnDesktop.a2APIKey"
-    private static let a2BaseURLKey = "AutumnDesktop.a2BaseURL"
+    private static let a1ModelKey    = "AutumnDesktop.a1Model"
+    private static let a2APIKeyKey   = "AutumnDesktop.a2APIKey"
+    private static let a2BaseURLKey  = "AutumnDesktop.a2BaseURL"
     private static let a2ProtocolKey = "AutumnDesktop.a2Protocol"
-    private static let a2ModelKey = "AutumnDesktop.a2Model"
-    private static let a3APIKeyKey = "AutumnDesktop.a3APIKey"
-    private static let a3BaseURLKey = "AutumnDesktop.a3BaseURL"
+    private static let a2ModelKey    = "AutumnDesktop.a2Model"
+    private static let a3APIKeyKey   = "AutumnDesktop.a3APIKey"
+    private static let a3BaseURLKey  = "AutumnDesktop.a3BaseURL"
     private static let a3ProtocolKey = "AutumnDesktop.a3Protocol"
-    private static let a3ModelKey = "AutumnDesktop.a3Model"
-    private static let a4EnabledKey = "AutumnDesktop.a4Enabled"
-    private static let a4APIKeyKey = "AutumnDesktop.a4APIKey"
-    private static let a4BaseURLKey = "AutumnDesktop.a4BaseURL"
+    private static let a3ModelKey    = "AutumnDesktop.a3Model"
+    private static let a4EnabledKey  = "AutumnDesktop.a4Enabled"
+    private static let a4APIKeyKey   = "AutumnDesktop.a4APIKey"
+    private static let a4BaseURLKey  = "AutumnDesktop.a4BaseURL"
     private static let a4ProtocolKey = "AutumnDesktop.a4Protocol"
-    private static let a4ModelKey = "AutumnDesktop.a4Model"
-    private static let defaultServerURL = "http://127.0.0.1:8765"
-    private static let openAIBaseURL = "https://api.openai.com"
-    private static let anthropicBaseURL = "https://api.anthropic.com"
-    private static let ollamaBaseURL = "http://localhost:11434"
+    private static let a4ModelKey    = "AutumnDesktop.a4Model"
+    private static let defaultServerURL  = "http://127.0.0.1:8765"
+    private static let openAIBaseURL     = "https://api.openai.com"
+    private static let anthropicBaseURL  = "https://api.anthropic.com"
+    private static let ollamaBaseURL     = "http://localhost:11434"
+
+    private var _persistTask: Task<Void, Never>?
 
     init() {
-        self.serverURL =
-            UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
-        self.routeMode = UserDefaults.standard.string(forKey: Self.routeModeKey) ?? "auto"
-        self.a1APIKey = UserDefaults.standard.string(forKey: Self.a1APIKeyKey) ?? ""
-        self.a1BaseURL = UserDefaults.standard.string(forKey: Self.a1BaseURLKey) ?? Self.openAIBaseURL
+        self.serverURL  = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
+        self.routeMode  = UserDefaults.standard.string(forKey: Self.routeModeKey) ?? "auto"
+        self.a1APIKey   = UserDefaults.standard.string(forKey: Self.a1APIKeyKey)  ?? ""
+        self.a1BaseURL  = UserDefaults.standard.string(forKey: Self.a1BaseURLKey) ?? Self.openAIBaseURL
         self.a1Protocol = UserDefaults.standard.string(forKey: Self.a1ProtocolKey) ?? "openai"
-        self.a1Model = UserDefaults.standard.string(forKey: Self.a1ModelKey) ?? "gpt-4o-mini"
-        self.a2APIKey = UserDefaults.standard.string(forKey: Self.a2APIKeyKey) ?? ""
-        self.a2BaseURL = UserDefaults.standard.string(forKey: Self.a2BaseURLKey) ?? Self.anthropicBaseURL
+        self.a1Model    = UserDefaults.standard.string(forKey: Self.a1ModelKey)   ?? "gpt-4o-mini"
+        self.a2APIKey   = UserDefaults.standard.string(forKey: Self.a2APIKeyKey)  ?? ""
+        self.a2BaseURL  = UserDefaults.standard.string(forKey: Self.a2BaseURLKey) ?? Self.anthropicBaseURL
         self.a2Protocol = UserDefaults.standard.string(forKey: Self.a2ProtocolKey) ?? "anthropic"
-        self.a2Model = UserDefaults.standard.string(forKey: Self.a2ModelKey) ?? "claude-sonnet-4-5"
-        self.a3APIKey = UserDefaults.standard.string(forKey: Self.a3APIKeyKey) ?? ""
-        self.a3BaseURL = UserDefaults.standard.string(forKey: Self.a3BaseURLKey) ?? Self.openAIBaseURL
+        self.a2Model    = UserDefaults.standard.string(forKey: Self.a2ModelKey)   ?? "claude-sonnet-4-5"
+        self.a3APIKey   = UserDefaults.standard.string(forKey: Self.a3APIKeyKey)  ?? ""
+        self.a3BaseURL  = UserDefaults.standard.string(forKey: Self.a3BaseURLKey) ?? Self.openAIBaseURL
         self.a3Protocol = UserDefaults.standard.string(forKey: Self.a3ProtocolKey) ?? "openai"
-        self.a3Model = UserDefaults.standard.string(forKey: Self.a3ModelKey) ?? "gpt-4o"
-        self.a4Enabled = UserDefaults.standard.bool(forKey: Self.a4EnabledKey)
-        self.a4APIKey = UserDefaults.standard.string(forKey: Self.a4APIKeyKey) ?? ""
-        self.a4BaseURL = UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
+        self.a3Model    = UserDefaults.standard.string(forKey: Self.a3ModelKey)   ?? "gpt-4o"
+        self.a4Enabled  = UserDefaults.standard.bool(forKey: Self.a4EnabledKey)
+        self.a4APIKey   = UserDefaults.standard.string(forKey: Self.a4APIKeyKey)  ?? ""
+        self.a4BaseURL  = UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
         self.a4Protocol = UserDefaults.standard.string(forKey: Self.a4ProtocolKey) ?? "openai"
-        self.a4Model = UserDefaults.standard.string(forKey: Self.a4ModelKey) ?? ""
+        self.a4Model    = UserDefaults.standard.string(forKey: Self.a4ModelKey)   ?? ""
         refreshInitialModelStates()
     }
 
     func providerConfig(for slot: ModelSlot) -> ProviderConfigRequest {
         switch slot {
         case .a1:
-            return ProviderConfigRequest(
-                apiKey: a1APIKey,
-                baseURL: a1BaseURL,
-                model: a1Model,
-                apiProtocol: a1Protocol
-            )
+            return ProviderConfigRequest(apiKey: a1APIKey, baseURL: a1BaseURL,
+                                         model: a1Model, apiProtocol: a1Protocol)
         case .a2:
-            return ProviderConfigRequest(
-                apiKey: a2APIKey,
-                baseURL: a2BaseURL,
-                model: a2Model,
-                apiProtocol: a2Protocol
-            )
+            return ProviderConfigRequest(apiKey: a2APIKey, baseURL: a2BaseURL,
+                                         model: a2Model, apiProtocol: a2Protocol)
         case .a3:
-            return ProviderConfigRequest(
-                apiKey: a3APIKey,
-                baseURL: a3BaseURL,
-                model: a3Model,
-                apiProtocol: a3Protocol
-            )
+            return ProviderConfigRequest(apiKey: a3APIKey, baseURL: a3BaseURL,
+                                         model: a3Model, apiProtocol: a3Protocol)
         }
     }
 
     func applyConfigRequest() -> ApplyConfigRequest {
         let a4Config: ProviderConfigRequest? = (a4Enabled && !a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            ? ProviderConfigRequest(apiKey: a4APIKey, baseURL: a4BaseURL, model: a4Model.isEmpty ? nil : a4Model, apiProtocol: a4Protocol)
+            ? ProviderConfigRequest(apiKey: a4APIKey, baseURL: a4BaseURL,
+                                    model: a4Model.isEmpty ? nil : a4Model, apiProtocol: a4Protocol)
             : nil
         return ApplyConfigRequest(
             a1: providerConfig(for: .a1),
@@ -215,6 +153,40 @@ final class AppSettings: ObservableObject {
             setModelState(configured ? .ready : .unconfigured, for: slot)
         }
     }
+
+    // ── debounced persistence ─────────────────────────────────────────────────
+
+    private func _schedulePersist() {
+        _persistTask?.cancel()
+        _persistTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self._flush()
+        }
+    }
+
+    private func _flush() {
+        let ud = UserDefaults.standard
+        ud.set(serverURL,  forKey: Self.serverURLKey)
+        ud.set(routeMode,  forKey: Self.routeModeKey)
+        ud.set(a1APIKey,   forKey: Self.a1APIKeyKey)
+        ud.set(a1BaseURL,  forKey: Self.a1BaseURLKey)
+        ud.set(a1Protocol, forKey: Self.a1ProtocolKey)
+        ud.set(a1Model,    forKey: Self.a1ModelKey)
+        ud.set(a2APIKey,   forKey: Self.a2APIKeyKey)
+        ud.set(a2BaseURL,  forKey: Self.a2BaseURLKey)
+        ud.set(a2Protocol, forKey: Self.a2ProtocolKey)
+        ud.set(a2Model,    forKey: Self.a2ModelKey)
+        ud.set(a3APIKey,   forKey: Self.a3APIKeyKey)
+        ud.set(a3BaseURL,  forKey: Self.a3BaseURLKey)
+        ud.set(a3Protocol, forKey: Self.a3ProtocolKey)
+        ud.set(a3Model,    forKey: Self.a3ModelKey)
+        ud.set(a4Enabled,  forKey: Self.a4EnabledKey)
+        ud.set(a4APIKey,   forKey: Self.a4APIKeyKey)
+        ud.set(a4BaseURL,  forKey: Self.a4BaseURLKey)
+        ud.set(a4Protocol, forKey: Self.a4ProtocolKey)
+        ud.set(a4Model,    forKey: Self.a4ModelKey)
+    }
 }
 
 enum ModelConnectionState: String, Equatable {
@@ -226,18 +198,18 @@ enum ModelConnectionState: String, Equatable {
     var title: String {
         switch self {
         case .unconfigured: return "未配置"
-        case .connecting: return "连接中"
-        case .ready: return "就绪"
-        case .failed: return "失败"
+        case .connecting:   return "连接中"
+        case .ready:        return "就绪"
+        case .failed:       return "失败"
         }
     }
 
     var tone: AutumnBadge.Tone {
         switch self {
         case .unconfigured: return .neutral
-        case .connecting: return .warning
-        case .ready: return .success
-        case .failed: return .danger
+        case .connecting:   return .warning
+        case .ready:        return .success
+        case .failed:       return .danger
         }
     }
 }
