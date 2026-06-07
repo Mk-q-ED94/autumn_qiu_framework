@@ -33,6 +33,9 @@ struct SidebarView: View {
             } else {
                 Spacer()
             }
+
+            // ── agent status footer ──
+            AgentStatusFooter(selection: $selection)
         }
         .navigationTitle("秋")
     }
@@ -55,5 +58,132 @@ private struct SidebarRow: View {
                 .foregroundStyle(.tint)
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Agent status footer
+
+/// Pinned to the bottom of the sidebar — surfaces the four agent slots at a
+/// glance so the user doesn't have to navigate into Settings to learn that A2
+/// just failed.
+///
+///   [A1•] [A2•] [A3•] [A4•]         ⚙
+///
+/// Dot colour:  ready=green · connecting=orange · failed=red · unconfigured=gray
+/// Click any dot or the gear to jump to Settings.
+private struct AgentStatusFooter: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: Autumn.spacing.xs) {
+            ForEach(AgentSlotID.allCases) { slot in
+                AgentDot(
+                    label: slot.label,
+                    state: state(for: slot),
+                    tooltip: tooltip(for: slot)
+                )
+                .onTapGesture { openSettings() }
+            }
+            Spacer()
+            Button(action: openSettings) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("打开设置")
+        }
+        .padding(.horizontal, Autumn.spacing.md)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(.bar)
+        .overlay(
+            Rectangle()
+                .fill(Color.secondary.opacity(0.12))
+                .frame(height: Autumn.stroke.hairline),
+            alignment: .top
+        )
+    }
+
+    private func openSettings() {
+        selection = AppSection.settings.rawValue
+    }
+
+    private func state(for slot: AgentSlotID) -> ModelConnectionState {
+        switch slot {
+        case .a1: return settings.modelState(for: .a1)
+        case .a2: return settings.modelState(for: .a2)
+        case .a3: return settings.modelState(for: .a3)
+        case .a4:
+            if !settings.a4Enabled { return .unconfigured }
+            let hasURL = !settings.a4BaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return hasURL ? .ready : .unconfigured
+        }
+    }
+
+    private func tooltip(for slot: AgentSlotID) -> String {
+        let s = state(for: slot)
+        let role: String
+        switch slot {
+        case .a1: role = "A1 · 路由与总检"
+        case .a2: role = "A2 · 任务执行"
+        case .a3: role = "A3 · Mission 与转换"
+        case .a4: role = "A4 · 记忆模型（可选）"
+        }
+        return "\(role)\n\(s.title)"
+    }
+}
+
+private enum AgentSlotID: String, CaseIterable, Identifiable {
+    case a1, a2, a3, a4
+
+    var id: String { rawValue }
+    var label: String { rawValue.uppercased() }
+}
+
+private struct AgentDot: View {
+    let label: String
+    let state: ModelConnectionState
+    let tooltip: String
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ZStack {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                if state == .connecting {
+                    Circle()
+                        .stroke(dotColor.opacity(pulse ? 0.0 : 0.5), lineWidth: 1.5)
+                        .frame(width: 11, height: 11)
+                }
+            }
+            .frame(width: 11, height: 11)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(
+            Capsule().fill(Color.secondary.opacity(0.08))
+        )
+        .help(tooltip)
+        .task(id: state) {
+            guard state == .connecting else { pulse = false; return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulse.toggle()
+            }
+        }
+    }
+
+    private var dotColor: Color {
+        switch state {
+        case .ready:        return Autumn.colors.success
+        case .connecting:   return Autumn.colors.warning
+        case .failed:       return Autumn.colors.danger
+        case .unconfigured: return Autumn.colors.muted
+        }
     }
 }
