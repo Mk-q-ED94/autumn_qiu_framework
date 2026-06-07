@@ -24,11 +24,15 @@ class Skill:
         description: str,
         handler: Callable,
         parameters: list[ToolParameter] | None = None,
+        source_terr: str | None = None,
+        source_terr_description: str | None = None,
     ):
         self.name = name
         self.description = description
         self.handler = handler
         self.parameters = parameters or []
+        self.source_terr = source_terr
+        self.source_terr_description = source_terr_description
 
     async def execute(self, **kwargs: Any) -> Any:
         if asyncio.iscoroutinefunction(self.handler):

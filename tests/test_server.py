@@ -68,6 +68,7 @@ class _MockAutumn:
                     kind="tool",
                     prompt_tokens=240,
                     completion_tokens=18,
+                    source_terr="search",
                 ),
             ],
         )
@@ -119,6 +120,7 @@ class _MockAutumn:
         return [{
             "name": "search",
             "description": "Search tools",
+            "enabled": True,
             "tools": [{
                 "name": "web_search",
                 "description": "search web",
@@ -133,6 +135,13 @@ class _MockAutumn:
             "skills": [],
             "mcps": [{"name": "stdio", "description": "MCP"}],
         }]
+
+    def set_terr_enabled(self, name, enabled):
+        if name != "search":
+            raise KeyError(name)
+        summary = self.describe_terrs()[0]
+        summary["enabled"] = enabled
+        return summary
 
     async def end_session(self):
         self.ended = True
@@ -498,6 +507,13 @@ def test_trace_includes_token_usage_per_stage(configured_client):
     assert stages[1]["completion_tokens"] == 18
 
 
+def test_trace_includes_source_terr(configured_client):
+    r = configured_client.post("/trace", json={"input": "hi"})
+    assert r.status_code == 200
+    tool_stage = next(s for s in r.json()["stages"] if s["kind"] == "tool")
+    assert tool_stage["source_terr"] == "search"
+
+
 def test_trace_includes_aggregate_token_totals(configured_client):
     """TraceResponse sums per-stage tokens into top-level totals."""
     r = configured_client.post("/trace", json={"input": "hi"})
@@ -662,5 +678,19 @@ def test_terrs_returns_registered_domains(configured_client):
     assert r.status_code == 200
     payload = r.json()
     assert payload[0]["name"] == "search"
+    assert payload[0]["enabled"] is True
     assert payload[0]["tools"][0]["name"] == "web_search"
     assert payload[0]["tools"][0]["parameters"][0]["name"] == "query"
+
+
+def test_terrs_can_toggle_domain(configured_client):
+    r = configured_client.patch("/terrs/search", json={"enabled": False})
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["name"] == "search"
+    assert payload["enabled"] is False
+
+
+def test_terrs_toggle_unknown_domain_404(configured_client):
+    r = configured_client.patch("/terrs/missing", json={"enabled": False})
+    assert r.status_code == 404

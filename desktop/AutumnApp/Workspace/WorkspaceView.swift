@@ -202,6 +202,7 @@ private struct TerrPanel: View {
     let settings: AppSettings
     @State private var terrs: [TerrSummary] = []
     @State private var isLoading = false
+    @State private var togglingTerrs: Set<String> = []
     @State private var errorMessage: String?
 
     var body: some View {
@@ -239,7 +240,13 @@ private struct TerrPanel: View {
                 } else {
                     VStack(spacing: Autumn.spacing.sm) {
                         ForEach(terrs) { terr in
-                            TerrCard(terr: terr)
+                            TerrCard(
+                                terr: terr,
+                                isToggling: togglingTerrs.contains(terr.name),
+                                onToggle: { enabled in
+                                    Task { await setTerr(terr, enabled: enabled) }
+                                }
+                            )
                         }
                     }
                 }
@@ -263,10 +270,39 @@ private struct TerrPanel: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    private func setTerr(_ terr: TerrSummary, enabled: Bool) async {
+        guard let url = URL(string: settings.serverURL) else {
+            errorMessage = "服务器 URL 无效"
+            return
+        }
+        let previous = terr.enabled
+        if let index = terrs.firstIndex(where: { $0.name == terr.name }) {
+            terrs[index].enabled = enabled
+        }
+        togglingTerrs.insert(terr.name)
+        errorMessage = nil
+        defer { togglingTerrs.remove(terr.name) }
+
+        do {
+            let updated = try await AutumnClient(baseURL: url)
+                .setTerrEnabled(name: terr.name, enabled: enabled)
+            if let index = terrs.firstIndex(where: { $0.name == terr.name }) {
+                terrs[index] = updated
+            }
+        } catch {
+            if let index = terrs.firstIndex(where: { $0.name == terr.name }) {
+                terrs[index].enabled = previous
+            }
+            errorMessage = error.localizedDescription
+        }
+    }
 }
 
 private struct TerrCard: View {
     let terr: TerrSummary
+    let isToggling: Bool
+    let onToggle: (Bool) -> Void
     @State private var expanded = false
 
     var body: some View {
@@ -292,7 +328,24 @@ private struct TerrCard: View {
                 HStack {
                     Text(terr.name)
                         .font(Autumn.typography.captionStrong)
+                    AutumnBadge(
+                        terr.enabled ? "启用" : "停用",
+                        icon: terr.enabled ? "checkmark.circle.fill" : "pause.circle",
+                        tone: terr.enabled ? .success : .neutral
+                    )
                     Spacer()
+                    if isToggling {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Toggle(isOn: toggleBinding) {
+                            Text("启用")
+                        }
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .help(terr.enabled ? "停用能力域" : "启用能力域")
+                    }
                     AutumnBadge("\(terr.tools.count)T", tone: .info)
                     AutumnBadge("\(terr.skills.count)S", tone: .accent)
                 }
@@ -306,6 +359,14 @@ private struct TerrCard: View {
         .background(
             RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
                 .fill(Autumn.colors.surfaceElevated)
+        )
+        .opacity(terr.enabled ? 1.0 : 0.62)
+    }
+
+    private var toggleBinding: Binding<Bool> {
+        Binding(
+            get: { terr.enabled },
+            set: { onToggle($0) }
         )
     }
 

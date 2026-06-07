@@ -121,6 +121,12 @@ struct WorkflowTraceView: View {
 
     private var summary: String {
         var parts: [String] = []
+        if trace.hasAgentActivity {
+            parts.append(trace.toolStageCount > 0 ? "Agent · \(trace.toolStageCount) 工具" : "Agent")
+        }
+        if !trace.sourceTerrNames.isEmpty {
+            parts.append("Terr · \(trace.sourceTerrNames.count)")
+        }
         if let totalPrompt = trace.totalPromptTokens, let totalCompletion = trace.totalCompletionTokens {
             parts.append("↑\(formatTokens(totalPrompt)) ↓\(formatTokens(totalCompletion))")
         }
@@ -139,6 +145,7 @@ private struct WorkflowStageRow: View {
     let isLast: Bool
 
     private var isTool: Bool { stage.kind == "tool" }
+    private var isAgent: Bool { stage.kind == "agent" }
     @State private var pulse = false
 
     var body: some View {
@@ -153,13 +160,16 @@ private struct WorkflowStageRow: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(stage.title)
-                        .font(isTool
+                        .font(isTool || isAgent
                             ? .system(.caption, design: .monospaced).weight(.medium)
                             : Autumn.typography.captionMedium)
+                    if let sourceTerr = stage.sourceTerr {
+                        AutumnBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
+                    }
                 }
 
                 Text(stage.detail)
-                    .font(isTool
+                    .font(isTool || isAgent
                         ? .system(.caption2, design: .monospaced)
                         : Autumn.typography.caption)
                     .foregroundStyle(.secondary)
@@ -199,7 +209,14 @@ private struct WorkflowStageRow: View {
     private var indicator: some View {
         VStack(spacing: 2) {
             ZStack {
-                if isTool {
+                if isAgent {
+                    Circle()
+                        .fill(Autumn.colors.warning.opacity(0.16))
+                        .frame(width: 14, height: 14)
+                    Image(systemName: "cpu")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Autumn.colors.warning)
+                } else if isTool {
                     Circle()
                         .fill(Autumn.colors.accent.opacity(0.15))
                         .frame(width: 14, height: 14)

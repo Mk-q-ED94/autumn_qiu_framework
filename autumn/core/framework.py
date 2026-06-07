@@ -25,6 +25,11 @@ from .types import InputType, MissionRoute, TaskType, WorkflowRun
 from ..plugins.loader import PluginLoader
 
 
+def _mark_terr_source(callable_obj, terr: Terr) -> None:
+    callable_obj.source_terr = terr.name
+    callable_obj.source_terr_description = terr.description
+
+
 class Autumn:
     """秋/Autumn — Multi-Model Collaborative Workflow Framework.
 
@@ -202,6 +207,7 @@ class Autumn:
             summaries.append({
                 "name": terr.name,
                 "description": terr.description,
+                "enabled": self.plugins.is_terr_enabled(terr.name),
                 "tools": [
                     {
                         "name": tool.name,
@@ -240,6 +246,9 @@ class Autumn:
         tools: list[Tool] = []
         skills: list[Skill] = []
         for obj in self.plugins.all().values():
+            source_terr = getattr(obj, "source_terr", None)
+            if source_terr and not self.plugins.is_terr_enabled(source_terr):
+                continue
             if isinstance(obj, Tool):
                 tools.append(obj)
             elif isinstance(obj, Skill):
@@ -302,10 +311,19 @@ class Autumn:
         domain contains MCP servers that must be started first.
         """
         for tool in terr.tools:
+            _mark_terr_source(tool, terr)
             self.register_tool(tool)
         for skill in terr.skills:
+            _mark_terr_source(skill, terr)
             self.register_skill(skill)
         self.plugins.register_terr(terr)
+
+    def set_terr_enabled(self, name: str, enabled: bool) -> dict:
+        self.plugins.set_terr_enabled(name, enabled)
+        for summary in self.describe_terrs():
+            if summary["name"] == name:
+                return summary
+        raise KeyError(name)
 
     @asynccontextmanager
     async def open_terr(self, terr: Terr):
@@ -328,14 +346,17 @@ class Autumn:
                 await client.connect()
                 connected_clients.append(client)
                 for tool in await mcp_to_tools(client):
+                    _mark_terr_source(tool, terr)
                     self.register_tool(tool)
                     registered_tool_names.append(tool.name)
 
             for tool in terr.tools:
+                _mark_terr_source(tool, terr)
                 self.register_tool(tool)
                 registered_tool_names.append(tool.name)
 
             for skill in terr.skills:
+                _mark_terr_source(skill, terr)
                 self.register_skill(skill)
                 registered_skill_names.append(skill.name)
 
@@ -362,10 +383,13 @@ class Autumn:
             await client.connect()
             self._mcp_clients.append(client)
             for tool in await mcp_to_tools(client):
+                _mark_terr_source(tool, terr)
                 self.register_tool(tool)
         for tool in terr.tools:
+            _mark_terr_source(tool, terr)
             self.register_tool(tool)
         for skill in terr.skills:
+            _mark_terr_source(skill, terr)
             self.register_skill(skill)
         self.plugins.register_terr(terr)
 

@@ -49,6 +49,7 @@ class WorkflowStage:
     duration_ms: float | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    source_terr: str | None = None
 
 
 @dataclass
@@ -60,6 +61,7 @@ class AgentStep:
     duration_ms: float | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    source_terr: str | None = None
 
 
 @dataclass

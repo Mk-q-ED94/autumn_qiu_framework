@@ -34,6 +34,9 @@ class Terr:
         self.tools: list[Tool] = list(tools or [])
         self.skills: list[Skill] = list(skills or [])
         self.mcps: list[MCPClient] = list(mcps or [])
+        for callable_obj in [*self.tools, *self.skills]:
+            callable_obj.source_terr = name
+            callable_obj.source_terr_description = description
 
     def __repr__(self) -> str:
         return (

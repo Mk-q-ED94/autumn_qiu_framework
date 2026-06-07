@@ -44,6 +44,45 @@ def _step_to_stage(index: int, step: AgentStep) -> WorkflowStage:
         duration_ms=step.duration_ms,
         prompt_tokens=step.prompt_tokens,
         completion_tokens=step.completion_tokens,
+        source_terr=step.source_terr,
+    )
+
+
+def _source_terrs(tools: list[Tool], skills: list[Skill]) -> list[str]:
+    names = {
+        source
+        for callable_obj in [*tools, *skills]
+        if (source := getattr(callable_obj, "source_terr", None))
+    }
+    return sorted(names)
+
+
+def _agent_to_stage(
+    duration_ms: float,
+    tools: list[Tool],
+    skills: list[Skill],
+    step_count: int,
+) -> WorkflowStage:
+    """Render WP2's agent handoff as a trace stage (kind="agent")."""
+    capability_parts: list[str] = []
+    if tools:
+        capability_parts.append(f"{len(tools)} tools")
+    if skills:
+        capability_parts.append(f"{len(skills)} skills")
+    terr_names = _source_terrs(tools, skills)
+    if terr_names:
+        capability_parts.append(f"Terr: {', '.join(terr_names)}")
+    capabilities = " · ".join(capability_parts) if capability_parts else "no callable capabilities"
+    calls = f"{step_count} callable step{'s' if step_count != 1 else ''}"
+    return WorkflowStage(
+        id="wp2.agent",
+        title="WP2 Agent",
+        detail=f"Agent 接管任务执行 · {capabilities} · {calls}",
+        workspace="WP2",
+        status="completed",
+        kind="agent",
+        duration_ms=duration_ms,
+        source_terr=terr_names[0] if len(terr_names) == 1 else None,
     )
 
 
@@ -108,10 +147,17 @@ class WP2Tas(WorkspaceBase):
 
         if tools or skills:
             steps: list[AgentStep] = []
+            agent_started = time.perf_counter()
             result, agent_prompt, agent_completion = await self._run_with_agent(
                 task_input, tools, skills, steps, task_type
             )
-            tool_stages = [_step_to_stage(i, s) for i, s in enumerate(steps)]
+            agent_stage = _agent_to_stage(
+                round((time.perf_counter() - agent_started) * 1000, 1),
+                tools,
+                skills,
+                len(steps),
+            )
+            tool_stages = [agent_stage, *[_step_to_stage(i, s) for i, s in enumerate(steps)]]
             if agent_prompt or agent_completion:
                 prompt_total += agent_prompt
                 completion_total += agent_completion
@@ -205,9 +251,17 @@ class WP2Tas(WorkspaceBase):
             # Tool-driven turn cannot be true-streamed; buffer then chunk.
             steps: list[AgentStep] = []
             result = ""
+            agent_stage: WorkflowStage | None = None
             try:
+                agent_started = time.perf_counter()
                 result, _, _ = await self._run_with_agent(
                     task_input, tools, skills, steps, task_type
+                )
+                agent_stage = _agent_to_stage(
+                    round((time.perf_counter() - agent_started) * 1000, 1),
+                    tools,
+                    skills,
+                    len(steps),
                 )
                 for i in range(0, len(result), chunk_size):
                     yield result[i:i + chunk_size]
@@ -218,7 +272,10 @@ class WP2Tas(WorkspaceBase):
                     "task": task_input,
                     "output": result,
                 })
-            yield [_step_to_stage(i, s) for i, s in enumerate(steps)]
+            stages = [_step_to_stage(i, s) for i, s in enumerate(steps)]
+            if agent_stage is not None:
+                stages.insert(0, agent_stage)
+            yield stages
             return
 
         messages = [

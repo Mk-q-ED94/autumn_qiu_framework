@@ -137,6 +137,11 @@ class Agent:
         self._terr_descriptions: dict[str, str] = {
             t.name: t.description for t in (terrs or []) if t.description
         }
+        for callable_obj in [*self.tools.values(), *self.skills.values()]:
+            source = getattr(callable_obj, "source_terr", None)
+            description = getattr(callable_obj, "source_terr_description", None)
+            if source and description:
+                self._terr_descriptions.setdefault(source, description)
 
         self.instructions = instructions
         self.max_steps = max_steps
@@ -223,11 +228,14 @@ class Agent:
             results: list[str] = []
             for i, tc in enumerate(tool_calls):
                 started = time.perf_counter()
+                callable_obj = None
                 try:
                     if tc.name in self.tools:
-                        result = await self.tools[tc.name].call(**tc.arguments)
+                        callable_obj = self.tools[tc.name]
+                        result = await callable_obj.call(**tc.arguments)
                     elif tc.name in self.skills:
-                        result = await self.skills[tc.name].execute(**tc.arguments)
+                        callable_obj = self.skills[tc.name]
+                        result = await callable_obj.execute(**tc.arguments)
                     else:
                         result = f"[error: unknown tool '{tc.name}']"
                 except Exception as e:  # noqa: BLE001 — feed error back to model for ReAct recovery
@@ -235,6 +243,10 @@ class Agent:
                 duration_ms = round((time.perf_counter() - started) * 1000, 1)
                 results.append(str(result))
                 if steps is not None:
+                    source_terr = (
+                        getattr(callable_obj, "source_terr", None)
+                        if callable_obj is not None else None
+                    )
                     steps.append(AgentStep(
                         name=tc.name,
                         arguments=dict(tc.arguments),
@@ -242,6 +254,7 @@ class Agent:
                         duration_ms=duration_ms,
                         prompt_tokens=turn_prompt if i == 0 else None,
                         completion_tokens=turn_completion if i == 0 else None,
+                        source_terr=source_terr,
                     ))
 
             msgs.append(self.api.build_assistant_tool_message(text, tool_calls))

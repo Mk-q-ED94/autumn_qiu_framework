@@ -99,6 +99,19 @@ final class ChatViewModel: ObservableObject {
         return taskOverride ?? intentPreview?.taskKind ?? .general
     }
 
+    var shouldShowAgentRunHint: Bool {
+        if effectiveInputKind == .task {
+            return true
+        }
+        guard effectiveInputKind == .mission else {
+            return false
+        }
+        if effectiveRoute == .convert {
+            return true
+        }
+        return intentPreview?.routeMode == .convert
+    }
+
     func inputDidChange() {
         scheduleIntentPreview()
     }
@@ -333,6 +346,14 @@ final class ChatViewModel: ObservableObject {
         ]
         if preview.inputKind == .task {
             stages.append(WorkflowStage(
+                id: "wp2.agent",
+                title: "WP2 Agent",
+                detail: "Agent 待命，等待可用工具或技能接入",
+                workspace: "WP2",
+                status: status,
+                kind: "agent"
+            ))
+            stages.append(WorkflowStage(
                 id: "wp2.task",
                 title: "A2 执行任务",
                 detail: "流式响应进行中",
@@ -356,6 +377,14 @@ final class ChatViewModel: ObservableObject {
                 status: status
             ))
             if route == .convert {
+                stages.append(WorkflowStage(
+                    id: "wp2.agent",
+                    title: "WP2 Agent",
+                    detail: "Agent 待命，等待转换后的任务",
+                    workspace: "WP2",
+                    status: "pending",
+                    kind: "agent"
+                ))
                 stages.append(WorkflowStage(
                     id: "wp2.task",
                     title: "A2 执行任务",
