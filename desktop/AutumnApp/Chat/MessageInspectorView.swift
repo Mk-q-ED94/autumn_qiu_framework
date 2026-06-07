@@ -33,7 +33,7 @@ struct MessageInspectorView: View {
                 emptyState
             }
         }
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+        .background(.regularMaterial)
     }
 
     // ── header ────────────────────────────────────────────────────────────────
