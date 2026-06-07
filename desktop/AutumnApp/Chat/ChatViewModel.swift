@@ -125,6 +125,14 @@ final class ChatViewModel: ObservableObject {
         scheduleIntentPreview(delay: 0)
     }
 
+    func clearOverrides() {
+        intentOverride = nil
+        taskOverride = nil
+        routeOverride = nil
+        settings.activeRouteOverride = nil
+        scheduleIntentPreview(delay: 0)
+    }
+
     func submitOrStop() {
         if isRunning {
             stop()

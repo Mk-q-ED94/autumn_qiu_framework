@@ -1,15 +1,26 @@
 import SwiftUI
 
+/// Trace card attached below each assistant message.
+///
+/// Collapsed layout (default):
+///   [Mission · Direct]  ↑1.2k ↓800 · 1.8s              ▼
+///   ▰▰▰▰▰  🔧 1                                          (PipelineStripView)
+///
+/// Expanded layout adds the full ``WorkflowStageRow`` list below.
+/// The whole header is one big tap target so the affordance is obvious.
 struct WorkflowTraceView: View {
     let trace: WorkflowTrace
     @State private var isExpanded: Bool = false
-    @State private var liveBlink: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
             header
 
+            PipelineStripView(trace: trace)
+
             if isExpanded {
+                Divider()
+                    .padding(.top, Autumn.spacing.xs)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(trace.stages.enumerated()), id: \.element.id) { index, stage in
                         WorkflowStageRow(
@@ -39,163 +50,87 @@ struct WorkflowTraceView: View {
         .onAppear {
             isExpanded = trace.isLive || trace.hasFailedStage
         }
-        .task(id: trace.isLive) {
-            guard trace.isLive else {
-                liveBlink = false
-                return
-            }
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                liveBlink.toggle()
-            }
-        }
     }
 
-    @ViewBuilder
     private var header: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
-            HStack(spacing: Autumn.spacing.sm) {
-                AutumnBadge(statusTitle, icon: statusIcon, tone: statusTone)
-                AutumnBadge(inputTitle, icon: inputIcon, tone: trace.isLive ? .info : .accent)
-                if let taskTitle = taskTypeTitle {
-                    AutumnBadge(taskTitle, tone: .accent)
-                }
-                if let routeTitle {
-                    AutumnBadge(routeTitle, tone: .neutral)
-                }
-                Spacer()
-                Button {
-                    withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
-                } label: {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            HStack(spacing: Autumn.spacing.sm) {
-                TraceProgressMeter(
-                    completed: trace.completedStageCount,
-                    total: trace.stages.count,
-                    tone: statusColor
-                )
-                if trace.isLive, let live = liveStage {
-                    liveStatusLine(live)
-                } else {
-                    Text(summary)
-                        .font(Autumn.typography.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-            }
+        HStack(spacing: Autumn.spacing.sm) {
+            routePill
+            Spacer(minLength: Autumn.spacing.sm)
+            Text(summary)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            // The whole header is clickable to expand/collapse — clearer affordance
-            // than the small chevron alone.
             withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
         }
     }
 
-    @ViewBuilder
-    private func liveStatusLine(_ stage: WorkflowStage) -> some View {
-        HStack(spacing: Autumn.spacing.xs) {
-            Circle()
-                .fill(Autumn.colors.info)
-                .frame(width: 6, height: 6)
-                .opacity(liveBlink ? 0.35 : 1.0)
-            Text("\(stage.workspace) · \(stage.title)")
-                .font(Autumn.typography.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+    private var routePill: some View {
+        HStack(spacing: 4) {
+            Image(systemName: routeIcon)
+                .font(.system(size: 9, weight: .bold))
+            Text(routeText)
+                .font(Autumn.typography.captionStrong)
+        }
+        .foregroundStyle(routeColor)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(
+            Capsule().fill(routeColor.opacity(0.12))
+        )
+        .overlay(
+            Capsule().strokeBorder(routeColor.opacity(0.28), lineWidth: 0.5)
+        )
+    }
+
+    private var routeText: String {
+        if trace.hasFailedStage {
+            return "失败"
+        }
+        switch trace.inputKind {
+        case .task:
+            if let kind = trace.taskKind, kind != .general {
+                return "Task · \(kind.title)"
+            }
+            return "Task"
+        case .mission:
+            let route = trace.routeMode ?? .auto
+            return "Mission · \(route.title)"
         }
     }
 
-    /// The first stage with `status == "active"` — what we surface in the collapsed live header.
-    private var liveStage: WorkflowStage? {
-        trace.stages.first { $0.status == "active" }
+    private var routeIcon: String {
+        if trace.hasFailedStage { return "exclamationmark.triangle.fill" }
+        if trace.isLive { return "bolt.fill" }
+        return trace.inputKind.icon
     }
 
-    private var inputTitle: String {
-        trace.inputKind == .mission ? "Mission" : "Task"
-    }
-
-    private var inputIcon: String {
-        trace.inputKind.icon
-    }
-
-    private var taskTypeTitle: String? {
-        guard trace.inputKind == .task, let taskKind = trace.taskKind, taskKind != .general else { return nil }
-        return taskKind.title
-    }
-
-    private var routeTitle: String? {
-        if let route = trace.routeMode { return route.title }
-        return trace.inputKind == .task ? nil : MissionRouteMode.auto.title
+    private var routeColor: Color {
+        if trace.hasFailedStage { return Autumn.colors.danger }
+        if trace.isLive { return Autumn.colors.info }
+        switch trace.inputKind {
+        case .task: return Autumn.colors.warning
+        case .mission: return Autumn.colors.info
+        }
     }
 
     private var summary: String {
-        var parts = ["\(trace.stages.count) 阶段"]
-        if trace.toolStageCount > 0 {
-            parts.append("\(trace.toolStageCount) 工具")
+        var parts: [String] = []
+        if let totalPrompt = trace.totalPromptTokens, let totalCompletion = trace.totalCompletionTokens {
+            parts.append("↑\(formatTokens(totalPrompt)) ↓\(formatTokens(totalCompletion))")
         }
         if let total = trace.totalDurationMS {
             parts.append(formatDuration(total))
         }
-        if let totalPrompt = trace.totalPromptTokens, let totalCompletion = trace.totalCompletionTokens {
-            parts.append("↑\(formatTokens(totalPrompt)) ↓\(formatTokens(totalCompletion))")
+        if parts.isEmpty {
+            parts.append("\(trace.completedStageCount)/\(trace.stages.count) 阶段")
         }
         return parts.joined(separator: " · ")
-    }
-
-    private var statusTitle: String {
-        if trace.hasFailedStage { return "失败" }
-        if trace.isLive { return "运行中" }
-        return "已同步"
-    }
-
-    private var statusIcon: String {
-        if trace.hasFailedStage { return "xmark.circle.fill" }
-        if trace.isLive { return "bolt.fill" }
-        return "checkmark.seal.fill"
-    }
-
-    private var statusTone: AutumnBadge.Tone {
-        if trace.hasFailedStage { return .danger }
-        return trace.isLive ? .info : .success
-    }
-
-    private var statusColor: Color {
-        if trace.hasFailedStage { return Autumn.colors.danger }
-        return trace.isLive ? Autumn.colors.info : Autumn.colors.success
-    }
-}
-
-private struct TraceProgressMeter: View {
-    let completed: Int
-    let total: Int
-    let tone: Color
-
-    var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            ZStack(alignment: .leading) {
-                Capsule(style: .continuous)
-                    .fill(Color.secondary.opacity(0.14))
-                Capsule(style: .continuous)
-                    .fill(tone.opacity(0.78))
-                    .frame(width: progressWidth(totalWidth: width))
-            }
-        }
-        .frame(width: 54, height: 4)
-        .accessibilityLabel("\(completed)/\(max(total, 1))")
-    }
-
-    private func progressWidth(totalWidth: CGFloat) -> CGFloat {
-        guard total > 0 else { return 0 }
-        let ratio = min(max(Double(completed) / Double(total), 0), 1)
-        return max(4, totalWidth * CGFloat(ratio))
     }
 }
 
@@ -214,7 +149,7 @@ private struct WorkflowStageRow: View {
                 HStack(spacing: Autumn.spacing.xs) {
                     Text(stage.workspace)
                         .font(Autumn.typography.captionStrong)
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(workspaceColor)
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(stage.title)
@@ -252,6 +187,15 @@ private struct WorkflowStageRow: View {
         }
     }
 
+    private var workspaceColor: Color {
+        switch stage.workspace {
+        case "WP1": return Autumn.colors.accent
+        case "WP2": return Autumn.colors.warning
+        case "WP3": return Autumn.colors.info
+        default:    return Autumn.colors.muted
+        }
+    }
+
     private var indicator: some View {
         VStack(spacing: 2) {
             ZStack {
@@ -281,10 +225,6 @@ private struct WorkflowStageRow: View {
                     .frame(width: 1, height: 26)
             }
         }
-    }
-
-    private var isCompleted: Bool {
-        stage.status == "completed"
     }
 
     private var isPending: Bool {
