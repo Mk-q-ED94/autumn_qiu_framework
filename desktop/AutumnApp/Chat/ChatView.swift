@@ -6,7 +6,6 @@ struct ChatView: View {
     @EnvironmentObject private var conversationStore: ConversationStore
     @EnvironmentObject private var projectStore: ProjectStore
     @FocusState private var composerFocused: Bool
-    @State private var intentPopoverVisible: Bool = false
 
     init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
         _vm = StateObject(wrappedValue: ChatViewModel(
@@ -22,6 +21,7 @@ struct ChatView: View {
             messagesList
             errorBanner
             runStatusBar
+            composerIntentBar
             inputBar
         }
         .background(Color.clear)
@@ -190,53 +190,50 @@ struct ChatView: View {
         }
     }
 
+    private var composerIntentBar: some View {
+        ComposerIntentBar(
+            preview: vm.intentPreview,
+            inputKind: vm.effectiveInputKind,
+            taskKind: vm.effectiveTaskKind,
+            routeOverride: vm.routeOverride,
+            inputOverride: vm.intentOverride,
+            taskOverride: vm.taskOverride,
+            effectiveRoute: vm.effectiveRoute,
+            isLoading: vm.isPreviewingIntent,
+            hasInput: !vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            setInput: vm.setInputOverride,
+            setTask: vm.setTaskOverride,
+            setRoute: vm.setRouteOverride,
+            clearOverrides: vm.clearOverrides
+        )
+    }
+
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: Autumn.spacing.sm) {
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: .bottomLeading) {
                 TextField("输入消息…", text: $vm.input, axis: .vertical)
                     .lineLimit(1...8)
                     .textFieldStyle(.plain)
                     .font(Autumn.typography.body)
-                    .padding(.trailing, 132)
                     .autumnInputSurface(isFocused: composerFocused)
                     .focused($composerFocused)
                     .disabled(vm.isRunning)
                     .onSubmit { vm.submitOrStop() }
                     .onChange(of: vm.input) { _, _ in vm.inputDidChange() }
 
-                IntentBadgeButton(
-                    preview: vm.intentPreview,
-                    inputKind: vm.effectiveInputKind,
-                    taskKind: vm.effectiveTaskKind,
-                    isLoading: vm.isPreviewingIntent,
-                    isPresented: $intentPopoverVisible,
-                    setInput: vm.setInputOverride,
-                    setTask: vm.setTaskOverride,
-                    routeOverride: vm.routeOverride,
-                    setRoute: vm.setRouteOverride
-                )
-                .padding(.top, 7)
-                .padding(.trailing, 8)
-                .disabled(vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
                 if !vm.input.isEmpty {
                     tokenCounterLabel
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .padding(.bottom, 7)
                         .padding(.leading, 10)
+                        .allowsHitTesting(false)
                 }
             }
 
             runButton
         }
-        .padding(Autumn.spacing.md)
+        .padding(.horizontal, Autumn.spacing.md)
+        .padding(.vertical, Autumn.spacing.md)
         .background(.bar)
-        .overlay(
-            Rectangle()
-                .fill(Color.secondary.opacity(0.15))
-                .frame(height: Autumn.stroke.hairline),
-            alignment: .top
-        )
     }
 
     private var tokenCounterLabel: some View {
@@ -263,140 +260,6 @@ struct ChatView: View {
         .buttonStyle(.plain)
         .disabled(!vm.isRunning && vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .help(vm.isRunning ? "停止生成" : "发送")
-    }
-}
-
-private struct IntentBadgeButton: View {
-    let preview: IntentPreview?
-    let inputKind: WorkflowInputKind?
-    let taskKind: WorkflowTaskKind?
-    let isLoading: Bool
-    @Binding var isPresented: Bool
-    let setInput: (WorkflowInputKind) -> Void
-    let setTask: (WorkflowTaskKind) -> Void
-    let routeOverride: MissionRouteMode?
-    let setRoute: (MissionRouteMode?) -> Void
-
-    var body: some View {
-        Button {
-            isPresented.toggle()
-        } label: {
-            HStack(spacing: Autumn.spacing.xs) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.7)
-                }
-                AutumnBadge(title, icon: icon, tone: tone)
-            }
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isPresented, arrowEdge: .top) {
-            IntentOverridePopover(
-                selectedInput: inputKind ?? .mission,
-                selectedTask: taskKind ?? .general,
-                routeOverride: routeOverride,
-                reasoning: preview?.reasoning,
-                confidence: preview?.confidence,
-                setInput: setInput,
-                setTask: setTask,
-                setRoute: setRoute
-            )
-        }
-        .help(preview?.reasoning ?? "查看或覆盖本次输入意图")
-    }
-
-    private var title: String {
-        if let preview {
-            return preview.badgeTitle
-        }
-        if let inputKind, inputKind == .task {
-            return taskKind?.badgeTitle ?? WorkflowTaskKind.general.badgeTitle
-        }
-        return inputKind?.badgeTitle ?? "意图"
-    }
-
-    private var icon: String {
-        (inputKind ?? preview?.inputKind ?? .mission).icon
-    }
-
-    private var tone: AutumnBadge.Tone {
-        guard let preview else { return .neutral }
-        return preview.confidence < 0.7 ? .warning : .accent
-    }
-}
-
-private struct IntentOverridePopover: View {
-    let selectedInput: WorkflowInputKind
-    let selectedTask: WorkflowTaskKind
-    let routeOverride: MissionRouteMode?
-    let reasoning: String?
-    let confidence: Double?
-    let setInput: (WorkflowInputKind) -> Void
-    let setTask: (WorkflowTaskKind) -> Void
-    let setRoute: (MissionRouteMode?) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("本次意图")
-                    .font(Autumn.typography.headline)
-                Spacer()
-                if let confidence {
-                    Text(String(format: "%.0f%%", confidence * 100))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(confidence < 0.7 ? Autumn.colors.danger : .secondary)
-                }
-            }
-
-            if let reasoning, !reasoning.isEmpty {
-                Text(reasoning)
-                    .font(Autumn.typography.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Picker("输入", selection: inputBinding) {
-                ForEach(WorkflowInputKind.allCases) { kind in
-                    Text(kind.title).tag(kind)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            if selectedInput == .task {
-                Picker("任务类型", selection: taskBinding) {
-                    ForEach(WorkflowTaskKind.allCases) { kind in
-                        Text(kind.title).tag(kind)
-                    }
-                }
-            } else {
-                Picker("Mission 路由", selection: routeBinding) {
-                    Text("跟随默认").tag("__default__")
-                    ForEach(MissionRouteMode.allCases) { route in
-                        Text(route.title).tag(route.rawValue)
-                    }
-                }
-            }
-        }
-        .padding(Autumn.spacing.lg)
-        .frame(width: 280)
-    }
-
-    private var inputBinding: Binding<WorkflowInputKind> {
-        Binding(get: { selectedInput }, set: setInput)
-    }
-
-    private var taskBinding: Binding<WorkflowTaskKind> {
-        Binding(get: { selectedTask }, set: setTask)
-    }
-
-    private var routeBinding: Binding<String> {
-        Binding(
-            get: { routeOverride?.rawValue ?? "__default__" },
-            set: { value in
-                setRoute(value == "__default__" ? nil : MissionRouteMode(rawValue: value))
-            }
-        )
     }
 }
 
