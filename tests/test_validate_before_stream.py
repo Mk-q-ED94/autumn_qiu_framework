@@ -205,7 +205,8 @@ async def test_legacy_live_path_still_works():
         protocol = Protocol.OPENAI
         async def complete(self, messages, **kwargs): return "x"
         async def stream_complete(self, messages, **kwargs):
-            for tok in ["live ", "tokens"]: yield tok
+            for tok in ["live ", "tokens"]:
+                yield tok
 
     wp2 = WP2Tas(_StreamingAPI(), mom2)
     wp3 = WP3Mis(_StreamingAPI(), mom3)

@@ -70,10 +70,12 @@ class Autumn:
         self.a4 = A4(config.a4) if config.a4 is not None else None
 
         db = config.storage.db_path
-        shared = SharedZone(HybridBackend(SQLiteBackend(db + ".shared")))
+        # Surface the shared zone on Autumn so callers (and add_memory_skills)
+        # can bind to it without having to reach into Mom2.shared.
+        self.shared = SharedZone(HybridBackend(SQLiteBackend(db + ".shared")))
 
-        self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), shared)
-        self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), shared)
+        self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), self.shared)
+        self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), self.shared)
         self.mom1 = Mom1(HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3)
 
         self._embedding: EmbeddingInterface | None = None
@@ -259,7 +261,7 @@ class Autumn:
         """
         from .memory.skills import make_memory_skills
         _areas = {
-            "shared": self.mom1.shared,
+            "shared": self.shared,
             "mom1": self.mom1,
             "mom2": self.mom2,
             "mom3": self.mom3,

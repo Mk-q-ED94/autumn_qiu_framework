@@ -110,6 +110,7 @@ class _MockAutumn:
             input_type or InputType.TASK,
             0.66,
             task_type or TaskType.SEARCH,
+            reasoning="selector says task",
         )
         route = MissionRoute.DIRECT if mission_route == "direct" else None
         return sel, route
@@ -522,7 +523,8 @@ def test_intent_returns_selector_preview(configured_client):
     assert payload["task_type"] == "search"
     assert payload["route"] is None
     assert payload["confidence"] == 0.66
-    assert "reasoning" in payload  # may be None — added for selector improvement
+    # reasoning is forwarded as-is from SelectorResult so the desktop can show it.
+    assert payload["reasoning"] == "selector says task"
 
 
 def test_intent_accepts_manual_override(configured_client):
@@ -554,6 +556,37 @@ def test_stream_yields_chunks_then_done(configured_client):
     assert traces[-1]["output"] == "hello world hi"
     assert traces[-1]["stages"][-1]["id"] == "wp1.final_check"
     assert configured_client.app.state.autumn.process_calls == []
+
+
+def test_stream_falls_back_to_legacy_stream(configured_client):
+    """Older Autumn instances may only expose ``stream`` (no trace events).
+    The server's ``getattr(autumn, "stream_with_trace", autumn.stream)`` fallback
+    must keep working: chunks still flow, just without a final ``{"trace": ...}``."""
+
+    class _LegacyAutumn:
+        """Pre-d6e49a5 surface: only the chunk-only stream method."""
+        async def stream(self, text, mission_route=None, input_type=None, task_type=None):
+            for chunk in ["legacy ", text]:
+                yield chunk
+
+        async def close(self):
+            pass
+
+    configured_client.app.state.autumn = _LegacyAutumn()
+
+    with configured_client.stream("GET", "/stream", params={"input": "yo"}) as r:
+        assert r.status_code == 200
+        lines = []
+        for line in r.iter_lines():
+            if line.startswith("data: "):
+                lines.append(line[len("data: "):])
+
+    assert lines[-1] == "[DONE]"
+    events = [json.loads(c) for c in lines[:-1]]
+    chunks = [e["chunk"] for e in events if "chunk" in e]
+    assert "".join(chunks) == "legacy yo"
+    # Legacy path produces no trace events.
+    assert not any("trace" in e for e in events)
 
 
 def test_stream_passes_route_override(configured_client):

@@ -23,11 +23,14 @@ class ScriptedAPI:
         self._script = list(script or [])
         self.completion = completion
         self.tool_prompts: list[list[dict]] = []  # messages passed to tool calls
+        self.complete_prompts: list[list[dict]] = []  # messages passed to plain complete
         self.completion_called = False
         self.tools_called = False
 
     async def complete(self, messages, **kwargs):
         self.completion_called = True
+        # Record so tests can introspect the system prompt that reached _run_plain.
+        self.complete_prompts.append(list(messages))
         return self.completion
 
     async def complete_with_tools_raw(self, messages, tools, system=None, **kwargs):
@@ -139,9 +142,11 @@ async def test_wp2_task_type_general_no_extra_hint():
     api = ScriptedAPI(completion="plain")
     wp2 = WP2Tas(api, make_memory(), system_prompt="BASE")
     await wp2.process("do something", task_type=TaskType.GENERAL)
-    # GENERAL hint is empty — system prompt should not grow
-    msgs = api.tool_prompts or []
-    assert True  # no crash is the assertion here; GENERAL adds nothing
+    # GENERAL maps to an empty hint, so the system prompt reaching the model
+    # must be exactly the base persona — no trailing hint paragraph appended.
+    assert api.completion_called
+    system = api.complete_prompts[0][0].content
+    assert system == "BASE"
 
 
 async def test_wp2_plain_task_type_hint_in_system():
@@ -151,8 +156,10 @@ async def test_wp2_plain_task_type_hint_in_system():
     # No tools → _run_plain path
     await wp2.process("find info", task_type=TaskType.SEARCH)
     assert api.completion_called
-    # verify via the messages recorded if available (ScriptedAPI.complete doesn't record)
-    # just confirm no crash and correct output
+    # SEARCH appends a hint about retrieval tools to the BASE persona.
+    system = api.complete_prompts[0][0].content
+    assert system.startswith("BASE")
+    assert "search and retrieval" in system
     output, stages, prompt, completion = await wp2.process_with_trace("find info", task_type=TaskType.SEARCH)
     assert output == "plain answer"
     assert stages == []
