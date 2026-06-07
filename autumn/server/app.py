@@ -73,6 +73,7 @@ class TraceStageResponse(BaseModel):
     duration_ms: float | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    source_terr: str | None = None
 
 
 class TraceResponse(BaseModel):
@@ -119,9 +120,14 @@ class TerrCallableResponse(BaseModel):
 class TerrResponse(BaseModel):
     name: str
     description: str
+    enabled: bool = True
     tools: list[TerrCallableResponse] = []
     skills: list[TerrCallableResponse] = []
     mcps: list[dict] = []
+
+
+class TerrToggleRequest(BaseModel):
+    enabled: bool
 
 
 class ProviderConfigRequest(BaseModel):
@@ -466,6 +472,14 @@ def create_app() -> FastAPI:
     async def terrs(request: Request):
         autumn = _autumn_or_503(request)
         return autumn.describe_terrs()
+
+    @app.patch("/terrs/{terr_name}", response_model=TerrResponse)
+    async def update_terr(terr_name: str, req: TerrToggleRequest, request: Request):
+        autumn = _autumn_or_503(request)
+        try:
+            return autumn.set_terr_enabled(terr_name, req.enabled)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"Unknown Terr: {terr_name}") from exc
 
     @app.get("/memory/{area}/history")
     async def get_history(

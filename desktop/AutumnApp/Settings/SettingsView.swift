@@ -98,7 +98,7 @@ struct SettingsView: View {
 
     private var serverTab: some View {
         Form {
-            Section("Autumn 服务器") {
+            Section {
                 LabeledContent("本地服务", value: localServer.statusText)
 
                 TextField("服务器 URL", text: $settings.serverURL)
@@ -121,6 +121,8 @@ struct SettingsView: View {
                     Spacer()
                     statusLabel
                 }
+            } header: {
+                Text("Autumn 服务器")
             } footer: {
                 Text("默认本地服务器地址为 http://127.0.0.1:8765。应用启动时会自动拉起捆绑的本地服务。")
                     .font(.caption)
@@ -135,7 +137,7 @@ struct SettingsView: View {
 
     private var modelsTab: some View {
         Form {
-            Section("A1 · A2 · A3") {
+            Section {
                 ForEach(ModelSlot.allCases) { slot in
                     ModelConfigRow(
                         slot: slot,
@@ -169,6 +171,8 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                Text("A1 · A2 · A3")
             } footer: {
                 Text("三个 slot 都填好后点击「应用配置」才会推送到 Autumn 服务器。")
                     .font(.caption)
@@ -249,7 +253,7 @@ struct SettingsView: View {
 
     private var advancedTab: some View {
         Form {
-            Section("Mission 默认路由") {
+            Section {
                 Picker("路由模式", selection: $settings.routeMode) {
                     Text("自动 (A3 决定)").tag("auto")
                     Text("直接回答").tag("direct")
@@ -260,15 +264,19 @@ struct SettingsView: View {
                 Text(routeDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } header: {
+                Text("Mission 默认路由")
             }
 
-            Section("关于") {
+            Section {
                 LabeledContent("版本", value: "0.1.0")
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1/A2/A3 配置由本页应用到本地 Autumn 服务器。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } header: {
+                Text("关于")
             }
         }
         #if os(macOS)

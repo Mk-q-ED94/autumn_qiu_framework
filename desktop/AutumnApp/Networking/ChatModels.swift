@@ -106,6 +106,18 @@ struct WorkflowTrace: Decodable, Equatable {
         stages.filter { $0.kind == "tool" }.count
     }
 
+    var agentStageCount: Int {
+        stages.filter { $0.kind == "agent" }.count
+    }
+
+    var hasAgentActivity: Bool {
+        agentStageCount > 0 || toolStageCount > 0
+    }
+
+    var sourceTerrNames: [String] {
+        Array(Set(stages.compactMap(\.sourceTerr))).sorted()
+    }
+
     var totalDurationMS: Double? {
         let values = stages.compactMap(\.durationMS)
         guard !values.isEmpty else { return nil }
@@ -133,6 +145,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     let durationMS: Double?
     let promptTokens: Int?
     let completionTokens: Int?
+    let sourceTerr: String?
 
     init(
         id: String,
@@ -143,7 +156,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         kind: String = "stage",
         durationMS: Double? = nil,
         promptTokens: Int? = nil,
-        completionTokens: Int? = nil
+        completionTokens: Int? = nil,
+        sourceTerr: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -154,6 +168,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         self.durationMS = durationMS
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
+        self.sourceTerr = sourceTerr
     }
 
     init(from decoder: Decoder) throws {
@@ -167,6 +182,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         durationMS = try c.decodeIfPresent(Double.self, forKey: .durationMS)
         promptTokens = try c.decodeIfPresent(Int.self, forKey: .promptTokens)
         completionTokens = try c.decodeIfPresent(Int.self, forKey: .completionTokens)
+        sourceTerr = try c.decodeIfPresent(String.self, forKey: .sourceTerr)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -174,6 +190,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         case durationMS = "duration_ms"
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
+        case sourceTerr = "source_terr"
     }
 }
 
@@ -215,13 +232,44 @@ struct IntentPreview: Decodable, Equatable {
 }
 
 struct TerrSummary: Decodable, Identifiable, Equatable {
-    let name: String
-    let description: String
-    let tools: [TerrCallable]
-    let skills: [TerrCallable]
-    let mcps: [TerrMCP]
+    var name: String
+    var description: String
+    var enabled: Bool
+    var tools: [TerrCallable]
+    var skills: [TerrCallable]
+    var mcps: [TerrMCP]
 
     var id: String { name }
+
+    init(
+        name: String,
+        description: String,
+        enabled: Bool = true,
+        tools: [TerrCallable],
+        skills: [TerrCallable],
+        mcps: [TerrMCP]
+    ) {
+        self.name = name
+        self.description = description
+        self.enabled = enabled
+        self.tools = tools
+        self.skills = skills
+        self.mcps = mcps
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        tools = try c.decode([TerrCallable].self, forKey: .tools)
+        skills = try c.decode([TerrCallable].self, forKey: .skills)
+        mcps = try c.decode([TerrMCP].self, forKey: .mcps)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, description, enabled, tools, skills, mcps
+    }
 }
 
 struct TerrCallable: Decodable, Identifiable, Equatable {
@@ -304,4 +352,8 @@ struct ModelsRequest: Encodable {
 
 struct ModelsResponse: Decodable {
     let models: [String]
+}
+
+struct TerrToggleRequest: Encodable {
+    let enabled: Bool
 }

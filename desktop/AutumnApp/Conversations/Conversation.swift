@@ -128,6 +128,7 @@ struct PersistableStage: Codable, Equatable {
     let durationMS: Double?
     let promptTokens: Int?
     let completionTokens: Int?
+    let sourceTerr: String?
 
     init(from stage: WorkflowStage) {
         self.id = stage.id
@@ -139,6 +140,7 @@ struct PersistableStage: Codable, Equatable {
         self.durationMS = stage.durationMS
         self.promptTokens = stage.promptTokens
         self.completionTokens = stage.completionTokens
+        self.sourceTerr = stage.sourceTerr
     }
 
     init(from decoder: Decoder) throws {
@@ -152,12 +154,13 @@ struct PersistableStage: Codable, Equatable {
         durationMS = try c.decodeIfPresent(Double.self, forKey: .durationMS)
         promptTokens = try c.decodeIfPresent(Int.self, forKey: .promptTokens)
         completionTokens = try c.decodeIfPresent(Int.self, forKey: .completionTokens)
+        sourceTerr = try c.decodeIfPresent(String.self, forKey: .sourceTerr)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, title, detail, workspace, status, kind
         case durationMS
-        case promptTokens, completionTokens
+        case promptTokens, completionTokens, sourceTerr
     }
 
     func toWorkflowStage() -> WorkflowStage {
@@ -170,7 +173,8 @@ struct PersistableStage: Codable, Equatable {
             kind: kind,
             durationMS: durationMS,
             promptTokens: promptTokens,
-            completionTokens: completionTokens
+            completionTokens: completionTokens,
+            sourceTerr: sourceTerr
         )
     }
 }

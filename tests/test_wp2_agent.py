@@ -5,6 +5,7 @@ import pytest
 
 from autumn.core.components.agent import Agent, _format_memory_context
 from autumn.core.components.skill import Skill
+from autumn.core.components.terr import Terr
 from autumn.core.components.tool import Tool, ToolParameter
 from autumn.core.memory.backends import DictBackend
 from autumn.core.memory.mom2 import Mom2
@@ -192,13 +193,38 @@ async def test_wp2_process_with_trace_emits_tool_stages():
     output, stages, _, _ = await wp2.process_with_trace("weather in Paris?")
 
     assert output == "It's sunny in Paris."
-    assert len(stages) == 1
-    stage = stages[0]
+    assert len(stages) == 2
+    agent_stage = stages[0]
+    assert agent_stage.kind == "agent"
+    assert agent_stage.title == "WP2 Agent"
+    assert "Agent 接管任务执行" in agent_stage.detail
+    stage = stages[1]
     assert stage.kind == "tool"
     assert stage.title == "get_weather"
     assert stage.workspace == "WP2"
     assert "city=Paris" in stage.detail
     assert "sunny in Paris" in stage.detail
+
+
+async def test_wp2_tool_stage_includes_source_terr():
+    async def search(query: str) -> str:
+        return f"hit:{query}"
+
+    tool = Tool("web_search", "search", search, [ToolParameter("query", "string", "q")])
+    terr = Terr("web", "web tools", tools=[tool])
+    api = ScriptedAPI(script=[
+        ("", [ToolCall(id="c1", name="web_search", arguments={"query": "autumn"})]),
+        ("done", []),
+    ])
+    wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: (terr.tools, []))
+
+    _, stages, _, _ = await wp2.process_with_trace("search autumn")
+
+    agent_stage = next(stage for stage in stages if stage.kind == "agent")
+    tool_stage = next(stage for stage in stages if stage.kind == "tool")
+    assert agent_stage.source_terr == "web"
+    assert "Terr: web" in agent_stage.detail
+    assert tool_stage.source_terr == "web"
 
 
 async def test_wp2_process_with_trace_no_tools_empty_stages():
@@ -220,8 +246,9 @@ async def test_wp2_tool_stage_truncates_long_result():
     ])
     wp2 = WP2Tas(api, make_memory(), tool_provider=lambda: ([tool], []))
     _, stages, _, _ = await wp2.process_with_trace("t")
-    assert "…" in stages[0].detail
-    assert len(stages[0].detail) < 200
+    tool_stage = next(stage for stage in stages if stage.kind == "tool")
+    assert "…" in tool_stage.detail
+    assert len(tool_stage.detail) < 200
 
 
 async def test_agent_steps_collector_records_each_call():

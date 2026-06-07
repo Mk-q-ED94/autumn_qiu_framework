@@ -62,11 +62,15 @@ class Tool:
         description: str,
         fn: Callable,
         parameters: list[ToolParameter] | None = None,
+        source_terr: str | None = None,
+        source_terr_description: str | None = None,
     ):
         self.name = name
         self.description = description
         self.fn = fn
         self.parameters = parameters or []
+        self.source_terr = source_terr
+        self.source_terr_description = source_terr_description
 
     async def call(self, **kwargs: Any) -> Any:
         if asyncio.iscoroutinefunction(self.fn):

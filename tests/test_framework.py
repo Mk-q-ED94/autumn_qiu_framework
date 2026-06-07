@@ -52,6 +52,7 @@ def test_describe_terrs_serializes_tools_skills_mcps(tmp_path):
     summary = summaries[0]
     assert summary["name"] == "content"
     assert summary["description"] == "Content ops"
+    assert summary["enabled"] is True
     assert summary["tools"][0]["name"] == "fetch"
     assert summary["tools"][0]["parameters"][0]["name"] == "url"
     assert summary["skills"][0]["name"] == "summarise"
@@ -61,6 +62,25 @@ def test_describe_terrs_serializes_tools_skills_mcps(tmp_path):
 def test_describe_terrs_empty_when_no_domains_registered(tmp_path):
     autumn = Autumn(_config(tmp_path))
     assert autumn.describe_terrs() == []
+
+
+def test_set_terr_enabled_filters_wp2_plugin_snapshot(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    tool = Tool("fetch", "Fetch a URL", lambda url: url, [])
+    terr = Terr("content", "Content ops", tools=[tool])
+    autumn.register_terr(terr)
+
+    tools, _ = autumn._collect_plugins()
+    assert tool in tools
+
+    summary = autumn.set_terr_enabled("content", False)
+    assert summary["enabled"] is False
+    tools, _ = autumn._collect_plugins()
+    assert tool not in tools
+
+    autumn.set_terr_enabled("content", True)
+    tools, _ = autumn._collect_plugins()
+    assert tool in tools
 
 
 # ── classify_intent ───────────────────────────────────────────────────────────

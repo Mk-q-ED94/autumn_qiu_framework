@@ -195,6 +195,9 @@ struct ChatView: View {
                 } else if vm.effectiveInputKind == .mission {
                     AutumnBadge(vm.effectiveRoute.title, icon: vm.effectiveRoute.icon, tone: .neutral)
                 }
+                if vm.shouldShowAgentRunHint {
+                    AutumnBadge("Agent 接管", icon: "cpu", tone: .warning)
+                }
                 Spacer()
                 AutumnBadge("Trace 同步", icon: "point.3.connected.trianglepath.dotted", tone: .info)
             }

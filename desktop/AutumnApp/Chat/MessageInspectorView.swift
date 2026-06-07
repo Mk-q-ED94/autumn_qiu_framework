@@ -22,6 +22,9 @@ struct MessageInspectorView: View {
                     VStack(alignment: .leading, spacing: Autumn.spacing.lg) {
                         headerSection(trace)
                         breakdownSection(trace)
+                        if hasAgentActivity(trace) {
+                            agentSection(trace)
+                        }
                         stagesSection(trace)
                         if hasToolCalls(trace) {
                             toolsSection(trace)
@@ -154,6 +157,56 @@ struct MessageInspectorView: View {
         }
     }
 
+    // ── agent status ────────────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private func agentSection(_ trace: WorkflowTrace) -> some View {
+        let agents = trace.stages.filter { $0.kind == "agent" }
+        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            HStack(spacing: 4) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Autumn.colors.warning)
+                Text("Agent 状态")
+                    .font(Autumn.typography.captionStrong)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+            }
+
+            ForEach(agents) { agent in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: Autumn.spacing.xs) {
+                        Text(agent.title)
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        AutumnBadge(agent.status == "completed" ? "完成" : "运行中",
+                                    tone: agent.status == "completed" ? .success : .warning)
+                        if let sourceTerr = agent.sourceTerr {
+                            AutumnBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
+                        }
+                        Spacer()
+                        if let ms = agent.durationMS {
+                            Text(formatDuration(ms))
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Text(agent.detail)
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 7)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                        .fill(Autumn.colors.warning.opacity(0.08))
+                )
+            }
+        }
+    }
+
     // ── stage list ────────────────────────────────────────────────────────────
 
     @ViewBuilder
@@ -195,8 +248,13 @@ struct MessageInspectorView: View {
 
             ForEach(tools) { tool in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tool.title)
-                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    HStack(spacing: Autumn.spacing.xs) {
+                        Text(tool.title)
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        if let sourceTerr = tool.sourceTerr {
+                            AutumnBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
+                        }
+                    }
                     Text(tool.detail)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -219,6 +277,10 @@ struct MessageInspectorView: View {
 
     private func hasToolCalls(_ trace: WorkflowTrace) -> Bool {
         trace.stages.contains { $0.kind == "tool" }
+    }
+
+    private func hasAgentActivity(_ trace: WorkflowTrace) -> Bool {
+        trace.stages.contains { $0.kind == "agent" }
     }
 
     // ── empty ─────────────────────────────────────────────────────────────────
@@ -321,6 +383,9 @@ private struct InspectorStageRow: View {
                         .foregroundStyle(workspaceColor)
                     Text(stage.title)
                         .font(Autumn.typography.captionMedium)
+                    if let sourceTerr = stage.sourceTerr {
+                        AutumnBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
+                    }
                 }
                 Text(stage.detail)
                     .font(Autumn.typography.caption)

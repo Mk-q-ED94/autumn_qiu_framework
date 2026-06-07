@@ -241,8 +241,12 @@ async def test_wp2_process_with_trace_returns_agent_aggregate_with_tools():
     assert prompt == 120     # 60 * 2 turns
     assert completion == 10  # 5 * 2 turns
     # First tool stage carries the first turn's usage.
-    assert stages[0].prompt_tokens == 60
-    assert stages[0].completion_tokens == 5
+    tool_stage = next(stage for stage in stages if stage.kind == "tool")
+    assert tool_stage.prompt_tokens == 60
+    assert tool_stage.completion_tokens == 5
+    agent_stage = next(stage for stage in stages if stage.kind == "agent")
+    assert agent_stage.prompt_tokens is None
+    assert agent_stage.completion_tokens is None
 
 
 # ── WP1 _capture_usage ────────────────────────────────────────────────────────

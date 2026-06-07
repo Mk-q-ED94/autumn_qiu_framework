@@ -216,6 +216,22 @@ final class AutumnClient {
         return try JSONDecoder().decode([TerrSummary].self, from: data)
     }
 
+    func setTerrEnabled(name: String, enabled: Bool) async throws -> TerrSummary {
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("terrs")
+                .appendingPathComponent(name)
+        )
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(TerrToggleRequest(enabled: enabled))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(TerrSummary.self, from: data)
+    }
+
     func endSession() async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("session/end"))
         request.httpMethod = "POST"
