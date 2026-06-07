@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Autumn Desktop spawns the local `python -m autumn.server` process and
+        reads files from the repository root that hosts the .app bundle. The
+        macOS App Sandbox blocks both of those, so we ship a non-sandboxed
+        local dev tool. Hardened Runtime remains enabled (set in project.yml).
+    -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

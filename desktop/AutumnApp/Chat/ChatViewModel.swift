@@ -185,21 +185,36 @@ final class ChatViewModel: ObservableObject {
                 projectID: projectID
             ) {
                 try Task.checkCancellation()
+                guard messages.indices.contains(assistantIndex) else { return }
                 switch event {
                 case .chunk(let chunk):
                     streamed += chunk
                     messages[assistantIndex].text = streamed
                 case .trace(let trace):
                     finalTrace = trace
+                    messages[assistantIndex].trace = trace
                 }
             }
             if Task.isCancelled { return }
+            guard messages.indices.contains(assistantIndex) else { return }
 
-            if let trace = finalTrace {
-                withAnimation(Autumn.motion.smooth) {
-                    messages[assistantIndex].text = trace.output.isEmpty ? "(empty response)" : trace.output
+            // Prefer the validated trace output, but never clobber what we already
+            // streamed when the trace arrives empty (e.g. failure mid-pipeline).
+            let resolved: String
+            if let trace = finalTrace, !trace.output.isEmpty {
+                resolved = trace.output
+            } else if !streamed.isEmpty {
+                resolved = streamed
+            } else {
+                resolved = "(empty response)"
+            }
+            withAnimation(Autumn.motion.smooth) {
+                messages[assistantIndex].text = resolved
+                if let trace = finalTrace {
                     messages[assistantIndex].trace = trace
                 }
+            }
+            if let trace = finalTrace {
                 intentPreview = IntentPreview(
                     inputType: trace.inputType,
                     taskType: trace.taskType,
@@ -207,8 +222,6 @@ final class ChatViewModel: ObservableObject {
                     confidence: 1.0,
                     reasoning: nil
                 )
-            } else if streamed.isEmpty {
-                messages[assistantIndex].text = "(empty response)"
             }
         } catch is CancellationError {
             if messages.indices.contains(assistantIndex), messages[assistantIndex].text.isEmpty {
@@ -226,6 +239,11 @@ final class ChatViewModel: ObservableObject {
     }
 
     func clear() {
+        // Cancel any in-flight stream before mutating the message buffer so the
+        // background task doesn't try to write into an emptied array.
+        runTask?.cancel()
+        runTask = nil
+        isRunning = false
         withAnimation(Autumn.motion.smooth) {
             messages.removeAll()
             errors.removeAll()
