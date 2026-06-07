@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var localServer: LocalServerManager
+    @State private var selectedTab: SettingsTab = .server
     @State private var connectionState: ConnectionState = .unknown
     @State private var isChecking: Bool = false
     @State private var modelOptions: [ModelSlot: [String]] = [:]
@@ -17,12 +18,90 @@ struct SettingsView: View {
         case failed(String)
     }
 
+    enum SettingsTab: String, CaseIterable, Identifiable {
+        case server, models, memory, advanced
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .server:   return "服务器"
+            case .models:   return "模型"
+            case .memory:   return "记忆"
+            case .advanced: return "高级"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .server:   return "server.rack"
+            case .models:   return "cpu"
+            case .memory:   return "brain"
+            case .advanced: return "slider.horizontal.3"
+            }
+        }
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            tabBar
+            Divider()
+            tabContent
+        }
+        .navigationTitle("设置")
+        .onAppear {
+            for slot in ModelSlot.allCases {
+                scheduleModelRefresh(slot, delay: 0)
+            }
+        }
+        .onChange(of: settings.a1APIKey)   { _, _ in scheduleModelRefresh(.a1) }
+        .onChange(of: settings.a1BaseURL)  { _, _ in scheduleModelRefresh(.a1) }
+        .onChange(of: settings.a1Protocol) { _, _ in scheduleModelRefresh(.a1) }
+        .onChange(of: settings.a2APIKey)   { _, _ in scheduleModelRefresh(.a2) }
+        .onChange(of: settings.a2BaseURL)  { _, _ in scheduleModelRefresh(.a2) }
+        .onChange(of: settings.a2Protocol) { _, _ in scheduleModelRefresh(.a2) }
+        .onChange(of: settings.a3APIKey)   { _, _ in scheduleModelRefresh(.a3) }
+        .onChange(of: settings.a3BaseURL)  { _, _ in scheduleModelRefresh(.a3) }
+        .onChange(of: settings.a3Protocol) { _, _ in scheduleModelRefresh(.a3) }
+    }
+
+    // ── tab bar ───────────────────────────────────────────────────────────────
+
+    private var tabBar: some View {
+        HStack(spacing: Autumn.spacing.xs) {
+            ForEach(SettingsTab.allCases) { tab in
+                TabPill(
+                    title: tab.title,
+                    icon: tab.icon,
+                    isSelected: selectedTab == tab,
+                    action: { withAnimation(Autumn.motion.snappy) { selectedTab = tab } }
+                )
+            }
+            Spacer()
+        }
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(.bar)
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch selectedTab {
+        case .server:   serverTab
+        case .models:   modelsTab
+        case .memory:   memoryTab
+        case .advanced: advancedTab
+        }
+    }
+
+    // ── server tab ────────────────────────────────────────────────────────────
+
+    private var serverTab: some View {
         Form {
-            Section("服务器") {
+            Section("Autumn 服务器") {
                 LabeledContent("本地服务", value: localServer.statusText)
 
-                TextField("Server URL", text: $settings.serverURL)
+                TextField("服务器 URL", text: $settings.serverURL)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
                     #if os(iOS)
@@ -39,13 +118,24 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(isChecking)
-
                     Spacer()
                     statusLabel
                 }
+            } footer: {
+                Text("默认本地服务器地址为 http://127.0.0.1:8765。应用启动时会自动拉起捆绑的本地服务。")
+                    .font(.caption)
             }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+    }
 
-            Section("模型 API") {
+    // ── models tab ────────────────────────────────────────────────────────────
+
+    private var modelsTab: some View {
+        Form {
+            Section("A1 · A2 · A3") {
                 ForEach(ModelSlot.allCases) { slot in
                     ModelConfigRow(
                         slot: slot,
@@ -58,7 +148,6 @@ struct SettingsView: View {
                         errorMessage: modelErrors[slot],
                         refresh: { scheduleModelRefresh(slot, delay: 0) }
                     )
-
                     if slot != ModelSlot.allCases.last {
                         Divider()
                     }
@@ -73,19 +162,29 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(isApplying)
-
                     Spacer()
-
                     if let applyMessage {
                         Text(applyMessage)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
+            } footer: {
+                Text("三个 slot 都填好后点击「应用配置」才会推送到 Autumn 服务器。")
+                    .font(.caption)
             }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+    }
 
+    // ── memory tab ────────────────────────────────────────────────────────────
+
+    private var memoryTab: some View {
+        Form {
             Section {
-                Toggle("启用记忆模型 A4", isOn: $settings.a4Enabled)
+                Toggle("启用 A4", isOn: $settings.a4Enabled)
 
                 if settings.a4Enabled {
                     SecureField("API Key（本地模型可留空）", text: $settings.a4APIKey)
@@ -112,12 +211,44 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
                 }
             } header: {
-                Text("记忆模型 A4（可选）")
+                Text("记忆模型 A4")
             } footer: {
-                Text("A4 用于 recall 技能中向量搜索结果的合成，建议配置本地 Ollama 模型以降低成本。未启用时 recall 直接返回原始片段。")
+                Text("A4 用于 recall 技能中向量搜索结果的合成。建议配置本地 Ollama 模型以降低成本，未启用时 recall 直接返回原始片段。")
                     .font(.caption)
             }
 
+            Section {
+                MemoryAreaCard(
+                    code: "Mom1",
+                    title: "顶层会话日志",
+                    description: "WP1 完整对话历史 + Shared Zone 共享上下文。"
+                )
+                MemoryAreaCard(
+                    code: "Mom2",
+                    title: "任务执行记忆",
+                    description: "WP2 处理 task 时的工具调用与中间产物。"
+                )
+                MemoryAreaCard(
+                    code: "Mom3",
+                    title: "Mission 记忆",
+                    description: "WP3 处理 mission 时的路由判定与转换草稿。"
+                )
+            } header: {
+                Text("记忆分区")
+            } footer: {
+                Text("每个分区可以挂载不同后端（DictBackend / VectorBackend / 自定义），通过 Autumn.add_memory_skills(area) 暴露 recall / remember 给模型调用。")
+                    .font(.caption)
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+    }
+
+    // ── advanced tab ──────────────────────────────────────────────────────────
+
+    private var advancedTab: some View {
+        Form {
             Section("Mission 默认路由") {
                 Picker("路由模式", selection: $settings.routeMode) {
                     Text("自动 (A3 决定)").tag("auto")
@@ -133,32 +264,19 @@ struct SettingsView: View {
 
             Section("关于") {
                 LabeledContent("版本", value: "0.1.0")
-                Text("秋/Autumn — 多模型协作工作流框架。")
+                Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1/A2/A3 配置由本页应用到本地 Autumn 服务器。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("设置")
         #if os(macOS)
         .formStyle(.grouped)
         #endif
-        .onAppear {
-            for slot in ModelSlot.allCases {
-                scheduleModelRefresh(slot, delay: 0)
-            }
-        }
-        .onChange(of: settings.a1APIKey) { _, _ in scheduleModelRefresh(.a1) }
-        .onChange(of: settings.a1BaseURL) { _, _ in scheduleModelRefresh(.a1) }
-        .onChange(of: settings.a1Protocol) { _, _ in scheduleModelRefresh(.a1) }
-        .onChange(of: settings.a2APIKey) { _, _ in scheduleModelRefresh(.a2) }
-        .onChange(of: settings.a2BaseURL) { _, _ in scheduleModelRefresh(.a2) }
-        .onChange(of: settings.a2Protocol) { _, _ in scheduleModelRefresh(.a2) }
-        .onChange(of: settings.a3APIKey) { _, _ in scheduleModelRefresh(.a3) }
-        .onChange(of: settings.a3BaseURL) { _, _ in scheduleModelRefresh(.a3) }
-        .onChange(of: settings.a3Protocol) { _, _ in scheduleModelRefresh(.a3) }
     }
+
+    // ── shared helpers ────────────────────────────────────────────────────────
 
     @ViewBuilder
     private var statusLabel: some View {
@@ -360,6 +478,65 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Tab pill
+
+private struct TabPill: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .font(Autumn.typography.captionMedium)
+            }
+            .foregroundStyle(isSelected ? Color.white : .primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.10))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Memory area card
+
+private struct MemoryAreaCard: View {
+    let code: String
+    let title: String
+    let description: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+            Text(code)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(.tint)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.12))
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Autumn.typography.captionMedium)
+                Text(description)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct ModelConfigRow: View {
     let slot: ModelSlot
     @Binding var apiKey: String
@@ -421,8 +598,6 @@ private struct ModelConfigRow: View {
                 .keyboardType(.URL)
                 #endif
                 .onChange(of: baseURL) { _, newValue in
-                    // Auto-detect protocol on URL change unless the user has selected hermes,
-                    // which deliberately shares the Ollama URL.
                     guard apiProtocol != "hermes" else { return }
                     let detected = ProviderPresets.detectProtocol(baseURL: newValue)
                     if detected != apiProtocol {
