@@ -5,7 +5,7 @@ import httpx
 from ..types import Message, Protocol, Role, ToolCall
 
 
-_RETRY_DELAYS = [1, 2, 4]  # seconds between the 3 attempts
+_RETRY_DELAYS = [1, 2, 4]  # delays between attempts; total = 1 + len(_RETRY_DELAYS) tries
 
 
 class ModelAPIInterface:
@@ -129,7 +129,8 @@ class ModelAPIInterface:
     def _extract_content(self, data: dict) -> str:
         if self.protocol == Protocol.OPENAI:
             return data["choices"][0]["message"]["content"] or ""
-        return next((b["text"] for b in data["content"] if b["type"] == "text"), "")
+        # Anthropic responses can interleave text + tool_use blocks; join all text.
+        return "".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
 
     # ── streaming ─────────────────────────────────────────────────────────────
 

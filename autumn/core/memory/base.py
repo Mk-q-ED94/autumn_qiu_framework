@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -55,6 +56,9 @@ class MemoryArea:
         self.name = name
         self._backend = backend
         self._vector: _VectorLayer | None = None
+        # Serializes the read-modify-write inside append_history so concurrent
+        # turns (e.g. two streams sharing this area) can't lose entries.
+        self._history_lock = asyncio.Lock()
 
     @property
     def has_vector(self) -> bool:
@@ -113,11 +117,12 @@ class MemoryArea:
 
     async def append_history(self, entry: dict, max_entries: int = _MAX_HISTORY) -> None:
         """Append a turn record to history, capped at max_entries (most recent kept)."""
-        history = await self.get(_HISTORY_KEY) or []
-        history.append(entry)
-        if len(history) > max_entries:
-            history = history[-max_entries:]
-        await self.set(_HISTORY_KEY, history)
+        async with self._history_lock:
+            history = await self.get(_HISTORY_KEY) or []
+            history.append(entry)
+            if len(history) > max_entries:
+                history = history[-max_entries:]
+            await self.set(_HISTORY_KEY, history)
 
         if self._vector is not None and self._vector.auto_index:
             import json as _json

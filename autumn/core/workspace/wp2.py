@@ -197,22 +197,27 @@ class WP2Tas(WorkspaceBase):
         When tools or skills are registered, the agent loop needs whole
         responses to dispatch tool calls; in that case we fall back to a
         buffered run and chunk the result. Either way, mom2 history is
-        persisted after the stream completes.
+        persisted even if the stream is interrupted mid-flight.
         """
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
 
         if tools or skills:
             # Tool-driven turn cannot be true-streamed; buffer then chunk.
             steps: list[AgentStep] = []
-            result, _, _ = await self._run_with_agent(task_input, tools, skills, steps, task_type)
-            for i in range(0, len(result), chunk_size):
-                yield result[i:i + chunk_size]
-                await asyncio.sleep(0)
-            await self.memory.append_history({
-                "ts": time.time(),
-                "task": task_input,
-                "output": result,
-            })
+            result = ""
+            try:
+                result, _, _ = await self._run_with_agent(
+                    task_input, tools, skills, steps, task_type
+                )
+                for i in range(0, len(result), chunk_size):
+                    yield result[i:i + chunk_size]
+                    await asyncio.sleep(0)
+            finally:
+                await self.memory.append_history({
+                    "ts": time.time(),
+                    "task": task_input,
+                    "output": result,
+                })
             yield [_step_to_stage(i, s) for i, s in enumerate(steps)]
             return
 
@@ -221,13 +226,14 @@ class WP2Tas(WorkspaceBase):
             Message(role=Role.USER, content=task_input),
         ]
         buf: list[str] = []
-        async for tok in self.api.stream_complete(messages):
-            buf.append(tok)
-            yield tok
-        full = "".join(buf)
-        await self.memory.append_history({
-            "ts": time.time(),
-            "task": task_input,
-            "output": full,
-        })
+        try:
+            async for tok in self.api.stream_complete(messages):
+                buf.append(tok)
+                yield tok
+        finally:
+            await self.memory.append_history({
+                "ts": time.time(),
+                "task": task_input,
+                "output": "".join(buf),
+            })
         yield []

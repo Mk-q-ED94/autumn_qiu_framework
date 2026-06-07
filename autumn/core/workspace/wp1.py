@@ -179,36 +179,6 @@ class WP1Tot(WorkspaceBase):
             task_type=task_type,
         )
 
-    async def _route_task(self, task_input: str) -> str:
-        result = await self.wp2.process(task_input)
-        return await self._wp1_check(result)
-
-    async def _route_mission_returning_route(
-        self,
-        mission_input: str,
-        mission_route: MissionRoute | Literal["auto"] | None = None,
-    ) -> tuple[str, MissionRoute]:
-        if self.interaction:
-            chosen = await self.interaction.ask(
-                "How should I handle this mission?",
-                [r.value for r in MissionRoute],
-            )
-            route = MissionRoute(chosen)
-        else:
-            route = await self._resolve_headless_route(mission_input, mission_route)
-
-        if route == MissionRoute.DIRECT:
-            result = await self.wp3.answer_directly(mission_input)
-            return await self._wp1_check(result), route
-
-        # Convert path
-        task_form = await self.wp3.convert_to_task(mission_input)
-        if self.wp3.checker:
-            _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
-        if self.checker:
-            _, task_form = await self.checker.validate(task_form, self.memory)
-        return await self._route_task(task_form), route
-
     async def _route_mission_with_trace(
         self,
         mission_input: str,

@@ -79,6 +79,25 @@ async for chunk in autumn.stream("写一首关于秋天的诗"):
     print(chunk, end="", flush=True)
 ```
 
+When you need both real-time chunks AND the final trace (token usage, stage
+timings, agent tool calls), use `stream_with_trace` — strings stream as before,
+then a single `WorkflowRun` arrives at the end:
+
+```python
+from autumn import WorkflowRun
+
+async for event in autumn.stream_with_trace("写一首关于秋天的诗"):
+    if isinstance(event, str):
+        print(event, end="", flush=True)
+    elif isinstance(event, WorkflowRun):
+        for stage in event.stages:
+            print(f"\n[{stage.id}] {stage.duration_ms:.0f}ms")
+```
+
+By default streaming runs the full validated pipeline before chunking — set
+`validate_before_stream=False` in `AutumnConfig` (or `VALIDATE_BEFORE_STREAM=false`
+in env) to flip on live token streaming with a post-hoc advisory checker.
+
 Override the mission route for a single call when you do not want to use the
 configured `HEADLESS_MISSION_ROUTE`:
 
@@ -89,6 +108,26 @@ result = await autumn.process(
     "把这个产品想法整理成执行计划",
     mission_route=MissionRoute.CONVERT,
 )
+```
+
+## Memory skills
+
+`Autumn.add_memory_skills(area)` registers two skills — `recall(query)` and
+`remember(text)` — that any tool-using agent (WP2 included) can call to query
+or write into a memory area. Use the optional A4 model slot to power synthesis
+cheaply (e.g. a local Ollama model):
+
+```python
+from autumn import AutumnConfig, ModelConfig, Protocol
+
+config = AutumnConfig(
+    a1=..., a2=..., a3=...,
+    a4=ModelConfig(api_key="ollama", base_url="http://localhost:11434",
+                   model="llama3.1:8b", protocol=Protocol.OPENAI),
+)
+async with Autumn(config) as autumn:
+    autumn.add_memory_skills("shared")  # or "mom1" / "mom2" / "mom3"
+    await autumn.process("回忆一下我上周让你研究的事情")
 ```
 
 ## Interactive mode
@@ -195,7 +234,12 @@ curl -N 'http://127.0.0.1:8765/stream?input=写一段欢迎语&route=direct'
 bash ./script/build_and_run.sh
 ```
 
-See [`desktop/README.md`](desktop/README.md) for the full workflow.
+`/stream` interleaves `{"chunk": "..."}` events with a single final
+`{"trace": {...}}` carrying the same shape as `/trace`. Every endpoint
+(`/process`, `/trace`, `/intent`, `/stream`) accepts an optional
+`project_instructions` field that the server prepends to the user input as a
+project-scoped preamble — see [`desktop/README.md`](desktop/README.md) for the
+full endpoint reference and workflow.
 
 ## Development
 

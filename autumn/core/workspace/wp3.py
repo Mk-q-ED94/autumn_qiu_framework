@@ -74,20 +74,21 @@ class WP3Mis(WorkspaceBase):
 
     async def stream_direct(self, mission_input: str) -> AsyncIterator[str]:
         """Token-level streaming for the direct path. Bypasses the checker —
-        caller handles post-hoc validation. Mom3 history is written when the
-        stream completes."""
+        caller handles post-hoc validation. Mom3 history is written even if the
+        stream is interrupted mid-flight, so a partial answer is recoverable."""
         messages = [
             Message(role=Role.SYSTEM, content=self._direct_system),
             Message(role=Role.USER, content=mission_input),
         ]
         buf: list[str] = []
-        async for tok in self.api.stream_complete(messages):
-            buf.append(tok)
-            yield tok
-        full = "".join(buf)
-        await self.memory.append_history({
-            "ts": time.time(),
-            "mission": mission_input,
-            "route": MissionRoute.DIRECT.value,
-            "output": full,
-        })
+        try:
+            async for tok in self.api.stream_complete(messages):
+                buf.append(tok)
+                yield tok
+        finally:
+            await self.memory.append_history({
+                "ts": time.time(),
+                "mission": mission_input,
+                "route": MissionRoute.DIRECT.value,
+                "output": "".join(buf),
+            })

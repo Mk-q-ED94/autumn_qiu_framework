@@ -83,9 +83,14 @@ open AutumnDesktop.xcodeproj
 - 确认 **Server URL** 指向你的服务器（默认 `http://127.0.0.1:8765`）。
 - 为 **A1 / A2 / A3** 填写 API Key、Base URL、协议和模型。
 - App 会在 Key / Base URL / 协议变化后向本地服务器请求模型列表并更新模型选择框。
+- 可选打开 **A4（记忆模型）**：用于驱动 `recall` / `remember` 记忆 skill。常配本地廉价模型（Ollama / llama3.1）；本地协议留空 API Key 也可工作。
 - 点 **应用配置**，看到「已应用」即可。
 - 切回 **协作** 发送消息；每次回复下方会显示 WP1/WP2/WP3 的协作路径。
 - 打开 **记忆** 查看 Mom1-3 历史。
+
+### 项目
+
+侧边栏顶部的「新建项目」按钮可建立项目。每个项目带一段可选的 **项目指令**——发送消息时这段指令会自动以前缀方式注入到 Autumn，形成"项目级 system prompt"。把对话拖入/移入项目即可继承指令；未分组对话保持原行为。
 
 ## 端点速查
 
@@ -93,14 +98,18 @@ open AutumnDesktop.xcodeproj
 |--------|-------------------------|-------------------------------------|
 | GET    | `/health`               | 健康检查 + 是否已配置               |
 | POST   | `/models`               | 根据 API Key / Base URL / 协议获取模型列表 |
-| POST   | `/config/apply`         | 将 A1 / A2 / A3 配置应用到本地服务器 |
+| POST   | `/config/apply`         | 将 A1 / A2 / A3 / A4 配置应用到本地服务器 |
 | POST   | `/process`              | 同步执行，返回最终输出；JSON 可带 `route` |
-| POST   | `/trace`                | 同步执行并返回输出、输入类型、路由和协作阶段（含 Agent 工具调用 `kind="tool"`）|
-| GET    | `/stream?input=...`     | SSE 流式分块；query 可带 `route`    |
+| POST   | `/trace`                | 同步执行并返回输出、输入类型、路由和协作阶段（含 Agent 工具调用 `kind="tool"` 和 token 用量）|
+| POST   | `/intent`               | 仅做 A1 分类，不执行——返回 inputType / taskType / route / 置信度 / reasoning |
+| GET    | `/stream?input=...`     | SSE 流式分块；交替发 `{"chunk":...}` 与一个最终 `{"trace":...}` |
+| GET    | `/terrs`                | 返回已注册的 Terr（能力域）摘要——tools / skills / mcps |
 | GET    | `/memory/{area}/history`| `mom1` / `mom2` / `mom3` 历史       |
 | POST   | `/session/end`          | 清空短期记忆                        |
 
 `route` 可选值：`auto`、`direct`、`convert`。桌面端设置页的「Mission 默认路由」会随每次请求传给服务器，覆盖服务器 `.env` 中的全局默认值。
+
+所有 `/process` `/trace` `/intent` `/stream` 都接受可选 `project_instructions`（字符串）和 `project_id`（保留字段）。当 `project_instructions` 非空时，服务器把它包装成 `[项目指令]…[用户输入]…` 的格式后再喂给 Autumn。
 
 ## 键盘快捷键
 
@@ -198,8 +207,10 @@ desktop/
     │   └── OnboardingView.swift         # 首启引导
     └── Resources/
         ├── Info.plist                   # NSAllowsLocalNetworking
-        └── AutumnDesktop.entitlements   # sandbox + network.client
+        └── AutumnDesktop.entitlements   # 非沙盒 + network.client/server（本地开发工具需要 spawn Python）
 ```
+
+App 以 **非沙盒** 形式构建（仍开启 Hardened Runtime），因为 `LocalServerManager` 需要从仓库根目录 spawn `python -m autumn.server` 并读仓库内文件，这两者都被 App Sandbox 拒绝。如果要走 App Store 分发，需要拆出一个走 XPC 的 helper 进程或改为完全外置的服务器。
 
 ## 常见问题
 

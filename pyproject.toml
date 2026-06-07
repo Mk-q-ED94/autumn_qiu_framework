@@ -36,3 +36,22 @@ exclude = ["desktop*", "examples*", "script*", "tests*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["desktop", "build"]
+
+[tool.ruff.lint]
+# Conservative defaults: pyflakes (F) for unused imports/vars and the bug-class
+# pycodestyle errors (E). Expand later as the team gets comfortable.
+select = ["F", "E"]
+ignore = [
+    "E501",  # line length is enforced loosely; long URLs and prompts are common.
+    "E741",  # ambiguous single-letter variable names are fine in math-y code.
+    "F403",  # `from … import *` is used intentionally in api/__init__.py.
+    "F405",  # star-import re-exports are intentional in api/__init__.py.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401", "F811"]  # fixtures + pytest patterns produce false positives.

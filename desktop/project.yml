@@ -3,7 +3,6 @@ options:
   bundleIdPrefix: com.autumn
   createIntermediateGroups: true
   deploymentTarget:
-    iOS: "17.0"
     macOS: "14.0"
   groupSortPosition: top
 
@@ -23,6 +22,7 @@ targets:
         excludes:
           - "Resources/Info.plist"
           - "Resources/Assets.xcassets"
+          - "Resources/AutumnDesktop.entitlements"
     resources:
       - path: AutumnApp/Resources/Assets.xcassets
     info:
@@ -43,4 +43,5 @@ targets:
         ENABLE_DEBUG_DYLIB: NO
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: AutumnApp/Resources/AutumnDesktop.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
