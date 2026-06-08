@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ..types import SearchResult
 
 if TYPE_CHECKING:
+    from ..api.base import ModelAPIInterface
     from ..api.embedding import EmbeddingInterface
     from .backends.vector_backend import SQLiteVectorStore
 
@@ -24,11 +26,15 @@ def _new_id() -> str:
 
 @dataclass
 class MemoryEntry:
-    """Typed history record with importance weighting and tagging.
+    """Typed history record with importance weighting, tagging and expiry.
 
     Entries with importance >= MemoryEntry.PIN_THRESHOLD are pinned and survive
     eviction even when history is at capacity. Default importance is 1.0 (normal).
     Setting importance to 0.5 marks an entry as low-priority (evicted first).
+
+    ``expires_at`` (unix epoch seconds) gives an entry a time-to-live: once the
+    clock passes it the entry is treated as gone — filtered from reads and purged
+    on the next write. ``None`` means the entry never expires.
     """
 
     id: str
@@ -37,6 +43,7 @@ class MemoryEntry:
     importance: float = 1.0
     tags: list[str] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
+    expires_at: float | None = None
 
     PIN_THRESHOLD: ClassVar[float] = _PIN_THRESHOLD
 
@@ -52,6 +59,27 @@ class MemoryEntry:
         import json
         return json.dumps(self.content, ensure_ascii=False)
 
+    def is_expired(self, now: float | None = None) -> bool:
+        """True if this entry has a TTL that has elapsed."""
+        if self.expires_at is None:
+            return False
+        return (now if now is not None else time.time()) >= self.expires_at
+
+    def effective_importance(
+        self, now: float | None = None, half_life: float | None = None
+    ) -> float:
+        """Importance after time-decay.
+
+        Pinned entries never decay. With no ``half_life`` the raw importance is
+        returned unchanged. Otherwise importance halves every ``half_life``
+        seconds of age, so old low-value memories fade ahead of fresh ones.
+        """
+        if self.is_pinned or not half_life or half_life <= 0:
+            return self.importance
+        now = now if now is not None else time.time()
+        age = max(0.0, now - self.timestamp)
+        return self.importance * (0.5 ** (age / half_life))
+
     def to_dict(self) -> dict:
         return {
             "_m": True,
@@ -61,6 +89,7 @@ class MemoryEntry:
             "importance": self.importance,
             "tags": self.tags,
             "meta": self.meta,
+            "expires_at": self.expires_at,
         }
 
     @classmethod
@@ -74,6 +103,7 @@ class MemoryEntry:
                 importance=raw.get("importance", 1.0),
                 tags=raw.get("tags", []),
                 meta=raw.get("meta", {}),
+                expires_at=raw.get("expires_at"),
             )
         # Legacy workspace dict ({"ts": ..., "input": ..., "output": ...})
         return cls(
@@ -85,18 +115,32 @@ class MemoryEntry:
         )
 
 
-def _evict(history: list[MemoryEntry], limit: int) -> list[MemoryEntry]:
+def _decode(raw: list | None) -> list[MemoryEntry]:
+    """Decode a stored history list into MemoryEntry objects (legacy-tolerant)."""
+    return [
+        MemoryEntry.from_dict(e) if isinstance(e, dict) else e
+        for e in (raw or [])
+    ]
+
+
+def _evict(
+    history: list[MemoryEntry],
+    limit: int,
+    now: float | None = None,
+    half_life: float | None = None,
+) -> list[MemoryEntry]:
     """Trim history to at most *limit* entries.
 
     Pinned entries are kept unconditionally. Among normal entries, the highest
-    importance ones survive; recency breaks ties (newer wins).
-    The final list is returned in ascending timestamp order.
+    *effective* importance ones survive (time-decay applied when ``half_life`` is
+    set); recency breaks ties (newer wins). Returned in ascending timestamp order.
     """
     if len(history) <= limit:
         return history
+    now = now if now is not None else time.time()
     pinned = [e for e in history if e.is_pinned]
     normal = [e for e in history if not e.is_pinned]
-    normal.sort(key=lambda e: (-e.importance, -e.timestamp))  # best first
+    normal.sort(key=lambda e: (-e.effective_importance(now, half_life), -e.timestamp))
     keep_normal = max(0, limit - len(pinned))
     if len(pinned) > limit:
         kept = sorted(pinned, key=lambda e: -e.importance)[:limit]
@@ -151,20 +195,33 @@ class MemoryArea:
     Key-value API (get/set/delete/keys) provides raw storage.
 
     History API (append_history/get_history/recent/pin/unpin) stores structured
-    MemoryEntry records with importance weighting.  When the cap is reached,
-    low-importance entries are evicted first; pinned entries never evict.
+    MemoryEntry records with importance weighting and optional TTL.  When the cap
+    is reached, low-importance entries are evicted first (with time-decay when a
+    ``decay_half_life`` is configured); pinned entries never evict.
 
     Recall API (recall) unifies exact-key lookup, tag filtering, and optional
     semantic search into a single ranked result list.
 
+    Lifecycle API (consolidate/forget/stats) summarises, prunes and reports on
+    stored memory.
+
     Call enable_vector() to attach a semantic search layer.
     """
 
-    def __init__(self, name: str, backend: MemoryBackend, history_limit: int = _MAX_HISTORY):
+    def __init__(
+        self,
+        name: str,
+        backend: MemoryBackend,
+        history_limit: int = _MAX_HISTORY,
+        decay_half_life: float | None = None,
+    ):
         self.name = name
         self._backend = backend
         self._vector: _VectorLayer | None = None
         self._history_limit = history_limit
+        # When set, importance decays by half every this-many seconds of age,
+        # influencing eviction priority. None disables decay (default).
+        self._decay_half_life = decay_half_life or None
         # Serialises the read-modify-write cycle in append_history so concurrent
         # turns cannot lose entries.
         self._history_lock = asyncio.Lock()
@@ -232,18 +289,21 @@ class MemoryArea:
         importance: float = 1.0,
         tags: list[str] | None = None,
         max_entries: int | None = None,
+        ttl: float | None = None,
     ) -> "MemoryEntry":
         """Append a turn record. Returns the stored MemoryEntry.
 
         Accepts a raw dict or string (backward-compatible) or a MemoryEntry.
-        When capacity is exceeded, lowest-importance non-pinned entries are removed
-        first; recency breaks importance ties (older entries removed first).
-        Pinned entries (importance >= PIN_THRESHOLD) are never evicted.
+        ``ttl`` (seconds) gives the entry a time-to-live; expired entries are
+        filtered from reads and purged here on the next append. When capacity is
+        exceeded, lowest effective-importance non-pinned entries are removed
+        first. Pinned entries (importance >= PIN_THRESHOLD) are never evicted.
         """
         limit = max_entries if max_entries is not None else self._history_limit
+        now = time.time()
 
         if not isinstance(entry, MemoryEntry):
-            ts = entry.get("ts", time.time()) if isinstance(entry, dict) else time.time()
+            ts = entry.get("ts", now) if isinstance(entry, dict) else now
             entry = MemoryEntry(
                 id=_new_id(),
                 content=entry,
@@ -251,15 +311,14 @@ class MemoryArea:
                 importance=importance,
                 tags=tags or [],
             )
+        if ttl is not None and entry.expires_at is None:
+            entry.expires_at = now + ttl
 
         async with self._history_lock:
-            raw = await self.get(_HISTORY_KEY) or []
-            history = [
-                MemoryEntry.from_dict(e) if isinstance(e, dict) else e
-                for e in raw
-            ]
+            history = _decode(await self.get(_HISTORY_KEY))
+            history = [e for e in history if not e.is_expired(now)]  # purge expired
             history.append(entry)
-            history = _evict(history, limit)
+            history = _evict(history, limit, now=now, half_life=self._decay_half_life)
             await self.set(_HISTORY_KEY, [e.to_dict() for e in history])
 
         if self._vector is not None and self._vector.auto_index:
@@ -274,6 +333,7 @@ class MemoryArea:
         n: int | None = None,
         tags: list[str] | None = None,
         since: float | None = None,
+        include_expired: bool = False,
     ) -> list["MemoryEntry"]:
         """Return history entries, optionally filtered.
 
@@ -281,12 +341,12 @@ class MemoryArea:
             n:     Return at most the *last* n entries (most recent).
             tags:  If given, only entries that have ALL listed tags are returned.
             since: If given, only entries with timestamp >= since are returned.
+            include_expired: If True, do not filter out TTL-expired entries.
         """
-        raw = await self.get(_HISTORY_KEY) or []
-        entries = [
-            MemoryEntry.from_dict(e) if isinstance(e, dict) else e
-            for e in raw
-        ]
+        entries = _decode(await self.get(_HISTORY_KEY))
+        if not include_expired:
+            now = time.time()
+            entries = [e for e in entries if not e.is_expired(now)]
         if since is not None:
             entries = [e for e in entries if e.timestamp >= since]
         if tags is not None:
@@ -297,7 +357,7 @@ class MemoryArea:
         return entries
 
     async def recent(self, n: int = 5) -> list["MemoryEntry"]:
-        """Return the n most recent history entries (convenience wrapper)."""
+        """Return the n most recent (non-expired) history entries."""
         return await self.get_history(n=n)
 
     async def recall(
@@ -309,7 +369,7 @@ class MemoryArea:
         """Unified retrieval combining three strategies, ranked by relevance.
 
         1. Exact key-value lookup on *query* as a key.
-        2. History filtering by *tags* (if given).
+        2. History filtering by *tags* (if given), expired entries excluded.
         3. Semantic vector search (if vector layer is enabled).
 
         Returns up to k MemoryEntry objects, deduplicated and sorted by
@@ -328,7 +388,7 @@ class MemoryArea:
                 tags=["kv"],
             ))
 
-        # 2. Tag-filtered history
+        # 2. Tag-filtered history (expired already excluded by get_history)
         if tags:
             results.extend(await self.get_history(tags=tags))
 
@@ -361,41 +421,163 @@ class MemoryArea:
 
     # ── pin / unpin ───────────────────────────────────────────────────────────
 
+    async def _reweight(self, entry_id: str, importance: float) -> bool:
+        """Set an entry's importance in place. Returns True if found."""
+        async with self._history_lock:
+            history = _decode(await self.get(_HISTORY_KEY))
+            for e in history:
+                if e.id == entry_id:
+                    e.importance = importance
+                    await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
+                    return True
+        return False
+
     async def pin(self, entry_id: str) -> bool:
         """Raise an entry's importance to PIN_THRESHOLD so it survives eviction.
 
         Returns True if the entry was found, False otherwise.
         """
-        async with self._history_lock:
-            raw = await self.get(_HISTORY_KEY) or []
-            history = [
-                MemoryEntry.from_dict(e) if isinstance(e, dict) else e
-                for e in raw
-            ]
-            for i, e in enumerate(history):
-                if e.id == entry_id:
-                    history[i] = MemoryEntry(
-                        id=e.id, content=e.content, timestamp=e.timestamp,
-                        importance=_PIN_THRESHOLD, tags=e.tags, meta=e.meta,
-                    )
-                    await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
-                    return True
-        return False
+        return await self._reweight(entry_id, _PIN_THRESHOLD)
 
     async def unpin(self, entry_id: str) -> bool:
         """Reset an entry's importance to 1.0. Returns True if found."""
+        return await self._reweight(entry_id, 1.0)
+
+    # ── lifecycle: forget / consolidate / stats ────────────────────────────────
+
+    async def forget(
+        self,
+        tags: list[str] | None = None,
+        before: float | None = None,
+        expired: bool = False,
+    ) -> int:
+        """Bulk-remove history entries matching any given criterion.
+
+        An entry is removed if it matches ANY of:
+          - has ALL of ``tags``
+          - has ``timestamp`` < ``before``
+          - is TTL-expired (when ``expired`` is True)
+
+        Pinned entries are removed too if they match — this is an explicit
+        instruction, not automatic eviction. With no criteria, removes nothing.
+        Returns the number of entries removed.
+        """
+        if not tags and before is None and not expired:
+            return 0
+        now = time.time()
+        tag_set = set(tags) if tags else None
+
+        def matches(e: MemoryEntry) -> bool:
+            if tag_set is not None and tag_set.issubset(set(e.tags)):
+                return True
+            if before is not None and e.timestamp < before:
+                return True
+            if expired and e.is_expired(now):
+                return True
+            return False
+
         async with self._history_lock:
-            raw = await self.get(_HISTORY_KEY) or []
-            history = [
-                MemoryEntry.from_dict(e) if isinstance(e, dict) else e
-                for e in raw
+            history = _decode(await self.get(_HISTORY_KEY))
+            kept = [e for e in history if not matches(e)]
+            removed = len(history) - len(kept)
+            if removed:
+                await self.set(_HISTORY_KEY, [e.to_dict() for e in kept])
+        return removed
+
+    async def consolidate(
+        self,
+        api: "ModelAPIInterface",
+        keep_recent: int = 10,
+        min_candidates: int = 3,
+        max_chars: int = 4000,
+    ) -> "MemoryEntry | None":
+        """Summarise older history into a single pinned entry to free space.
+
+        The most recent ``keep_recent`` entries, plus all pinned entries and any
+        prior summaries, are preserved. Remaining older entries are replaced by
+        one pinned ``summary`` entry synthesised by ``api``. No-op (returns None)
+        when there are fewer than ``min_candidates`` consolidatable entries.
+
+        Args:
+            api: an inference model (e.g. the A4 slot) exposing ``complete``.
+            keep_recent: number of newest entries to leave untouched.
+            min_candidates: minimum old entries required to bother summarising.
+            max_chars: cap on the candidate text fed to the model.
+        """
+        async with self._history_lock:
+            now = time.time()
+            history = [e for e in _decode(await self.get(_HISTORY_KEY)) if not e.is_expired(now)]
+            tail = history[-keep_recent:] if keep_recent else []
+            head = history[:-keep_recent] if keep_recent else history
+            candidates = [e for e in head if not e.is_pinned and "summary" not in e.tags]
+            preserved = [e for e in head if e.is_pinned or "summary" in e.tags]
+            if len(candidates) < min_candidates:
+                return None
+
+            joined = "\n".join(f"- {e.text}" for e in candidates)[:max_chars]
+            from ..types import Message, Role
+            messages = [
+                Message(
+                    role=Role.SYSTEM,
+                    content=(
+                        "You compress conversation memory. Summarise the entries "
+                        "into a compact, factual digest that preserves names, "
+                        "decisions, preferences and unresolved threads. Be terse."
+                    ),
+                ),
+                Message(
+                    role=Role.USER,
+                    content=f"Summarise these {len(candidates)} memory entries:\n\n{joined}",
+                ),
             ]
-            for i, e in enumerate(history):
-                if e.id == entry_id:
-                    history[i] = MemoryEntry(
-                        id=e.id, content=e.content, timestamp=e.timestamp,
-                        importance=1.0, tags=e.tags, meta=e.meta,
-                    )
-                    await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
-                    return True
-        return False
+            summary_text = await api.complete(messages)
+
+            summary = MemoryEntry(
+                id=_new_id(),
+                content=summary_text,
+                # Slot the summary where the old block lived so order is sane.
+                timestamp=max(e.timestamp for e in candidates),
+                importance=_PIN_THRESHOLD,
+                tags=["summary"],
+                meta={"consolidated": len(candidates)},
+            )
+            new_history = preserved + [summary] + tail
+            new_history.sort(key=lambda e: e.timestamp)
+            await self.set(_HISTORY_KEY, [e.to_dict() for e in new_history])
+
+        if self._vector is not None:
+            try:
+                await self.index(summary.id, summary.text, {"type": "summary", "area": self.name})
+            except Exception:
+                pass
+        return summary
+
+    async def stats(self) -> dict:
+        """Return a snapshot of this area's history for observability.
+
+        Counts live and expired entries, pinned count, tag histogram, time span,
+        average importance, and the area's configuration.
+        """
+        all_entries = await self.get_history(include_expired=True)
+        now = time.time()
+        live = [e for e in all_entries if not e.is_expired(now)]
+        tags: dict[str, int] = {}
+        for e in live:
+            for t in e.tags:
+                tags[t] = tags.get(t, 0) + 1
+        timestamps = [e.timestamp for e in live if e.timestamp]
+        return {
+            "area": self.name,
+            "total": len(live),
+            "expired": len(all_entries) - len(live),
+            "pinned": sum(1 for e in live if e.is_pinned),
+            "tags": tags,
+            "oldest": min(timestamps) if timestamps else None,
+            "newest": max(timestamps) if timestamps else None,
+            "avg_importance": (
+                round(sum(e.importance for e in live) / len(live), 3) if live else 0.0
+            ),
+            "history_limit": self._history_limit,
+            "decay_half_life": self._decay_half_life,
+            "has_vector": self.has_vector,
+        }

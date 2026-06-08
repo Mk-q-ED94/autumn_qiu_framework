@@ -61,7 +61,8 @@ class _StubInteraction:
 
 def test_autumn_threads_behavior_into_components(tmp_path):
     behavior = BehaviorConfig(
-        agent_max_steps=42, checker_retries=5, confirm_threshold=0.6, history_limit=123
+        agent_max_steps=42, checker_retries=5, confirm_threshold=0.6, history_limit=123,
+        memory_decay_half_life=3600,
     )
     autumn = Autumn(_config(tmp_path, behavior=behavior))
     assert autumn.wp2._agent_max_steps == 42
@@ -72,6 +73,10 @@ def test_autumn_threads_behavior_into_components(tmp_path):
     assert autumn.mom1._history_limit == 123
     assert autumn.mom2._history_limit == 123
     assert autumn.mom3._history_limit == 123
+    # Decay reaches every zone, including project zones.
+    assert autumn.mom1._decay_half_life == 3600
+    assert autumn.shared._decay_half_life == 3600
+    assert autumn.projects.zone("p")._decay_half_life == 3600
 
 
 def test_autumn_defaults_unchanged(tmp_path):
@@ -80,6 +85,7 @@ def test_autumn_defaults_unchanged(tmp_path):
     assert autumn.wp1.checker._retries == 3
     assert autumn.wp1.selector._confirm_threshold == 0.75
     assert autumn.mom1._history_limit == 50
+    assert autumn.mom1._decay_half_life is None  # decay off by default
 
 
 # ── Checker retries ─────────────────────────────────────────────────────────────

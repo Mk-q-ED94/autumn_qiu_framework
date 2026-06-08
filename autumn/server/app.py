@@ -183,6 +183,12 @@ class ModelsResponse(BaseModel):
     models: list[str]
 
 
+class ConsolidateRequest(BaseModel):
+    """Tuning for a memory consolidation pass (all optional)."""
+    keep_recent: int = 10
+    min_candidates: int = 3
+
+
 class OllamaTarget(BaseModel):
     base_url: str = "http://localhost:11434"
 
@@ -303,6 +309,17 @@ def _projects_or_501(autumn: Autumn):
             status_code=501, detail="Per-project memory is not available on this server."
         )
     return projects
+
+
+def _consolidation_model_or_400(autumn: Autumn):
+    """Return the model used to summarise memory (A4 slot), or 400 if absent."""
+    api = getattr(autumn, "a4", None)
+    if api is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Memory consolidation needs the A4 model slot; none is configured.",
+        )
+    return api
 
 
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
@@ -571,6 +588,29 @@ def create_app() -> FastAPI:
         history = await mom.get_history()
         return history[offset:offset + limit]
 
+    @app.get("/memory/{area}/stats")
+    async def memory_stats(area: MemoryArea, request: Request):
+        autumn = _autumn_or_503(request)
+        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        return await mom.stats()
+
+    @app.post("/memory/{area}/consolidate")
+    async def memory_consolidate(
+        area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest()
+    ):
+        autumn = _autumn_or_503(request)
+        api = _consolidation_model_or_400(autumn)
+        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        try:
+            summary = await mom.consolidate(
+                api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        if summary is None:
+            return {"status": "noop", "summary": None}
+        return {"status": "ok", "summary": summary.to_dict()}
+
     # ── Per-project shared memory ────────────────────────────────────────────
     # Each project id gets its own isolated shared memory zone. The zone is
     # written to whenever a /process, /trace or /stream call carries a
@@ -594,6 +634,31 @@ def create_app() -> FastAPI:
         projects = _projects_or_501(autumn)
         history = await projects.zone(project_id).get_history()
         return history[offset:offset + limit]
+
+    @app.get("/projects/{project_id}/stats")
+    async def project_stats(project_id: str, request: Request):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        return await projects.zone(project_id).stats()
+
+    @app.post("/projects/{project_id}/consolidate")
+    async def project_consolidate(
+        project_id: str,
+        request: Request,
+        req: ConsolidateRequest = ConsolidateRequest(),
+    ):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        api = _consolidation_model_or_400(autumn)
+        try:
+            summary = await projects.zone(project_id).consolidate(
+                api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        if summary is None:
+            return {"status": "noop", "summary": None}
+        return {"status": "ok", "summary": summary.to_dict()}
 
     @app.delete("/projects/{project_id}")
     async def clear_project(project_id: str, request: Request):

@@ -18,7 +18,7 @@ def clean_env(monkeypatch):
         if any(key.startswith(p) for p in (
             "A1_", "A2_", "A3_", "A4_", "X_", "EMBEDDING_", "STORAGE_", "HEADLESS_",
             "AUTO_INDEX", "VALIDATE_", "AGENT_MAX_STEPS", "CHECKER_RETRIES",
-            "CONFIRM_THRESHOLD", "HISTORY_LIMIT",
+            "CONFIRM_THRESHOLD", "HISTORY_LIMIT", "MEMORY_DECAY_HALF_LIFE",
         )):
             monkeypatch.delenv(key, raising=False)
     return monkeypatch
@@ -243,6 +243,7 @@ def test_behavior_config_defaults():
     assert b.checker_retries == 3
     assert b.confirm_threshold == 0.75
     assert b.history_limit == 50
+    assert b.memory_decay_half_life == 0.0  # off by default
 
 
 def test_behavior_config_from_env(clean_env):
@@ -251,11 +252,13 @@ def test_behavior_config_from_env(clean_env):
     clean_env.setenv("CHECKER_RETRIES", "1")
     clean_env.setenv("CONFIRM_THRESHOLD", "0.5")
     clean_env.setenv("HISTORY_LIMIT", "200")
+    clean_env.setenv("MEMORY_DECAY_HALF_LIFE", "3600")
     b = BehaviorConfig.from_env()
     assert b.agent_max_steps == 20
     assert b.checker_retries == 1
     assert b.confirm_threshold == 0.5
     assert b.history_limit == 200
+    assert b.memory_decay_half_life == 3600.0
 
 
 def test_behavior_config_from_env_partial_keeps_defaults(clean_env):

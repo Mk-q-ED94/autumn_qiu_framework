@@ -51,6 +51,19 @@ await autumn.project_zone("acme-app").get("...")   # isolated namespace
 Over HTTP, pass `project_id` to `/process`, `/trace`, or `/stream`; manage zones
 with `GET /projects`, `GET /projects/{id}/memory`, and `DELETE /projects/{id}`.
 
+**Memory lifecycle** — every zone (Mom1/2/3, shared, project) supports:
+
+- **Importance & pinning** — `append_history(..., importance=2.0)` pins an entry;
+  pinned entries never evict. Eviction drops the lowest-importance entries first.
+- **TTL / expiry** — `append_history(..., ttl=3600)` makes an entry ephemeral;
+  expired entries are filtered on read and purged on the next write.
+- **Time-decay** — set `MEMORY_DECAY_HALF_LIFE` (seconds) so stale low-value
+  memories fade and get evicted before fresh ones.
+- **Consolidation** — `await zone.consolidate(api)` summarises old entries into a
+  single pinned digest (uses the A4 model); over HTTP: `POST /memory/{area}/consolidate`.
+- **Forget & stats** — `zone.forget(tags=..., before=..., expired=True)` bulk-prunes;
+  `zone.stats()` / `GET /memory/{area}/stats` report counts, tags and time span.
+
 ## Quick start
 
 ```bash

@@ -112,6 +112,7 @@ class BehaviorConfig:
     checker_retries: int = 3       # Checker validate/correct attempts before giving up
     confirm_threshold: float = 0.75  # Selector confidence below which the user is asked
     history_limit: int = 50        # Per-area memory history entries retained
+    memory_decay_half_life: float = 0.0  # Seconds; importance halves each interval. 0 = off
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -123,6 +124,9 @@ class BehaviorConfig:
             checker_retries=_to_int(env("CHECKER_RETRIES"), cls.checker_retries),
             confirm_threshold=_to_float(env("CONFIRM_THRESHOLD"), cls.confirm_threshold),
             history_limit=_to_int(env("HISTORY_LIMIT"), cls.history_limit),
+            memory_decay_half_life=_to_float(
+                env("MEMORY_DECAY_HALF_LIFE"), cls.memory_decay_half_life
+            ),
         )
 
 

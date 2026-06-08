@@ -157,3 +157,38 @@ def test_project_skills_have_expected_names():
     pm = ProjectMemory(DictBackend())
     names = {s.name for s in make_project_memory_skills(pm)}
     assert names == {"recall", "remember", "list_recent", "pin_memory"}
+
+
+# ── lifecycle on project zones ───────────────────────────────────────────────────
+
+class _SummaryAPI:
+    async def complete(self, messages, **kwargs):
+        return "project digest"
+
+
+async def test_project_zone_consolidate_isolated():
+    pm = ProjectMemory(DictBackend())
+    for i in range(5):
+        await pm.zone("alpha").append_history({"i": i})
+    await pm.zone("beta").append_history({"i": 99})
+
+    summary = await pm.zone("alpha").consolidate(_SummaryAPI(), keep_recent=1, min_candidates=2)
+    assert summary is not None and summary.content == "project digest"
+    # beta untouched
+    beta = await pm.zone("beta").get_history()
+    assert [e.content for e in beta] == [{"i": 99}]
+
+
+async def test_project_zone_stats():
+    pm = ProjectMemory(DictBackend())
+    await pm.zone("alpha").append_history("a", tags=["t"])
+    await pm.zone("alpha").append_history("b")
+    stats = await pm.zone("alpha").stats()
+    assert stats["area"] == "project:alpha"
+    assert stats["total"] == 2
+    assert stats["tags"] == {"t": 1}
+
+
+async def test_project_decay_half_life_threads_to_zones():
+    pm = ProjectMemory(DictBackend(), decay_half_life=120)
+    assert pm.zone("x")._decay_half_life == 120

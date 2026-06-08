@@ -89,9 +89,17 @@ class ProjectZone(MemoryArea):
     reads and writes the same data, which is what makes it *shared*.
     """
 
-    def __init__(self, project_id: str, backend: MemoryBackend, history_limit: int = 50):
+    def __init__(
+        self,
+        project_id: str,
+        backend: MemoryBackend,
+        history_limit: int = 50,
+        decay_half_life: float | None = None,
+    ):
         super().__init__(
-            f"project:{_sanitize(project_id)}", backend, history_limit=history_limit
+            f"project:{_sanitize(project_id)}", backend,
+            history_limit=history_limit,
+            decay_half_life=decay_half_life,
         )
         self.project_id = project_id
 
@@ -110,9 +118,11 @@ class ProjectMemory:
         backend: MemoryBackend,
         history_limit: int = 50,
         default_id: str = _DEFAULT_ID,
+        decay_half_life: float | None = None,
     ):
         self._backend = backend
         self._history_limit = history_limit
+        self._decay_half_life = decay_half_life or None
         self._default_id = default_id
         self._zones: dict[str, ProjectZone] = {}
         # Persistent index of original ids so list_projects can report the ids
@@ -124,7 +134,11 @@ class ProjectMemory:
         pid = project_id if project_id else self._default_id
         safe = _sanitize(pid)
         if safe not in self._zones:
-            self._zones[safe] = ProjectZone(pid, self._backend, self._history_limit)
+            self._zones[safe] = ProjectZone(
+                pid, self._backend,
+                history_limit=self._history_limit,
+                decay_half_life=self._decay_half_life,
+            )
         return self._zones[safe]
 
     def current(self) -> ProjectZone:

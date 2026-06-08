@@ -22,9 +22,31 @@ server_app = importlib.import_module("autumn.server.app")
 class _MockMemory:
     def __init__(self, history):
         self._history = history
+        self.consolidated = None
 
     async def get_history(self):
         return self._history
+
+    async def stats(self):
+        return {
+            "area": "mock",
+            "total": len(self._history),
+            "pinned": 0,
+            "expired": 0,
+            "tags": {},
+            "history_limit": 50,
+            "has_vector": False,
+        }
+
+    async def consolidate(self, api, keep_recent=10, min_candidates=3):
+        self.consolidated = {"keep_recent": keep_recent, "min_candidates": min_candidates}
+        if len(self._history) < min_candidates:
+            return None
+        from autumn.core.memory.base import MemoryEntry
+        return MemoryEntry(
+            id="sum", content="summary", timestamp=0.0,
+            importance=1.5, tags=["summary"], meta={"consolidated": len(self._history)},
+        )
 
 
 class _MockProjects:
@@ -54,6 +76,7 @@ class _MockAutumn:
         self.mom2 = _MockMemory([])
         self.mom3 = _MockMemory([])
         self.projects = _MockProjects()
+        self.a4 = object()  # present → consolidation allowed
         self.ended = False
         self.closed = False
         self.process_calls = []
@@ -700,6 +723,49 @@ def test_history_pagination_caps_limit(configured_client):
     assert r.status_code == 422
 
 
+# ── /memory/{area}/stats + /consolidate ────────────────────────────────────────
+
+
+def test_memory_stats(configured_client):
+    r = configured_client.get("/memory/mom1/stats")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["area"] == "mock"
+
+
+def test_memory_stats_unknown_area_rejected(configured_client):
+    r = configured_client.get("/memory/bogus/stats")
+    assert r.status_code == 422
+
+
+def test_memory_consolidate_returns_summary(configured_client):
+    configured_client.app.state.autumn.mom1 = _MockMemory([{"i": i} for i in range(5)])
+    r = configured_client.post("/memory/mom1/consolidate", json={"keep_recent": 2, "min_candidates": 3})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["summary"]["tags"] == ["summary"]
+    # tuning params reached the memory layer
+    assert configured_client.app.state.autumn.mom1.consolidated == {
+        "keep_recent": 2, "min_candidates": 3
+    }
+
+
+def test_memory_consolidate_noop_when_too_few(configured_client):
+    configured_client.app.state.autumn.mom1 = _MockMemory([{"i": 0}])
+    r = configured_client.post("/memory/mom1/consolidate", json={"min_candidates": 3})
+    assert r.status_code == 200
+    assert r.json() == {"status": "noop", "summary": None}
+
+
+def test_memory_consolidate_requires_a4(configured_client):
+    configured_client.app.state.autumn.a4 = None
+    r = configured_client.post("/memory/mom1/consolidate")
+    assert r.status_code == 400
+    assert "A4" in r.json()["detail"]
+
+
 # ── /projects (per-project shared memory) ──────────────────────────────────────
 
 
@@ -746,6 +812,21 @@ def test_project_memory_pagination(configured_client):
     r = configured_client.get("/projects/acme/memory", params={"limit": 3, "offset": 2})
     assert r.status_code == 200
     assert r.json() == [{"i": 2}, {"i": 3}, {"i": 4}]
+
+
+def test_project_stats(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [{"i": 0}, {"i": 1}]
+    r = configured_client.get("/projects/acme/stats")
+    assert r.status_code == 200
+    assert r.json()["total"] == 2
+
+
+def test_project_consolidate(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [{"i": i} for i in range(4)]
+    r = configured_client.post("/projects/acme/consolidate", json={"min_candidates": 2})
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+    assert r.json()["summary"]["tags"] == ["summary"]
 
 
 def test_clear_project(configured_client):

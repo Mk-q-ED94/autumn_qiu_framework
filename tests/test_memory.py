@@ -346,3 +346,217 @@ async def test_mom1_broadcast_reaches_shared_zone():
     # Both WP2 and WP3 can read it via their shared zone
     assert await mom2.shared.get("user_lang") == "zh-CN"
     assert await mom3.shared.get("user_lang") == "zh-CN"
+
+
+# ── TTL / expiration ──────────────────────────────────────────────────────────
+
+def test_entry_is_expired():
+    now = time.time()
+    assert MemoryEntry("a", "x", now, expires_at=now - 1).is_expired(now)
+    assert not MemoryEntry("a", "x", now, expires_at=now + 100).is_expired(now)
+    assert not MemoryEntry("a", "x", now).is_expired(now)  # no TTL → never
+
+
+def test_entry_ttl_round_trips():
+    e = MemoryEntry("a", "x", 1.0, expires_at=42.0)
+    assert MemoryEntry.from_dict(e.to_dict()).expires_at == 42.0
+
+
+async def test_append_ttl_sets_expiry():
+    area = MemoryArea("ws", DictBackend())
+    e = await area.append_history("ephemeral", ttl=100)
+    assert e.expires_at is not None
+    assert e.expires_at > time.time()
+
+
+async def test_expired_entries_filtered_from_get_history():
+    area = MemoryArea("ws", DictBackend())
+    now = time.time()
+    await area.append_history(MemoryEntry("live", "here", now))
+    await area.append_history(MemoryEntry("dead", "gone", now, expires_at=now - 1))
+    live = await area.get_history()
+    assert [e.id for e in live] == ["live"]
+    # include_expired surfaces it again
+    allh = await area.get_history(include_expired=True)
+    assert {e.id for e in allh} == {"live", "dead"}
+
+
+async def test_expired_entries_purged_on_append():
+    area = MemoryArea("ws", DictBackend())
+    now = time.time()
+    await area.append_history(MemoryEntry("dead", "gone", now, expires_at=now - 1))
+    await area.append_history("fresh")
+    stored = await area.get_history(include_expired=True)
+    assert all(e.id != "dead" for e in stored)  # purged during append
+
+
+async def test_recall_skips_expired_tagged_history():
+    area = MemoryArea("ws", DictBackend())
+    now = time.time()
+    await area.append_history(MemoryEntry("d", "secret", now, tags=["k"], expires_at=now - 1))
+    results = await area.recall("anything", tags=["k"])
+    assert results == []
+
+
+# ── time-decayed importance ───────────────────────────────────────────────────
+
+def test_effective_importance_no_halflife_is_raw():
+    e = MemoryEntry("a", "x", time.time(), importance=1.0)
+    assert e.effective_importance() == 1.0
+
+
+def test_effective_importance_halves_per_halflife():
+    now = 1000.0
+    e = MemoryEntry("a", "x", timestamp=now - 10, importance=1.0)
+    # age == half_life → importance halves
+    assert e.effective_importance(now=now, half_life=10) == pytest.approx(0.5)
+    # two half-lives → quarter
+    assert e.effective_importance(now=now, half_life=5) == pytest.approx(0.25)
+
+
+def test_effective_importance_pinned_never_decays():
+    now = 1000.0
+    e = MemoryEntry("a", "x", timestamp=0.0, importance=2.0)  # pinned
+    assert e.effective_importance(now=now, half_life=1) == 2.0
+
+
+async def test_decay_changes_eviction_priority():
+    """With decay, a fresh low-importance entry beats a stale higher one."""
+    area = MemoryArea("ws", DictBackend(), history_limit=1, decay_half_life=1.0)
+    now = time.time()
+    # Old, higher raw importance — but ancient, so it decays to ~0.
+    await area.append_history(MemoryEntry("old", "stale", now - 10_000, importance=1.2))
+    # Fresh, lower raw importance.
+    await area.append_history(MemoryEntry("new", "fresh", now, importance=1.0))
+    survivors = {e.id for e in await area.get_history()}
+    assert survivors == {"new"}
+
+
+async def test_no_decay_keeps_higher_raw_importance():
+    """Control: without decay the higher-importance (older) entry wins."""
+    area = MemoryArea("ws", DictBackend(), history_limit=1)  # decay off
+    now = time.time()
+    await area.append_history(MemoryEntry("old", "stale", now - 10_000, importance=1.2))
+    await area.append_history(MemoryEntry("new", "fresh", now, importance=1.0))
+    survivors = {e.id for e in await area.get_history()}
+    assert survivors == {"old"}
+
+
+# ── forget ────────────────────────────────────────────────────────────────────
+
+async def test_forget_no_criteria_removes_nothing():
+    area = MemoryArea("ws", DictBackend())
+    await area.append_history("a")
+    assert await area.forget() == 0
+    assert len(await area.get_history()) == 1
+
+
+async def test_forget_by_tags():
+    area = MemoryArea("ws", DictBackend())
+    await area.append_history("keep", tags=["good"])
+    await area.append_history("drop1", tags=["bad"])
+    await area.append_history("drop2", tags=["bad"])
+    removed = await area.forget(tags=["bad"])
+    assert removed == 2
+    remaining = await area.get_history()
+    assert [e.content for e in remaining] == ["keep"]
+
+
+async def test_forget_before_timestamp():
+    area = MemoryArea("ws", DictBackend())
+    now = time.time()
+    await area.append_history(MemoryEntry("old", "x", now - 100))
+    await area.append_history(MemoryEntry("new", "y", now))
+    removed = await area.forget(before=now - 50)
+    assert removed == 1
+    assert [e.id for e in await area.get_history()] == ["new"]
+
+
+async def test_forget_expired_only():
+    area = MemoryArea("ws", DictBackend())
+    now = time.time()
+    await area.append_history(MemoryEntry("live", "x", now))
+    # Bypass append's auto-purge by writing directly via the backend.
+    hist = await area.get_history(include_expired=True)
+    hist.append(MemoryEntry("dead", "y", now, expires_at=now - 1))
+    await area.set("history", [e.to_dict() for e in hist])
+    removed = await area.forget(expired=True)
+    assert removed == 1
+
+
+# ── consolidation ─────────────────────────────────────────────────────────────
+
+class _SummaryAPI:
+    def __init__(self, text="SUMMARY"):
+        self.text = text
+        self.calls = 0
+
+    async def complete(self, messages, **kwargs):
+        self.calls += 1
+        return self.text
+
+
+async def test_consolidate_summarises_old_entries():
+    area = MemoryArea("ws", DictBackend())
+    for i in range(6):
+        await area.append_history({"i": i})
+    api = _SummaryAPI("digest")
+    summary = await area.consolidate(api, keep_recent=2, min_candidates=3)
+    assert summary is not None
+    assert summary.content == "digest"
+    assert "summary" in summary.tags
+    assert summary.is_pinned
+    assert summary.meta["consolidated"] == 4
+    assert api.calls == 1
+    # History now: summary + 2 recent = 3 entries
+    history = await area.get_history()
+    assert len(history) == 3
+    assert sum(1 for e in history if "summary" in e.tags) == 1
+
+
+async def test_consolidate_noop_when_too_few():
+    area = MemoryArea("ws", DictBackend())
+    await area.append_history("only one")
+    api = _SummaryAPI()
+    summary = await area.consolidate(api, keep_recent=2, min_candidates=3)
+    assert summary is None
+    assert api.calls == 0
+
+
+async def test_consolidate_preserves_pinned_and_recent():
+    area = MemoryArea("ws", DictBackend())
+    pinned = await area.append_history("critical", importance=2.0)
+    for i in range(5):
+        await area.append_history({"i": i})
+    api = _SummaryAPI()
+    await area.consolidate(api, keep_recent=2, min_candidates=2)
+    ids = {e.id for e in await area.get_history()}
+    assert pinned.id in ids  # pinned survives consolidation
+
+
+# ── stats ─────────────────────────────────────────────────────────────────────
+
+async def test_stats_reports_counts_and_tags():
+    area = MemoryArea("ws", DictBackend(), history_limit=99)
+    await area.append_history("a", tags=["x"])
+    await area.append_history("b", tags=["x", "y"])
+    await area.append_history("c", importance=2.0)  # pinned
+    stats = await area.stats()
+    assert stats["area"] == "ws"
+    assert stats["total"] == 3
+    assert stats["pinned"] == 1
+    assert stats["tags"] == {"x": 2, "y": 1}
+    assert stats["history_limit"] == 99
+    assert stats["has_vector"] is False
+
+
+async def test_stats_counts_expired_separately():
+    area = MemoryArea("ws", DictBackend())
+    now = time.time()
+    await area.append_history(MemoryEntry("live", "x", now))
+    hist = await area.get_history(include_expired=True)
+    hist.append(MemoryEntry("dead", "y", now, expires_at=now - 1))
+    await area.set("history", [e.to_dict() for e in hist])
+    stats = await area.stats()
+    assert stats["total"] == 1
+    assert stats["expired"] == 1
