@@ -148,6 +148,35 @@ function SlotCard({
               </button>
             </div>
           </div>
+          <div className="field span-2">
+            <label>
+              定价（可选，USD / 1M tokens）<span className="field__hint" style={{ marginLeft: 6 }}>填写后 trace 显示每轮费用</span>
+            </label>
+            <div style={{ display: "flex", gap: "var(--sm)" }}>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                style={{ flex: 1 }}
+                value={slot.input_price_per_1m ?? ""}
+                onChange={(e) =>
+                  update({ input_price_per_1m: e.target.value === "" ? undefined : Number(e.target.value) })
+                }
+                placeholder="输入价 ↑"
+              />
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                style={{ flex: 1 }}
+                value={slot.output_price_per_1m ?? ""}
+                onChange={(e) =>
+                  update({ output_price_per_1m: e.target.value === "" ? undefined : Number(e.target.value) })
+                }
+                placeholder="输出价 ↓"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

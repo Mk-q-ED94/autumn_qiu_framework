@@ -354,6 +354,23 @@ def test_apply_config_requires_model(configured_client):
     assert r.status_code == 400
 
 
+def test_apply_config_passes_pricing(configured_client, monkeypatch):
+    _ConfiguredAutumn.instances = []
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+    payload = _config_payload()
+    payload["a2"]["input_price_per_1m"] = 3.0
+    payload["a2"]["output_price_per_1m"] = 15.0
+
+    r = configured_client.post("/config/apply", json=payload)
+
+    assert r.status_code == 200
+    autumn = _ConfiguredAutumn.instances[-1]
+    assert autumn.config.a2.input_price_per_1m == 3.0
+    assert autumn.config.a2.output_price_per_1m == 15.0
+    # Unset slot defaults to no pricing.
+    assert autumn.config.a1.input_price_per_1m == 0.0
+
+
 # ── /process ──────────────────────────────────────────────────────────────────
 
 

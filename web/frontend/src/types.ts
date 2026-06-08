@@ -15,6 +15,7 @@ export interface WorkflowStage {
   prompt_tokens?: number;
   completion_tokens?: number;
   source_terr?: string;
+  cost_usd?: number;
 }
 
 export interface WorkflowTrace {
@@ -25,6 +26,7 @@ export interface WorkflowTrace {
   stages: WorkflowStage[];
   total_prompt_tokens?: number;
   total_completion_tokens?: number;
+  total_cost_usd?: number;
 }
 
 // ── Routing + intent ──────────────────────────────────────────────────────────
@@ -78,6 +80,9 @@ export interface SlotConfig {
   base_url: string;
   model: string;
   protocol: Protocol;
+  /** Optional USD price per 1M tokens — enables per-turn cost in the trace. */
+  input_price_per_1m?: number;
+  output_price_per_1m?: number;
 }
 
 // ── Ollama (local model) management ─────────────────────────────────────────────

@@ -27,12 +27,20 @@ function fmtTok(n: number): string {
   return String(n);
 }
 
+function fmtCost(usd: number): string {
+  // Sub-cent costs are common — show enough precision to be meaningful.
+  if (usd >= 1) return `$${usd.toFixed(2)}`;
+  if (usd >= 0.01) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(5)}`;
+}
+
 function stageTooltip(stage: WorkflowStage): string {
   const parts = [`${stage.workspace} · ${stage.title}`];
   if (stage.duration_ms !== undefined) parts.push(fmtMs(stage.duration_ms));
   if (stage.prompt_tokens !== undefined && stage.completion_tokens !== undefined) {
     parts.push(`↑${fmtTok(stage.prompt_tokens)} ↓${fmtTok(stage.completion_tokens)}`);
   }
+  if (stage.cost_usd !== undefined && stage.cost_usd !== null) parts.push(fmtCost(stage.cost_usd));
   if (stage.source_terr) parts.push(`Terr: ${stage.source_terr}`);
   return parts.join(" · ");
 }
@@ -130,6 +138,11 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
       ? `↑${fmtTok(trace.total_prompt_tokens)} ↓${fmtTok(trace.total_completion_tokens)}`
       : null;
 
+  const costSummary =
+    trace.total_cost_usd !== undefined && trace.total_cost_usd !== null
+      ? fmtCost(trace.total_cost_usd)
+      : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
       {/* Strip row */}
@@ -153,6 +166,15 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
           {tokenSummary && (
             <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>
               {tokenSummary}
+            </span>
+          )}
+          {costSummary && (
+            <span
+              className="trace-cost"
+              title="本轮预估费用（按已配置的模型单价）"
+              style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--success)" }}
+            >
+              {costSummary}
             </span>
           )}
           {totalMs > 0 && (
@@ -182,6 +204,11 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
               {routeLabel(trace)}
             </span>
             {tokenSummary && <span className="trace-tokens">{tokenSummary}</span>}
+            {costSummary && (
+              <span className="trace-cost" style={{ marginLeft: 4, color: "var(--success)" }}>
+                {costSummary}
+              </span>
+            )}
             {totalMs > 0 && (
               <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-3)", marginLeft: 4 }}>
                 {fmtMs(totalMs)}

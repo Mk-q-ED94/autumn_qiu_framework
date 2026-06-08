@@ -365,6 +365,7 @@ a { color: var(--accent); text-decoration: none; }
 }
 .trace-route { font-weight: 600; }
 .trace-tokens { font-family: var(--font-mono); color: var(--text-2); }
+.trace-cost { font-family: var(--font-mono); font-size: 10px; color: var(--success); }
 .trace-stages { padding: var(--xs) 0; }
 .trace-stage-row {
   display: flex;
