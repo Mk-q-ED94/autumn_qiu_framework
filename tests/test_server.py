@@ -27,11 +27,33 @@ class _MockMemory:
         return self._history
 
 
+class _MockProjects:
+    """Stand-in for ProjectMemory recording register/clear and serving history."""
+
+    def __init__(self):
+        self.registered: list[str] = []
+        self.cleared: list[str] = []
+        self.history: dict[str, list] = {}
+
+    async def register(self, project_id):
+        self.registered.append(project_id)
+
+    async def list_projects(self):
+        return sorted(set(self.registered))
+
+    async def clear_project(self, project_id):
+        self.cleared.append(project_id)
+
+    def zone(self, project_id=None):
+        return _MockMemory(self.history.get(project_id, []))
+
+
 class _MockAutumn:
     def __init__(self):
         self.mom1 = _MockMemory([{"turn": 1, "input": "hi", "output": "ok"}])
         self.mom2 = _MockMemory([])
         self.mom3 = _MockMemory([])
+        self.projects = _MockProjects()
         self.ended = False
         self.closed = False
         self.process_calls = []
@@ -676,6 +698,61 @@ def test_history_pagination_caps_limit(configured_client):
     """The hard cap protects against accidentally fetching unbounded data."""
     r = configured_client.get("/memory/mom1/history", params={"limit": 999_999})
     assert r.status_code == 422
+
+
+# ── /projects (per-project shared memory) ──────────────────────────────────────
+
+
+def test_list_projects_empty(configured_client):
+    r = configured_client.get("/projects")
+    assert r.status_code == 200
+    assert r.json() == {"projects": []}
+
+
+def test_process_registers_project(configured_client):
+    r = configured_client.post("/process", json={"input": "hi", "project_id": "acme"})
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.projects.registered == ["acme"]
+    # And it now appears in the listing.
+    listing = configured_client.get("/projects").json()
+    assert listing == {"projects": ["acme"]}
+
+
+def test_process_without_project_does_not_register(configured_client):
+    r = configured_client.post("/process", json={"input": "hi"})
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.projects.registered == []
+
+
+def test_trace_registers_project(configured_client):
+    r = configured_client.post("/trace", json={"input": "hi", "project_id": "p2"})
+    assert r.status_code == 200
+    assert "p2" in configured_client.app.state.autumn.projects.registered
+
+
+def test_project_memory_returns_history(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [
+        {"k": "deploy", "v": "fly.io"},
+    ]
+    r = configured_client.get("/projects/acme/memory")
+    assert r.status_code == 200
+    assert r.json() == [{"k": "deploy", "v": "fly.io"}]
+
+
+def test_project_memory_pagination(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [
+        {"i": i} for i in range(10)
+    ]
+    r = configured_client.get("/projects/acme/memory", params={"limit": 3, "offset": 2})
+    assert r.status_code == 200
+    assert r.json() == [{"i": 2}, {"i": 3}, {"i": 4}]
+
+
+def test_clear_project(configured_client):
+    r = configured_client.delete("/projects/acme")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "project_id": "acme"}
+    assert configured_client.app.state.autumn.projects.cleared == ["acme"]
 
 
 # ── /session/end ──────────────────────────────────────────────────────────────

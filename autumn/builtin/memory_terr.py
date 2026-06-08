@@ -9,11 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..core.components.terr import Terr
-from ..core.memory.skills import make_memory_skills
+from ..core.memory.skills import make_memory_skills, make_project_memory_skills
 
 if TYPE_CHECKING:
     from ..core.api.base import ModelAPIInterface
     from ..core.memory.base import MemoryArea
+    from ..core.memory.project import ProjectMemory
 
 
 def memory_terr(
@@ -49,4 +50,28 @@ def memory_terr(
     )
 
 
-__all__ = ["memory_terr"]
+def project_memory_terr(
+    projects: "ProjectMemory",
+    api: "ModelAPIInterface | None" = None,
+) -> Terr:
+    """Build the ``memory`` Terr bound to the context-active project's shared zone.
+
+    Same skills as :func:`memory_terr`, but each call reads/writes whichever
+    project is active for the current request (see ``Autumn.project_scope``).
+    Use this when memory should be isolated per project rather than global.
+    """
+    skills = make_project_memory_skills(projects, api=api)
+    return Terr(
+        name="memory",
+        description=(
+            "Recall and remember facts in the current project's shared memory "
+            "zone. Each project keeps its own isolated memory; within a project "
+            "the zone is shared across all workspaces and turns. "
+            "recall(query) performs exact-key lookup with vector-search fallback; "
+            "remember(key, value) persists a fact."
+        ),
+        skills=skills,
+    )
+
+
+__all__ = ["memory_terr", "project_memory_terr"]

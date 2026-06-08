@@ -213,9 +213,10 @@ def test_stream_without_project_instructions_unchanged(configured_client):
     assert sent == "just hi"
 
 
-def test_stream_ignores_project_id_for_now(configured_client):
-    """project_id is accepted but reserved for future memory scoping —
-    it should not crash and should not corrupt the input string."""
+def test_stream_accepts_project_id_without_corrupting_input(configured_client):
+    """project_id now scopes per-project memory, but must never alter the input
+    string itself — and must not crash on an Autumn build without a projects
+    manager (this _RecordingAutumn has none)."""
     with configured_client.stream(
         "GET", "/stream",
         params={

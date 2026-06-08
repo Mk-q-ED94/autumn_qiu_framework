@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from .data_terr import data_terr
 from .fs_terr import fs_terr
 from .math_terr import math_terr
-from .memory_terr import memory_terr
+from .memory_terr import memory_terr, project_memory_terr
 from .text_terr import text_terr
 from .time_terr import time_terr
 from .web_terr import web_terr
@@ -92,7 +92,9 @@ def register_builtins(
         If True, register :func:`memory_terr` bound to ``memory_area``.
     memory_area:
         Which area to bind the memory Terr to: ``shared``, ``mom1``, ``mom2``,
-        or ``mom3``. Ignored unless ``include_memory`` is True.
+        ``mom3``, or ``project``. ``project`` binds to the context-active
+        project's shared zone (per-project isolated memory). Ignored unless
+        ``include_memory`` is True.
     """
     names = register_safe_builtins(autumn)
     if include_web:
@@ -104,15 +106,18 @@ def register_builtins(
         autumn.register_terr(terr)
         names.append(terr.name)
     if include_memory:
-        areas = {
-            "shared": autumn.shared,
-            "mom1": autumn.mom1,
-            "mom2": autumn.mom2,
-            "mom3": autumn.mom3,
-        }
-        if memory_area not in areas:
-            raise ValueError(f"Unknown memory area: {memory_area!r}")
-        terr = memory_terr(areas[memory_area], api=autumn.a4, area_name=memory_area)
+        if memory_area == "project":
+            terr = project_memory_terr(autumn.projects, api=autumn.a4)
+        else:
+            areas = {
+                "shared": autumn.shared,
+                "mom1": autumn.mom1,
+                "mom2": autumn.mom2,
+                "mom3": autumn.mom3,
+            }
+            if memory_area not in areas:
+                raise ValueError(f"Unknown memory area: {memory_area!r}")
+            terr = memory_terr(areas[memory_area], api=autumn.a4, area_name=memory_area)
         autumn.register_terr(terr)
         names.append(terr.name)
     return names
@@ -127,6 +132,7 @@ __all__ = [
     "web_terr",
     "fs_terr",
     "memory_terr",
+    "project_memory_terr",
     # helpers
     "register_safe_builtins",
     "register_builtins",

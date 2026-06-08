@@ -11,11 +11,15 @@ Returned skills (in order):
 
 When *api* is supplied (the optional A4 slot), vector-search results are
 synthesised by the model rather than returned as raw snippets.
+
+For per-project shared memory, use ``make_project_memory_skills(projects, api)``:
+the same skills, but each resolves the context-active project's zone at call
+time, so one registration transparently serves every project.
 """
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from ..components.skill import Skill
 from ..components.tool import ToolParameter
@@ -23,6 +27,7 @@ from ..components.tool import ToolParameter
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
     from .base import MemoryArea
+    from .project import ProjectMemory
 
 
 def make_memory_skills(
@@ -39,8 +44,36 @@ def make_memory_skills(
         Optional inference model (A4) used to synthesise vector-search results
         into a concise answer.  When None, raw snippets are returned.
     """
+    return _build_memory_skills(lambda: memory, api)
+
+
+def make_project_memory_skills(
+    projects: "ProjectMemory",
+    api: "ModelAPIInterface | None" = None,
+) -> list[Skill]:
+    """Return memory skills bound to the *context-active project's* shared zone.
+
+    Identical to :func:`make_memory_skills`, but each skill resolves
+    ``projects.current()`` at call time. Register once and the same skills read
+    and write whichever project is active for the current request (see
+    :func:`autumn.core.memory.project.project_context`).
+    """
+    return _build_memory_skills(projects.current, api)
+
+
+def _build_memory_skills(
+    resolve: "Callable[[], MemoryArea]",
+    api: "ModelAPIInterface | None",
+) -> list[Skill]:
+    """Construct the four memory skills, resolving the target area via *resolve*.
+
+    ``resolve`` is called at the start of every skill invocation, so a static
+    area (``lambda: memory``) and a dynamic one (``projects.current``) share one
+    implementation.
+    """
 
     async def recall(query: str) -> str:
+        memory = resolve()
         entries = await memory.recall(query, k=5)
 
         if not entries:
@@ -85,6 +118,7 @@ def make_memory_skills(
         return f"[no memory found for '{query}']"
 
     async def remember(key: str, value: str) -> str:
+        memory = resolve()
         await memory.set(key, value)
         if memory.has_vector:
             await memory.index(key, f"{key}: {value}")
@@ -92,6 +126,7 @@ def make_memory_skills(
 
     async def list_recent(n: str = "5") -> str:
         """List the n most recent history entries."""
+        memory = resolve()
         try:
             count = max(1, min(int(n), 20))
         except (ValueError, TypeError):
@@ -110,6 +145,7 @@ def make_memory_skills(
 
     async def pin_memory(entry_id: str) -> str:
         """Pin a history entry so it is never evicted."""
+        memory = resolve()
         ok = await memory.pin(entry_id)
         return (
             f"[pinned entry '{entry_id}']"

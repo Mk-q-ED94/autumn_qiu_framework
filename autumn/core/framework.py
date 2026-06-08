@@ -11,6 +11,7 @@ from .memory.shared import SharedZone
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
 from .memory.mom3 import Mom3
+from .memory.project import ProjectMemory, ProjectZone, project_context
 from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
@@ -112,6 +113,13 @@ class Autumn:
         self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), self.shared, history_limit=hist)
         self.mom1 = Mom1(
             HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3, history_limit=hist
+        )
+
+        # Per-project shared memory: each project id gets its own isolated zone,
+        # but within a project the zone is shared across every workspace and turn.
+        # Resolved per-request via project_scope()/the active-project contextvar.
+        self.projects = ProjectMemory(
+            HybridBackend(SQLiteBackend(db + ".projects")), history_limit=hist
         )
 
         self._embedding: EmbeddingInterface | None = None
@@ -302,10 +310,19 @@ class Autumn:
         ----------
         area:
             Which memory zone to bind to.  One of ``"shared"``, ``"mom1"``,
-            ``"mom2"``, or ``"mom3"``.  Defaults to ``"shared"`` so facts
-            persist across workspaces.
+            ``"mom2"``, ``"mom3"``, or ``"project"``.  Defaults to ``"shared"``
+            so facts persist across workspaces.
+
+            ``"project"`` binds the skills to the *context-active project's*
+            shared zone: a single registration that transparently reads and
+            writes whichever project is active for the current request (set via
+            :meth:`project_scope`).
         """
-        from .memory.skills import make_memory_skills
+        from .memory.skills import make_memory_skills, make_project_memory_skills
+        if area == "project":
+            for skill in make_project_memory_skills(self.projects, api=self.a4):
+                self.register_skill(skill)
+            return
         _areas = {
             "shared": self.shared,
             "mom1": self.mom1,
@@ -314,10 +331,32 @@ class Autumn:
         }
         if area not in _areas:
             raise ValueError(
-                f"Unknown memory area: {area!r}.  Choose from: {list(_areas)}"
+                f"Unknown memory area: {area!r}.  "
+                f"Choose from: {list(_areas) + ['project']}"
             )
         for skill in make_memory_skills(_areas[area], api=self.a4):
             self.register_skill(skill)
+
+    def project_zone(self, project_id: str | None = None) -> ProjectZone:
+        """Return the dedicated shared memory zone for a project.
+
+        Each project id gets its own isolated namespace; within a project the
+        zone is shared across all workspaces and turns. Pass ``None`` for the
+        default project.
+        """
+        return self.projects.zone(project_id)
+
+    def project_scope(self, project_id: str | None):
+        """Context manager binding ``project_id`` for project-scoped memory.
+
+        While the block is active, memory skills registered with
+        ``add_memory_skills("project")`` resolve to this project's shared zone::
+
+            autumn.add_memory_skills("project")
+            with autumn.project_scope("acme-app"):
+                await autumn.process("remember the deploy target is fly.io")
+        """
+        return project_context(project_id)
 
     def register_tool(self, tool: Tool) -> None:
         self.plugins.register(tool.name, tool)

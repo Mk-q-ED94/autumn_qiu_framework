@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
+from ..core.memory.project import project_context, set_current_project, reset_current_project
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
 
 
@@ -285,6 +286,25 @@ def _autumn_or_503(request: Request) -> Autumn:
     return autumn
 
 
+async def _activate_project(autumn: Autumn, project_id: str | None) -> None:
+    """Register a project id so it shows up in /projects. No-op when unset."""
+    if not project_id:
+        return
+    projects = getattr(autumn, "projects", None)
+    if projects is not None:
+        await projects.register(project_id)
+
+
+def _projects_or_501(autumn: Autumn):
+    """Return the ProjectMemory manager, or 501 if this build predates it."""
+    projects = getattr(autumn, "projects", None)
+    if projects is None:
+        raise HTTPException(
+            status_code=501, detail="Per-project memory is not available on this server."
+        )
+    return projects
+
+
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
     """Stash a short failure summary on app.state so /health can report it,
     then return a 502 the caller can `raise from exc`."""
@@ -383,13 +403,15 @@ def create_app() -> FastAPI:
     @app.post("/process", response_model=ProcessResponse)
     async def process(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
+        await _activate_project(autumn, req.project_id)
         try:
-            output = await autumn.process(
-                _apply_project_context(req.input, req.project_instructions),
-                mission_route=req.route,
-                input_type=req.input_type,
-                task_type=req.task_type,
-            )
+            with project_context(req.project_id):
+                output = await autumn.process(
+                    _apply_project_context(req.input, req.project_instructions),
+                    mission_route=req.route,
+                    input_type=req.input_type,
+                    task_type=req.task_type,
+                )
         except HTTPException:
             raise
         except Exception as exc:
@@ -399,13 +421,15 @@ def create_app() -> FastAPI:
     @app.post("/trace", response_model=TraceResponse)
     async def trace(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
+        await _activate_project(autumn, req.project_id)
         try:
-            run = await autumn.process_with_trace(
-                _apply_project_context(req.input, req.project_instructions),
-                mission_route=req.route,
-                input_type=req.input_type,
-                task_type=req.task_type,
-            )
+            with project_context(req.project_id):
+                run = await autumn.process_with_trace(
+                    _apply_project_context(req.input, req.project_instructions),
+                    mission_route=req.route,
+                    input_type=req.input_type,
+                    task_type=req.task_type,
+                )
         except HTTPException:
             raise
         except Exception as exc:
@@ -419,12 +443,13 @@ def create_app() -> FastAPI:
         # they may shift the classifier's read (e.g. a project full of code
         # work is more likely to interpret short prompts as TASK).
         try:
-            sel, route = await autumn.classify_intent(
-                _apply_project_context(req.input, req.project_instructions),
-                mission_route=req.route,
-                input_type=req.input_type,
-                task_type=req.task_type,
-            )
+            with project_context(req.project_id):
+                sel, route = await autumn.classify_intent(
+                    _apply_project_context(req.input, req.project_instructions),
+                    mission_route=req.route,
+                    input_type=req.input_type,
+                    task_type=req.task_type,
+                )
         except HTTPException:
             raise
         except Exception as exc:
@@ -449,9 +474,13 @@ def create_app() -> FastAPI:
     ):
         autumn = _autumn_or_503(request)
         effective_input = _apply_project_context(input, project_instructions)
-        _ = project_id  # reserved for future per-project memory scoping
 
         async def event_stream():
+            # Bind the active project for this stream. Set inside the generator so
+            # the per-event Tasks spawned below copy a context that includes it,
+            # which is what makes project-scoped memory skills resolve correctly.
+            await _activate_project(autumn, project_id)
+            proj_token = set_current_project(project_id) if project_id else None
             stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
             iterator = stream_fn(
                 effective_input,
@@ -512,6 +541,8 @@ def create_app() -> FastAPI:
                         await aclose()
                     except Exception:  # noqa: BLE001
                         pass
+                if proj_token is not None:
+                    reset_current_project(proj_token)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -539,6 +570,37 @@ def create_app() -> FastAPI:
         mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
         history = await mom.get_history()
         return history[offset:offset + limit]
+
+    # ── Per-project shared memory ────────────────────────────────────────────
+    # Each project id gets its own isolated shared memory zone. The zone is
+    # written to whenever a /process, /trace or /stream call carries a
+    # project_id (and project-scoped memory skills are wired). These endpoints
+    # let the client list, inspect and clear that per-project memory.
+
+    @app.get("/projects")
+    async def list_projects(request: Request):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        return {"projects": await projects.list_projects()}
+
+    @app.get("/projects/{project_id}/memory")
+    async def project_memory(
+        project_id: str,
+        request: Request,
+        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+        offset: int = Query(0, ge=0),
+    ):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        history = await projects.zone(project_id).get_history()
+        return history[offset:offset + limit]
+
+    @app.delete("/projects/{project_id}")
+    async def clear_project(project_id: str, request: Request):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        await projects.clear_project(project_id)
+        return {"status": "ok", "project_id": project_id}
 
     @app.post("/session/end")
     async def end_session(request: Request):

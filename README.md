@@ -37,6 +37,20 @@ A multi-model collaborative workflow framework. Three model API interfaces (A1, 
 - `Mom2` and `Mom3` share a public zone but cannot read `Mom1`.
 - Each layer has two tiers: short-term in-memory cache + persistent SQLite.
 
+**Per-project shared memory** — each project id gets its own isolated zone, but
+within a project the zone is *shared* across every workspace and turn:
+
+```python
+autumn.add_memory_skills("project")        # recall/remember bind to the active project
+with autumn.project_scope("acme-app"):     # sets the active project for this block
+    await autumn.process("remember the deploy target is fly.io")
+# A different project sees nothing of acme-app's memory:
+await autumn.project_zone("acme-app").get("...")   # isolated namespace
+```
+
+Over HTTP, pass `project_id` to `/process`, `/trace`, or `/stream`; manage zones
+with `GET /projects`, `GET /projects/{id}/memory`, and `DELETE /projects/{id}`.
+
 ## Quick start
 
 ```bash
@@ -126,7 +140,7 @@ config = AutumnConfig(
                    model="llama3.1:8b", protocol=Protocol.OPENAI),
 )
 async with Autumn(config) as autumn:
-    autumn.add_memory_skills("shared")  # or "mom1" / "mom2" / "mom3"
+    autumn.add_memory_skills("shared")  # or "mom1" / "mom2" / "mom3" / "project"
     await autumn.process("回忆一下我上周让你研究的事情")
 ```
 
