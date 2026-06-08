@@ -92,6 +92,7 @@ class TraceStageResponse(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     source_terr: str | None = None
+    cost_usd: float | None = None
 
 
 class TraceResponse(BaseModel):
@@ -102,6 +103,7 @@ class TraceResponse(BaseModel):
     stages: list[TraceStageResponse]
     total_prompt_tokens: int | None = None
     total_completion_tokens: int | None = None
+    total_cost_usd: float | None = None
 
 
 class IntentRequest(BaseModel):
@@ -153,6 +155,9 @@ class ProviderConfigRequest(BaseModel):
     base_url: str
     model: str | None = None
     protocol: Protocol
+    # Optional USD price per 1M tokens; enables per-turn cost in the trace.
+    input_price_per_1m: float = 0.0
+    output_price_per_1m: float = 0.0
 
 
 class ApplyConfigRequest(BaseModel):
@@ -251,6 +256,8 @@ def _require_model_config(slot: str, req: ProviderConfigRequest) -> ModelConfig:
         base_url=req.base_url.strip(),
         model=(req.model or "").strip(),
         protocol=req.protocol,
+        input_price_per_1m=max(0.0, req.input_price_per_1m),
+        output_price_per_1m=max(0.0, req.output_price_per_1m),
     )
 
 
@@ -298,6 +305,7 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
         stages=stages,
         total_prompt_tokens=prompt_sum or None,
         total_completion_tokens=completion_sum or None,
+        total_cost_usd=run.total_cost_usd,
     )
 
 

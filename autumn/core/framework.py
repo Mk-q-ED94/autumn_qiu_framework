@@ -30,6 +30,33 @@ def _mark_terr_source(callable_obj, terr: Terr) -> None:
     callable_obj.source_terr_description = terr.description
 
 
+def _annotate_costs(run: WorkflowRun, config: AutumnConfig) -> WorkflowRun:
+    """Fill per-stage ``cost_usd`` and ``run.total_cost_usd`` from slot prices.
+
+    Each stage is priced by the workspace that produced it: WP1→a1, WP2→a2,
+    WP3→a3 (tool stages inherit their workspace's slot). No-op when no slot has
+    pricing configured, so unpriced setups see ``None`` exactly as before.
+    """
+    slots = {"WP1": config.a1, "WP2": config.a2, "WP3": config.a3}
+    if not any(slot.has_pricing for slot in slots.values()):
+        return run
+    total = 0.0
+    priced = False
+    for stage in run.stages:
+        slot = slots.get(stage.workspace)
+        if slot is None or not slot.has_pricing:
+            continue
+        if stage.prompt_tokens is None and stage.completion_tokens is None:
+            continue
+        cost = slot.cost(stage.prompt_tokens, stage.completion_tokens)
+        stage.cost_usd = round(cost, 6)
+        total += cost
+        priced = True
+    if priced:
+        run.total_cost_usd = round(total, 6)
+    return run
+
+
 class Autumn:
     """秋/Autumn — Multi-Model Collaborative Workflow Framework.
 
@@ -75,13 +102,17 @@ class Autumn:
         self.a4 = A4(config.a4) if config.a4 is not None else None
 
         db = config.storage.db_path
+        b = config.behavior
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
         self.shared = SharedZone(HybridBackend(SQLiteBackend(db + ".shared")))
 
-        self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), self.shared)
-        self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), self.shared)
-        self.mom1 = Mom1(HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3)
+        hist = b.history_limit
+        self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), self.shared, history_limit=hist)
+        self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), self.shared, history_limit=hist)
+        self.mom1 = Mom1(
+            HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3, history_limit=hist
+        )
 
         self._embedding: EmbeddingInterface | None = None
         if config.embedding is not None:
@@ -99,6 +130,7 @@ class Autumn:
             self.a2, self.mom2,
             system_prompt=p.wp2_task,
             tool_provider=self._collect_plugins,
+            agent_max_steps=b.agent_max_steps,
         )
         self.wp3 = WP3Mis(self.a3, self.mom3, direct_prompt=p.wp3_direct, convert_prompt=p.wp3_convert)
         self.wp1 = WP1Tot(
@@ -107,11 +139,12 @@ class Autumn:
             selector_prompt=p.selector,
             headless_mission_route=config.headless_mission_route,
             validate_before_stream=config.validate_before_stream,
+            confirm_threshold=b.confirm_threshold,
         )
 
-        self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker)
-        self.wp2.checker = Checker("wp2", self.a2, eval_prompt=p.wp2_checker)
-        self.wp3.checker = Checker("wp3", self.a3, eval_prompt=p.wp3_checker)
+        self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker, retries=b.checker_retries)
+        self.wp2.checker = Checker("wp2", self.a2, eval_prompt=p.wp2_checker, retries=b.checker_retries)
+        self.wp3.checker = Checker("wp3", self.a3, eval_prompt=p.wp3_checker, retries=b.checker_retries)
 
     # ── public api ────────────────────────────────────────────────────────────
 
@@ -138,12 +171,13 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
-        return await self.wp1.process_with_trace(
+        run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
         )
+        return _annotate_costs(run, self.config)
 
     async def classify_intent(
         self,
@@ -198,7 +232,10 @@ class Autumn:
             input_type=input_type,
             task_type=task_type,
         ):
-            yield event
+            if isinstance(event, WorkflowRun):
+                yield _annotate_costs(event, self.config)
+            else:
+                yield event
 
     def describe_terrs(self) -> list[dict]:
         """Return serializable Terr summaries for desktop/debug UI."""

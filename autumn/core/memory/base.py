@@ -52,10 +52,12 @@ class MemoryArea:
         automatically embed and index each new entry.
     """
 
-    def __init__(self, name: str, backend: MemoryBackend):
+    def __init__(self, name: str, backend: MemoryBackend, history_limit: int = _MAX_HISTORY):
         self.name = name
         self._backend = backend
         self._vector: _VectorLayer | None = None
+        # Default cap for append_history when a caller doesn't override it.
+        self._history_limit = history_limit
         # Serializes the read-modify-write inside append_history so concurrent
         # turns (e.g. two streams sharing this area) can't lose entries.
         self._history_lock = asyncio.Lock()
@@ -115,13 +117,17 @@ class MemoryArea:
 
     # ── history helpers ───────────────────────────────────────────────────────
 
-    async def append_history(self, entry: dict, max_entries: int = _MAX_HISTORY) -> None:
-        """Append a turn record to history, capped at max_entries (most recent kept)."""
+    async def append_history(self, entry: dict, max_entries: int | None = None) -> None:
+        """Append a turn record to history, capped at max_entries (most recent kept).
+
+        When ``max_entries`` is None, the area's configured ``history_limit`` is used.
+        """
+        limit = max_entries if max_entries is not None else self._history_limit
         async with self._history_lock:
             history = await self.get(_HISTORY_KEY) or []
             history.append(entry)
-            if len(history) > max_entries:
-                history = history[-max_entries:]
+            if len(history) > limit:
+                history = history[-limit:]
             await self.set(_HISTORY_KEY, history)
 
         if self._vector is not None and self._vector.auto_index:

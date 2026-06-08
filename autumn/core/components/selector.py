@@ -213,9 +213,15 @@ class Selector:
     3. ``classify_and_maybe_confirm`` asks the user when confidence is low.
     """
 
-    def __init__(self, api_interface, system_prompt: str | None = None):
+    def __init__(
+        self,
+        api_interface,
+        system_prompt: str | None = None,
+        confirm_threshold: float = _CONFIRM_THRESHOLD,
+    ):
         self.api = api_interface
         self._system = system_prompt or _DEFAULT_SYSTEM
+        self._confirm_threshold = confirm_threshold
 
     async def classify(self, user_input: str) -> SelectorResult:
         # Fast path: heuristic pre-classifier
@@ -254,7 +260,7 @@ class Selector:
     async def classify_and_maybe_confirm(self, user_input: str, interaction) -> SelectorResult:
         """Classify; ask user to confirm only if confidence < threshold."""
         result = await self.classify(user_input)
-        if interaction and result.confidence < _CONFIRM_THRESHOLD:
+        if interaction and result.confidence < self._confirm_threshold:
             confirmed = await interaction.ask(
                 f"Input classified as [{result.input_type.value.upper()}] "
                 f"(confidence {result.confidence:.0%}). Confirm or correct?",

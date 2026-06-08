@@ -4,6 +4,26 @@ from typing import Literal
 from .types import Protocol, MissionRoute
 
 
+def _to_float(value: str | None, default: float = 0.0) -> float:
+    """Parse a float from an env string; fall back to ``default`` on junk/empty."""
+    if value is None or not str(value).strip():
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(value: str | None, default: int) -> int:
+    """Parse an int from an env string; fall back to ``default`` on junk/empty."""
+    if value is None or not str(value).strip():
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class EmbeddingConfig:
     """Configuration for a separate embedding model (OpenAI-compatible /v1/embeddings)."""
@@ -32,16 +52,36 @@ class ModelConfig:
     base_url: str
     model: str
     protocol: Protocol
+    # USD price per 1,000,000 tokens. Left at 0 → cost tracking reports nothing
+    # for this slot. Set to your provider's published rates to get per-turn cost.
+    input_price_per_1m: float = 0.0
+    output_price_per_1m: float = 0.0
 
     @classmethod
     def from_env(cls, prefix: str) -> "ModelConfig":
-        """Load from ${prefix}_API_KEY/BASE_URL/MODEL/PROTOCOL (PROTOCOL defaults to openai)."""
+        """Load from ${prefix}_API_KEY/BASE_URL/MODEL/PROTOCOL (PROTOCOL defaults to openai).
+
+        Optional pricing: ${prefix}_INPUT_PRICE / ${prefix}_OUTPUT_PRICE (USD per 1M tokens).
+        """
         return cls(
             api_key=os.environ[f"{prefix}_API_KEY"],
             base_url=os.environ[f"{prefix}_BASE_URL"],
             model=os.environ[f"{prefix}_MODEL"],
             protocol=Protocol(os.environ.get(f"{prefix}_PROTOCOL", "openai")),
+            input_price_per_1m=_to_float(os.environ.get(f"{prefix}_INPUT_PRICE")),
+            output_price_per_1m=_to_float(os.environ.get(f"{prefix}_OUTPUT_PRICE")),
         )
+
+    def cost(self, prompt_tokens: int | None, completion_tokens: int | None) -> float:
+        """USD cost for the given token counts at this slot's prices."""
+        return (
+            (prompt_tokens or 0) / 1_000_000 * self.input_price_per_1m
+            + (completion_tokens or 0) / 1_000_000 * self.output_price_per_1m
+        )
+
+    @property
+    def has_pricing(self) -> bool:
+        return self.input_price_per_1m > 0 or self.output_price_per_1m > 0
 
 
 @dataclass
@@ -62,6 +102,31 @@ class StorageConfig:
 
 
 @dataclass
+class BehaviorConfig:
+    """Tunable runtime knobs that used to be hardcoded constants.
+
+    Defaults reproduce the framework's original behavior, so leaving this
+    untouched changes nothing.
+    """
+    agent_max_steps: int = 10      # WP2 Agent ReAct iteration ceiling
+    checker_retries: int = 3       # Checker validate/correct attempts before giving up
+    confirm_threshold: float = 0.75  # Selector confidence below which the user is asked
+    history_limit: int = 50        # Per-area memory history entries retained
+
+    @classmethod
+    def from_env(cls, prefix: str = "") -> "BehaviorConfig":
+        def env(name: str) -> str | None:
+            return os.environ.get(f"{prefix}{name}")
+
+        return cls(
+            agent_max_steps=_to_int(env("AGENT_MAX_STEPS"), cls.agent_max_steps),
+            checker_retries=_to_int(env("CHECKER_RETRIES"), cls.checker_retries),
+            confirm_threshold=_to_float(env("CONFIRM_THRESHOLD"), cls.confirm_threshold),
+            history_limit=_to_int(env("HISTORY_LIMIT"), cls.history_limit),
+        )
+
+
+@dataclass
 class AutumnConfig:
     a1: ModelConfig
     a2: ModelConfig
@@ -69,6 +134,7 @@ class AutumnConfig:
     a4: ModelConfig | None = None  # optional memory model (recall synthesis, cheap local LLM)
     prompts: WorkspacePrompts = field(default_factory=WorkspacePrompts)
     storage: StorageConfig = field(default_factory=StorageConfig)
+    behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     headless_mission_route: MissionRoute | Literal["auto"] = "auto"
     embedding: EmbeddingConfig | None = None
     auto_index: bool = False   # when embedding is set, auto-embed each history entry
@@ -123,6 +189,7 @@ class AutumnConfig:
             a3=ModelConfig.from_env(f"{prefix}A3"),
             a4=a4,
             storage=StorageConfig(db_path=env("STORAGE_DB_PATH", "autumn_memory.db")),
+            behavior=BehaviorConfig.from_env(prefix),
             headless_mission_route=route,
             embedding=EmbeddingConfig.from_env(f"{prefix}EMBEDDING_"),
             auto_index=env("AUTO_INDEX", "false").lower() in ("1", "true", "yes"),

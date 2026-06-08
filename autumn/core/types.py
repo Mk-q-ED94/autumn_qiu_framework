@@ -50,6 +50,7 @@ class WorkflowStage:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     source_terr: str | None = None
+    cost_usd: float | None = None   # filled in when the slot has pricing configured
 
 
 @dataclass
@@ -71,6 +72,7 @@ class WorkflowRun:
     route: MissionRoute | None
     stages: list[WorkflowStage]
     task_type: "TaskType | None" = None
+    total_cost_usd: float | None = None   # sum of per-stage cost when any slot is priced
 
 
 @dataclass

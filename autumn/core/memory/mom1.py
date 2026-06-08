@@ -11,8 +11,8 @@ class Mom1(MemoryArea):
     Mom2 and Mom3 cannot read Mom1.
     """
 
-    def __init__(self, backend: MemoryBackend, mom2: Mom2, mom3: Mom3):
-        super().__init__("mom1", backend)
+    def __init__(self, backend: MemoryBackend, mom2: Mom2, mom3: Mom3, history_limit: int = 50):
+        super().__init__("mom1", backend, history_limit=history_limit)
         self.mom2 = mom2
         self.mom3 = mom3
 
