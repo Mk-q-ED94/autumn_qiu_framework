@@ -22,6 +22,15 @@ class Mom1(MemoryArea):
     async def read_mom3(self, key: str) -> Any:
         return await self.mom3.get(key)
 
+    async def broadcast(self, key: str, value: Any) -> None:
+        """Write an insight to the SharedZone so both WP2 and WP3 can access it.
+
+        This is the only downward communication channel from WP1 to the
+        task/mission workspaces — use it sparingly for cross-workspace context
+        (e.g. user preferences, session-level facts learned during routing).
+        """
+        await self.mom2.shared.set(key, value)
+
     async def snapshot(self) -> dict[str, list[str]]:
         """Returns all keys across Mom1, Mom2, and Mom3."""
         return {

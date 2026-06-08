@@ -136,7 +136,7 @@ async def test_memory_history_limit_caps_entries():
         await area.append_history({"i": i})
     history = await area.get_history()
     assert len(history) == 3
-    assert [e["i"] for e in history] == [3, 4, 5]  # most recent kept
+    assert [e.content["i"] for e in history] == [3, 4, 5]  # most recent kept
 
 
 async def test_memory_history_explicit_max_entries_overrides():

@@ -82,7 +82,7 @@ async def test_wp1_process_accepts_per_request_route_override():
 
     assert result == "Executed converted task."
     history = await mom1.get_history()
-    assert history[-1]["route"] == "convert"
+    assert history[-1].content["route"] == "convert"
 
 
 async def test_wp1_process_with_trace_returns_route_and_stages():

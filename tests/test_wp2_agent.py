@@ -277,8 +277,8 @@ async def test_wp2_records_history_after_agent():
     wp2 = WP2Tas(api, mom2, tool_provider=lambda: ([tool], []))
     await wp2.process("the task")
     hist = await mom2.get_history()
-    assert hist[-1]["task"] == "the task"
-    assert hist[-1]["output"] == "agent-final"
+    assert hist[-1].content["task"] == "the task"
+    assert hist[-1].content["output"] == "agent-final"
 
 
 async def test_wp2_agent_respects_checker():

@@ -120,7 +120,12 @@ async def test_wp2_stream_persists_memory_after_stream():
     async for _ in wp2.stream("the task"):
         pass
     history = await mom2.get_history()
-    assert any(h.get("task") == "the task" and h.get("output") == "abc" for h in history)
+    assert any(
+        isinstance(h.content, dict)
+        and h.content.get("task") == "the task"
+        and h.content.get("output") == "abc"
+        for h in history
+    )
 
 
 async def test_wp2_stream_applies_task_type_hint_to_system():
@@ -186,9 +191,9 @@ async def test_wp3_stream_direct_persists_memory_with_direct_route():
         pass
     history = await mom3.get_history()
     assert history
-    assert history[-1]["mission"] == "greet"
-    assert history[-1]["route"] == MissionRoute.DIRECT.value
-    assert history[-1]["output"] == "hi"
+    assert history[-1].content["mission"] == "greet"
+    assert history[-1].content["route"] == MissionRoute.DIRECT.value
+    assert history[-1].content["output"] == "hi"
 
 
 # ── WP1 orchestration: stream ─────────────────────────────────────────────────
@@ -263,7 +268,7 @@ async def test_wp1_stream_writes_mom1_history():
         pass
     history = await mom1.get_history()
     assert history
-    entry = history[-1]
+    entry = history[-1].content
     assert entry["input"] == "code something"
     assert entry["type"] == "task"
     assert entry["output"] == "Final Answer"
@@ -305,7 +310,7 @@ async def test_wp1_stream_advisory_included_in_mom1_output():
     async for _ in wp1.stream("do x"):
         pass
     history = await mom1.get_history()
-    assert "too short" in history[-1]["output"]
+    assert "too short" in history[-1].content["output"]
 
 
 async def test_wp1_stream_convert_path_uses_buffered_wp2():
@@ -340,7 +345,7 @@ async def test_wp1_stream_convert_path_uses_buffered_wp2():
     full = "".join(chunks)
     assert full == "exec result"
     history = await mom1.get_history()
-    assert history[-1]["route"] == MissionRoute.CONVERT.value
+    assert history[-1].content["route"] == MissionRoute.CONVERT.value
 
 
 # ── Checker.inspect ─────────────────────────────────────────────────────────────

@@ -410,7 +410,7 @@ async def test_memory_terr_recall_and_remember():
     shared = SharedZone(DictBackend())
     terr = memory_terr(shared, area_name="shared")
     assert terr.name == "memory"
-    assert {s.name for s in terr.skills} == {"recall", "remember"}
+    assert {s.name for s in terr.skills} == {"recall", "remember", "list_recent", "pin_memory"}
 
     await _run_skill(terr, "remember", key="favorite_season", value="autumn")
     out = await _run_skill(terr, "recall", query="favorite_season")
