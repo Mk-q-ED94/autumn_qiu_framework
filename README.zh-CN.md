@@ -1,6 +1,10 @@
-# 秋 / Autumn
+<p align="center">
+  <img src="./assets/icon.png" alt="秋 / Autumn" width="120" height="120">
+</p>
 
-[English](./README.md) | **简体中文**
+<h1 align="center">秋 / Autumn</h1>
+
+<p align="center"><a href="./README.md">English</a> | <strong>简体中文</strong></p>
 
 一个多模型协同工作流框架。三个模型 API 接口（A1、A2、A3）各自掌管一个工作区（WP1、WP2、WP3），并各自背靠一块记忆区（Mom1、Mom2、Mom3），通过一套严格的路由协议彼此协调，从而产出超越任何单一模型独立所能达到的结果。第四个可选模型（A4）驱动 **WP4**——专职的记忆管理工作区，统一管理所有记忆区。
 
