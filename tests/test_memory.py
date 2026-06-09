@@ -201,7 +201,7 @@ async def test_history_capped_count_based():
 async def test_history_importance_weighted_eviction():
     area = MemoryArea("ws", DictBackend(), history_limit=3)
     e1 = await area.append_history("low A", importance=0.5)
-    e2 = await area.append_history("normal B", importance=1.0)
+    await area.append_history("normal B", importance=1.0)
     e3 = await area.append_history("high C", importance=1.8)
     # History is exactly at limit (3) — adding one more should evict e1 (lowest)
     await area.append_history("new D", importance=1.0)
