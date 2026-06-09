@@ -1,6 +1,6 @@
 # 秋 / Autumn
 
-A multi-model collaborative workflow framework. Three model API interfaces (A1, A2, A3) each govern a workspace (WP1, WP2, WP3) backed by a memory area (Mom1, Mom2, Mom3), coordinated by a strict routing protocol to produce results that exceed what any single model can achieve alone.
+A multi-model collaborative workflow framework. Three model API interfaces (A1, A2, A3) each govern a workspace (WP1, WP2, WP3) backed by a memory area (Mom1, Mom2, Mom3), coordinated by a strict routing protocol to produce results that exceed what any single model can achieve alone. A fourth, optional model (A4) drives **WP4**, the dedicated memory-management workspace that curates every zone.
 
 ## Architecture
 
@@ -21,6 +21,8 @@ A multi-model collaborative workflow framework. Three model API interfaces (A1, 
                        │  └──────────────────────────────┘    │
                        │    each WP has its own checker       │
                        └─────────────────────────────────────┘
+                          WP4 Mem (A4) curates all memory ▲
+                          Mom1/2/3 · shared · project ────┘
 ```
 
 **Routing pipelines** (all paths end with WP1.checker before reaching the user):
@@ -63,6 +65,29 @@ with `GET /projects`, `GET /projects/{id}/memory`, and `DELETE /projects/{id}`.
   single pinned digest (uses the A4 model); over HTTP: `POST /memory/{area}/consolidate`.
 - **Forget & stats** — `zone.forget(tags=..., before=..., expired=True)` bulk-prunes;
   `zone.stats()` / `GET /memory/{area}/stats` report counts, tags and time span.
+
+**WP4 — the memory-management workspace** — A4 gets its own workspace whose sole
+job is curating *all* memory. WP1–WP3 each own one Mom area and drive the
+conversation; WP4 owns none of that flow and instead addresses every zone by
+name (`mom1`/`mom2`/`mom3`/`shared`/`project`). A4 powers the cognitive work
+(recall synthesis, consolidation summaries); the mechanical work (forget, stats,
+pin) delegates to the target zone. WP4 keeps its own audit log so each action it
+takes is itself recorded.
+
+```python
+autumn.add_memory_skills("shared")          # recall/remember skills, built by WP4
+
+await autumn.wp4.remember("deploy", "fly.io")          # write to a zone
+await autumn.wp4.recall("deploy")                       # unified retrieval
+await autumn.wp4.consolidate("mom2")                    # summarise via A4
+await autumn.wp4.forget("shared", tags=["scratch"])     # bulk prune
+await autumn.wp4.stats()                                # snapshot of every zone
+```
+
+Over HTTP the memory endpoints route through WP4: `GET /memory/stats` returns an
+all-zone overview, and `shared` joins `mom1/2/3` as an addressable area for
+`/memory/{area}/history|stats|consolidate`. Consolidation uses WP4's A4 slot, so
+it 400s cleanly when no A4 model is configured.
 
 ## Quick start
 
@@ -255,6 +280,7 @@ AutumnConfig(
 | `WP1Tot`         | Orchestrates routing and final validation                       |
 | `WP2Tas`         | Executes structured tasks via A2                                |
 | `WP3Mis`         | Handles missions: direct answer or convert-to-task              |
+| `WP4Mem`         | Memory-management workspace; A4-backed curator of every zone     |
 | `Selector`       | Classifies input; triggers user confirmation when uncertain     |
 | `Checker`        | Per-workspace output validator (rules + model eval, retry 3x)   |
 | `Agent`          | Autonomous executor with ReAct tool-use loop                    |
@@ -269,9 +295,9 @@ AutumnConfig(
 ```
 autumn/
 ├── core/
-│   ├── api/          # ModelAPIInterface, A1/A2/A3
-│   ├── memory/       # Mom1/2/3, SharedZone, backends (Dict/SQLite/Hybrid)
-│   ├── workspace/    # WP1Tot, WP2Tas, WP3Mis
+│   ├── api/          # ModelAPIInterface, A1/A2/A3/A4
+│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, backends (Dict/SQLite/Hybrid)
+│   ├── workspace/    # WP1Tot, WP2Tas, WP3Mis, WP4Mem
 │   ├── components/   # Agent, Skill, Tool, Selector, Checker, MCP*
 │   ├── config.py     # AutumnConfig, ModelConfig, WorkspacePrompts
 │   ├── interaction.py# UserInteraction, CLIInteraction
@@ -317,6 +343,46 @@ full endpoint reference and workflow.
 pip install -e ".[dev]"
 python -m pytest
 ```
+
+## Development history
+
+Current version: **0.2.0**. Autumn follows semantic versioning; while `0.x`,
+minor versions add features and may adjust APIs.
+
+### 0.2.0 — Memory system & project intelligence
+
+- **WP4 memory-management workspace** — the optional A4 model gains its own
+  workspace dedicated to curating *every* memory zone (recall synthesis,
+  consolidation, forget, pin, stats), addressing each zone by name and keeping
+  its own audit log. Exposed over HTTP via `GET /memory/stats` and the
+  `/memory/{area}/…` endpoints.
+- **Project metadata** — each project now carries a structured **type**,
+  **description**, **goals** (one master + long-term + short-term), tracked
+  **files**, and an AI-inferred **environment** (terrs, skills, tools, MCP, agent
+  channel). WP4 drafts descriptions and goals and infers environments through
+  A4; managed over HTTP under `/projects/{id}/metadata|files|describe|goals|infer-environment`.
+- **Per-project shared memory** — every project id gets an isolated zone that is
+  *shared* across all workspaces and turns within that project.
+- **Memory lifecycle** — importance & pinning, TTL/expiry, time-decay,
+  A4-powered consolidation, bulk `forget`, and `stats` across every zone.
+- **Memory module redesign** — `MemoryEntry`, importance-weighted eviction, and
+  unified recall (exact key → tags → semantic).
+- **Built-in capability domains (Terrs)** — ready-made `time`, `math`, `text`,
+  `data`, `web`, `fs`, and `memory` Terrs, plus an MCP catalog of common servers.
+- **A4 local model automation** — in-app Ollama deploy and one-click A4 config.
+- **Cost & tuning** — per-turn USD cost tracking and a tunable `BehaviorConfig`.
+- **Web deployment** — Cloudflare (Container + Worker + React SPA) and Hugging
+  Face Spaces single-container targets.
+
+### 0.1.0 — Multi-model collaborative core
+
+- Three-model workflow: A1/A2/A3 governing WP1/WP2/WP3 over layered memory
+  (Mom1/2/3), with a strict routing protocol and a checker per workspace.
+- Multi-level selector routing with task sub-classification.
+- Real-time streaming with a post-hoc advisory checker.
+- Plugin system: skills, tools, ReAct agents (Hermes loop), and MCP clients.
+- Terr (域) capability-domain abstraction with enable/disable controls.
+- SwiftUI macOS desktop client with a live workflow trace.
 
 ## License
 

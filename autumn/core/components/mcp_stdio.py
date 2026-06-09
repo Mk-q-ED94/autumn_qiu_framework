@@ -118,7 +118,7 @@ class StdioMCPClient(MCPClient):
         await self._request("initialize", {
             "protocolVersion": self._PROTOCOL_VERSION,
             "capabilities": {},
-            "clientInfo": {"name": "autumn", "version": "0.1.0"},
+            "clientInfo": {"name": "autumn", "version": "0.2.0"},
         })
         await self._notify("notifications/initialized", {})
 

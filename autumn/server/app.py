@@ -44,7 +44,7 @@ _OLLAMA_RECOMMENDED = [
      "note": "Google 高效小模型", "recommended": False},
 ]
 
-MemoryArea = Literal["mom1", "mom2", "mom3"]
+MemoryArea = Literal["mom1", "mom2", "mom3", "shared"]
 
 
 RequestRoute = MissionRoute | Literal["auto"] | None
@@ -189,6 +189,30 @@ class ConsolidateRequest(BaseModel):
     min_candidates: int = 3
 
 
+class ProjectMetaUpdateRequest(BaseModel):
+    """Partial update for project metadata. Omitted fields are unchanged."""
+    project_type: str | None = None
+    description: str | None = None
+    goals: dict | None = None
+    files: list[str] | None = None
+    environment: dict | None = None
+
+
+class ProjectDescribeRequest(BaseModel):
+    """Free-text input for AI-guided description generation."""
+    input: str
+
+
+class ProjectGoalsRequest(BaseModel):
+    """Free-text input for AI-guided goals structuring."""
+    input: str
+
+
+class AddFileRequest(BaseModel):
+    """A file path to append to the project's file list."""
+    path: str
+
+
 class OllamaTarget(BaseModel):
     base_url: str = "http://localhost:11434"
 
@@ -311,15 +335,26 @@ def _projects_or_501(autumn: Autumn):
     return projects
 
 
-def _consolidation_model_or_400(autumn: Autumn):
-    """Return the model used to summarise memory (A4 slot), or 400 if absent."""
-    api = getattr(autumn, "a4", None)
-    if api is None:
+def _memory_curator(autumn: Autumn):
+    """Return WP4, the memory-management workspace, or 501 on older builds."""
+    wp4 = getattr(autumn, "wp4", None)
+    if wp4 is None:
+        raise HTTPException(
+            status_code=501,
+            detail="Memory management workspace (WP4) is not available on this server.",
+        )
+    return wp4
+
+
+def _curator_with_model_or_400(autumn: Autumn):
+    """Return WP4 only when its A4 model slot is configured, else 400."""
+    wp4 = _memory_curator(autumn)
+    if not wp4.has_model:
         raise HTTPException(
             status_code=400,
             detail="Memory consolidation needs the A4 model slot; none is configured.",
         )
-    return api
+    return wp4
 
 
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
@@ -351,7 +386,7 @@ def _trace_payload(run: WorkflowRun) -> dict:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -584,26 +619,30 @@ def create_app() -> FastAPI:
         offset: int = Query(0, ge=0),
     ):
         autumn = _autumn_or_503(request)
-        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        mom = _memory_curator(autumn)._resolve(area)
         history = await mom.get_history()
         return history[offset:offset + limit]
+
+    @app.get("/memory/stats")
+    async def memory_stats_all(request: Request):
+        """Aggregate stats across every zone WP4 manages."""
+        autumn = _autumn_or_503(request)
+        return await _memory_curator(autumn).stats()
 
     @app.get("/memory/{area}/stats")
     async def memory_stats(area: MemoryArea, request: Request):
         autumn = _autumn_or_503(request)
-        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
-        return await mom.stats()
+        return await _memory_curator(autumn).stats(area)
 
     @app.post("/memory/{area}/consolidate")
     async def memory_consolidate(
         area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest()
     ):
         autumn = _autumn_or_503(request)
-        api = _consolidation_model_or_400(autumn)
-        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        wp4 = _curator_with_model_or_400(autumn)
         try:
-            summary = await mom.consolidate(
-                api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+            summary = await wp4.consolidate(
+                area, keep_recent=req.keep_recent, min_candidates=req.min_candidates
             )
         except Exception as exc:
             raise _record_failure(request, exc) from exc
@@ -649,10 +688,10 @@ def create_app() -> FastAPI:
     ):
         autumn = _autumn_or_503(request)
         projects = _projects_or_501(autumn)
-        api = _consolidation_model_or_400(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
         try:
             summary = await projects.zone(project_id).consolidate(
-                api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+                wp4.api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
             )
         except Exception as exc:
             raise _record_failure(request, exc) from exc
@@ -666,6 +705,117 @@ def create_app() -> FastAPI:
         projects = _projects_or_501(autumn)
         await projects.clear_project(project_id)
         return {"status": "ok", "project_id": project_id}
+
+    # ── Project metadata ─────────────────────────────────────────────────────
+    # Structured fields: type, description, goals, files, environment.
+    # Metadata lives in the project's own zone under a reserved __meta__ key
+    # and is therefore isolated between projects and persisted across restarts.
+
+    @app.get("/projects/{project_id}/metadata")
+    async def get_project_metadata(project_id: str, request: Request):
+        """Return the full :class:`ProjectMeta` for a project."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        meta = await projects.zone(project_id).get_meta()
+        return meta.to_dict()
+
+    @app.patch("/projects/{project_id}/metadata")
+    async def update_project_metadata(
+        project_id: str,
+        request: Request,
+        body: ProjectMetaUpdateRequest = ProjectMetaUpdateRequest(),
+    ):
+        """Partially update a project's metadata. Omitted fields are unchanged."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        updates = {k: v for k, v in body.dict().items() if v is not None}
+        meta = await projects.update_metadata(project_id, **updates)
+        return meta.to_dict()
+
+    @app.post("/projects/{project_id}/files")
+    async def add_project_file(
+        project_id: str,
+        request: Request,
+        body: AddFileRequest,
+    ):
+        """Append a file path to the project's tracked file list."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        await projects.zone(project_id).add_file(body.path)
+        meta = await projects.zone(project_id).get_meta()
+        return {"status": "ok", "files": meta.files}
+
+    @app.delete("/projects/{project_id}/files/{file_path:path}")
+    async def remove_project_file(
+        project_id: str,
+        file_path: str,
+        request: Request,
+    ):
+        """Remove a file path from the project's tracked file list."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        await projects.zone(project_id).remove_file(file_path)
+        meta = await projects.zone(project_id).get_meta()
+        return {"status": "ok", "files": meta.files}
+
+    @app.post("/projects/{project_id}/describe")
+    async def draft_project_description(
+        project_id: str,
+        request: Request,
+        body: ProjectDescribeRequest,
+    ):
+        """Use A4 to synthesise a project description from free-text input.
+
+        Returns the drafted text; does **not** auto-save it.  To persist, follow
+        up with ``PATCH /projects/{id}/metadata`` and ``description=<result>``.
+        """
+        autumn = _autumn_or_503(request)
+        _projects_or_501(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            description = await wp4.draft_description(body.input, project_id)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return {"description": description}
+
+    @app.post("/projects/{project_id}/goals")
+    async def draft_project_goals(
+        project_id: str,
+        request: Request,
+        body: ProjectGoalsRequest,
+    ):
+        """Use A4 to structure a goals description into master/long_term/short_term.
+
+        Returns the drafted goal hierarchy; does **not** auto-save it.  To
+        persist, follow up with ``PATCH /projects/{id}/metadata``
+        and ``goals=<result>``.
+        """
+        autumn = _autumn_or_503(request)
+        _projects_or_501(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            goals = await wp4.draft_goals(body.input, project_id)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return goals.to_dict()
+
+    @app.post("/projects/{project_id}/infer-environment")
+    async def infer_project_environment(project_id: str, request: Request):
+        """Use A4 to infer and persist the environment config for a project.
+
+        Reads the project's type, description, and master goal, calls A4, and
+        writes the resulting environment (terrs, skills, tools, MCP, agent
+        channel) directly into the project's metadata. Returns the full updated
+        metadata.
+        """
+        autumn = _autumn_or_503(request)
+        _projects_or_501(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            meta = await wp4.infer_environment(project_id)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return meta.to_dict()
 
     @app.post("/session/end")
     async def end_session(request: Request):

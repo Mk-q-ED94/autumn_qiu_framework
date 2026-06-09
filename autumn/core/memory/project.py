@@ -14,15 +14,28 @@ skills resolve to the right zone without threading the id through every call.
     with project_context("acme-app"):
         zone = pm.current()          # → ProjectZone("acme-app")
         await zone.set("api", "v2")  # isolated from every other project
+
+Each project also carries structured metadata (:class:`ProjectMeta`) stored
+under a reserved key inside its zone:
+
+* **project_type** — category tag (``"code"``, ``"research"``, etc.) or None
+* **description** — free-text summary (written directly or AI-generated)
+* **goals** — one master goal + lists of long-term and short-term goals
+* **files** — paths of user-added or conversation-generated files
+* **environment** — AI-inferred terrs, skills, tools, MCP servers, agent channel
 """
 from __future__ import annotations
 
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
+from dataclasses import dataclass, field
 from typing import Iterator
 
 from .base import MemoryArea, MemoryBackend
+
+# Reserved key within each ProjectZone's backend namespace for structured metadata.
+_META_KEY = "__meta__"
 
 # Active project for the current async context. The server sets this per request
 # so project-scoped memory resolves to the right zone without threading the id
@@ -34,6 +47,96 @@ _current_project: ContextVar[str | None] = ContextVar(
 _REGISTRY = "__projects__"
 _DEFAULT_ID = "default"
 _UNSAFE = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+# ── project metadata dataclasses ─────────────────────────────────────────────
+
+@dataclass
+class ProjectGoals:
+    """Structured goal hierarchy for a project."""
+
+    master: str = ""
+    long_term: list[str] = field(default_factory=list)
+    short_term: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "master": self.master,
+            "long_term": list(self.long_term),
+            "short_term": list(self.short_term),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProjectGoals":
+        return cls(
+            master=d.get("master", ""),
+            long_term=list(d.get("long_term") or []),
+            short_term=list(d.get("short_term") or []),
+        )
+
+
+@dataclass
+class ProjectEnvironment:
+    """AI-inferred runtime environment for a project."""
+
+    terrs: list[str] = field(default_factory=list)
+    skills: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)
+    mcp: list[str] = field(default_factory=list)
+    agent_channel: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "terrs": list(self.terrs),
+            "skills": list(self.skills),
+            "tools": list(self.tools),
+            "mcp": list(self.mcp),
+            "agent_channel": self.agent_channel,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProjectEnvironment":
+        return cls(
+            terrs=list(d.get("terrs") or []),
+            skills=list(d.get("skills") or []),
+            tools=list(d.get("tools") or []),
+            mcp=list(d.get("mcp") or []),
+            agent_channel=d.get("agent_channel"),
+        )
+
+
+@dataclass
+class ProjectMeta:
+    """All structured metadata attached to a project zone.
+
+    Stored as a JSON dict under the ``__meta__`` key inside the zone's backend
+    namespace so it persists alongside memory entries and survives restarts.
+    """
+
+    project_type: str | None = None
+    description: str = ""
+    goals: ProjectGoals = field(default_factory=ProjectGoals)
+    files: list[str] = field(default_factory=list)
+    environment: ProjectEnvironment = field(default_factory=ProjectEnvironment)
+
+    def to_dict(self) -> dict:
+        return {
+            "project_type": self.project_type,
+            "description": self.description,
+            "goals": self.goals.to_dict(),
+            "files": list(self.files),
+            "environment": self.environment.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProjectMeta":
+        return cls(
+            project_type=d.get("project_type"),
+            description=d.get("description", ""),
+            goals=ProjectGoals.from_dict(d.get("goals") or {}),
+            files=list(d.get("files") or []),
+            environment=ProjectEnvironment.from_dict(d.get("environment") or {}),
+        )
 
 
 def _sanitize(project_id: str) -> str:
@@ -87,6 +190,10 @@ class ProjectZone(MemoryArea):
     projects never collide even though they share one backend. Within a project
     the zone behaves exactly like :class:`SharedZone` — every workspace and turn
     reads and writes the same data, which is what makes it *shared*.
+
+    Structured project metadata (:class:`ProjectMeta`) is stored as a plain
+    JSON dict under the reserved ``__meta__`` key.  All other zone operations
+    (history, recall, remember) remain unaffected.
     """
 
     def __init__(
@@ -102,6 +209,57 @@ class ProjectZone(MemoryArea):
             decay_half_life=decay_half_life,
         )
         self.project_id = project_id
+
+    # ── metadata ──────────────────────────────────────────────────────────────
+
+    async def get_meta(self) -> ProjectMeta:
+        """Return the project's structured metadata (empty defaults if not set)."""
+        raw = await self.get(_META_KEY)
+        if isinstance(raw, dict):
+            return ProjectMeta.from_dict(raw)
+        return ProjectMeta()
+
+    async def set_meta(self, meta: ProjectMeta) -> None:
+        """Persist the full :class:`ProjectMeta` for this project."""
+        await self.set(_META_KEY, meta.to_dict())
+
+    async def update_meta(self, **kwargs) -> ProjectMeta:
+        """Merge ``kwargs`` into the existing metadata and persist. Returns updated meta.
+
+        Nested keys ``"goals"`` and ``"environment"`` are merged shallowly so
+        callers can update individual fields without overwriting others::
+
+            await zone.update_meta(goals={"master": "ship v2"})  # long_term unchanged
+        """
+        meta = await self.get_meta()
+        for key, value in kwargs.items():
+            if key == "goals" and isinstance(value, dict):
+                d = meta.goals.to_dict()
+                d.update(value)
+                meta.goals = ProjectGoals.from_dict(d)
+            elif key == "environment" and isinstance(value, dict):
+                d = meta.environment.to_dict()
+                d.update(value)
+                meta.environment = ProjectEnvironment.from_dict(d)
+            elif hasattr(meta, key):
+                setattr(meta, key, value)
+        await self.set_meta(meta)
+        return meta
+
+    async def add_file(self, path: str) -> None:
+        """Append ``path`` to the project's file list (idempotent)."""
+        meta = await self.get_meta()
+        if path not in meta.files:
+            meta.files.append(path)
+            await self.set_meta(meta)
+
+    async def remove_file(self, path: str) -> None:
+        """Remove ``path`` from the project's file list. No-op if not present."""
+        meta = await self.get_meta()
+        new_files = [f for f in meta.files if f != path]
+        if len(new_files) != len(meta.files):
+            meta.files = new_files
+            await self.set_meta(meta)
 
 
 class ProjectMemory:
@@ -183,3 +341,13 @@ class ProjectMemory:
         await self.zone(project_id).clear()
         await self._registry.delete(safe)
         self._zones.pop(safe, None)
+
+    # ── metadata helpers ──────────────────────────────────────────────────────
+
+    async def get_metadata(self, project_id: str) -> ProjectMeta:
+        """Return the :class:`ProjectMeta` for *project_id*."""
+        return await self.zone(project_id).get_meta()
+
+    async def update_metadata(self, project_id: str, **kwargs) -> ProjectMeta:
+        """Merge ``kwargs`` into *project_id*'s metadata. See :meth:`ProjectZone.update_meta`."""
+        return await self.zone(project_id).update_meta(**kwargs)
