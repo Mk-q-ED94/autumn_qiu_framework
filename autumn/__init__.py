@@ -32,6 +32,16 @@ _EXPORTS = {
     "mcp_to_tools": ("autumn.core.components", "mcp_to_tools"),
     "Selector": ("autumn.core.components", "Selector"),
     "Checker": ("autumn.core.components", "Checker"),
+    # Built-in Terr factories — see autumn.builtin for the full set.
+    "time_terr": ("autumn.builtin", "time_terr"),
+    "math_terr": ("autumn.builtin", "math_terr"),
+    "text_terr": ("autumn.builtin", "text_terr"),
+    "data_terr": ("autumn.builtin", "data_terr"),
+    "web_terr": ("autumn.builtin", "web_terr"),
+    "fs_terr": ("autumn.builtin", "fs_terr"),
+    "memory_terr": ("autumn.builtin", "memory_terr"),
+    "register_safe_builtins": ("autumn.builtin", "register_safe_builtins"),
+    "register_builtins": ("autumn.builtin", "register_builtins"),
 }
 
 __all__ = list(_EXPORTS)

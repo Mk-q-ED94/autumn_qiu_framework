@@ -21,18 +21,25 @@ Reason step by step. When you have the final answer, respond in plain text \
 without calling any function."""
 
 
-def _format_memory_context(history: list[dict]) -> str:
+def _format_memory_context(history: list) -> str:
     """Render recent memory history into a compact context block for the system prompt.
 
+    Accepts both MemoryEntry objects (new) and raw dicts (legacy).
     Pulls the task/input and output of the most recent turns so the agent can
     reason with continuity. Best-effort: unknown entry shapes are skipped.
     """
+    from ..memory.base import MemoryEntry
     lines: list[str] = []
     for entry in history[-_MAX_HISTORY_CONTEXT:]:
-        if not isinstance(entry, dict):
+        raw: dict | None = None
+        if isinstance(entry, MemoryEntry):
+            raw = entry.content if isinstance(entry.content, dict) else None
+        elif isinstance(entry, dict):
+            raw = entry
+        if not raw:
             continue
-        task = entry.get("task") or entry.get("input") or ""
-        output = entry.get("output") or ""
+        task = raw.get("task") or raw.get("input") or ""
+        output = raw.get("output") or ""
         if not (task or output):
             continue
         snippet = output if len(output) <= 200 else output[:200] + "…"

@@ -23,18 +23,26 @@ class Checker:
     On all retries exhausted: return output annotated with [CHECK_FAILED: reason].
     """
 
-    def __init__(self, workspace_id: str, api_interface, eval_prompt: str | None = None):
+    def __init__(
+        self,
+        workspace_id: str,
+        api_interface,
+        eval_prompt: str | None = None,
+        retries: int = _MAX_RETRIES,
+    ):
         self.workspace_id = workspace_id
         self.api = api_interface
         self._eval_system = eval_prompt or _DEFAULT_EVAL_SYSTEM
+        # At least one attempt; higher values add validate→correct rounds.
+        self._retries = max(1, retries)
 
     async def validate(self, output: str, memory: MemoryArea) -> tuple[bool, str]:
         last_issues = ""
-        for attempt in range(_MAX_RETRIES):
+        for attempt in range(self._retries):
             # Rule check (fast, free)
             rule_issues = _rule_check(output)
             if rule_issues:
-                if attempt < _MAX_RETRIES - 1:
+                if attempt < self._retries - 1:
                     output = await self._correct(output, rule_issues)
                     continue
                 last_issues = rule_issues
@@ -45,7 +53,7 @@ class Checker:
             if ok:
                 return True, output
             last_issues = model_issues
-            if attempt < _MAX_RETRIES - 1:
+            if attempt < self._retries - 1:
                 output = await self._correct(output, model_issues)
 
         return False, f"[CHECK_FAILED({self.workspace_id}): {last_issues}]\n\n{output}"

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
+from ..core.memory.project import project_context, set_current_project, reset_current_project
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
 
 
@@ -24,6 +25,24 @@ _SSE_HEARTBEAT_SECONDS = 15.0
 # bounded regardless of how many turns a session has accumulated.
 _HISTORY_PAGE_DEFAULT = 200
 _HISTORY_PAGE_MAX = 2000
+
+# Curated small chat models well-suited to the A4 memory role (recall synthesis):
+# fast, low-RAM, strong multilingual (esp. Chinese). Sizes are approximate
+# default-quant pull sizes.
+_OLLAMA_RECOMMENDED = [
+    {"name": "qwen2.5:0.5b", "label": "Qwen2.5 0.5B", "size": "~0.4 GB",
+     "note": "极速 · 中英双语 · 记忆合成够用", "recommended": False},
+    {"name": "qwen2.5:1.5b", "label": "Qwen2.5 1.5B", "size": "~1.0 GB",
+     "note": "速度/质量平衡 · A4 推荐", "recommended": True},
+    {"name": "qwen2.5:3b", "label": "Qwen2.5 3B", "size": "~2.0 GB",
+     "note": "更强理解 · 仍然轻量", "recommended": False},
+    {"name": "llama3.2:1b", "label": "Llama 3.2 1B", "size": "~1.3 GB",
+     "note": "Meta 轻量模型", "recommended": False},
+    {"name": "llama3.2:3b", "label": "Llama 3.2 3B", "size": "~2.0 GB",
+     "note": "Meta 通用小模型", "recommended": False},
+    {"name": "gemma2:2b", "label": "Gemma 2 2B", "size": "~1.6 GB",
+     "note": "Google 高效小模型", "recommended": False},
+]
 
 MemoryArea = Literal["mom1", "mom2", "mom3"]
 
@@ -74,6 +93,7 @@ class TraceStageResponse(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     source_terr: str | None = None
+    cost_usd: float | None = None
 
 
 class TraceResponse(BaseModel):
@@ -84,6 +104,7 @@ class TraceResponse(BaseModel):
     stages: list[TraceStageResponse]
     total_prompt_tokens: int | None = None
     total_completion_tokens: int | None = None
+    total_cost_usd: float | None = None
 
 
 class IntentRequest(BaseModel):
@@ -135,6 +156,9 @@ class ProviderConfigRequest(BaseModel):
     base_url: str
     model: str | None = None
     protocol: Protocol
+    # Optional USD price per 1M tokens; enables per-turn cost in the trace.
+    input_price_per_1m: float = 0.0
+    output_price_per_1m: float = 0.0
 
 
 class ApplyConfigRequest(BaseModel):
@@ -159,6 +183,20 @@ class ModelsResponse(BaseModel):
     models: list[str]
 
 
+class ConsolidateRequest(BaseModel):
+    """Tuning for a memory consolidation pass (all optional)."""
+    keep_recent: int = 10
+    min_candidates: int = 3
+
+
+class OllamaTarget(BaseModel):
+    base_url: str = "http://localhost:11434"
+
+
+class OllamaDeleteRequest(OllamaTarget):
+    name: str
+
+
 def _try_build_from_env() -> Autumn | None:
     if os.environ.get("AUTUMN_SKIP_INIT") == "1":
         return None
@@ -176,6 +214,19 @@ def _model_endpoint(base_url: str) -> str:
     if root.endswith("/v1"):
         return f"{root}/models"
     return f"{root}/v1/models"
+
+
+def _ollama_base(base_url: str) -> str:
+    """Normalise an Ollama base URL for the native /api/* endpoints.
+
+    Drops a trailing slash and a trailing ``/v1`` (the OpenAI-compat suffix the
+    A4 chat client appends), so the same URL the user configures for A4 chat can
+    be reused here for model management.
+    """
+    root = (base_url or "").strip().rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    return root or "http://localhost:11434"
 
 
 def _headers_for(protocol: Protocol, api_key: str) -> dict[str, str]:
@@ -212,6 +263,8 @@ def _require_model_config(slot: str, req: ProviderConfigRequest) -> ModelConfig:
         base_url=req.base_url.strip(),
         model=(req.model or "").strip(),
         protocol=req.protocol,
+        input_price_per_1m=max(0.0, req.input_price_per_1m),
+        output_price_per_1m=max(0.0, req.output_price_per_1m),
     )
 
 
@@ -239,6 +292,36 @@ def _autumn_or_503(request: Request) -> Autumn:
     return autumn
 
 
+async def _activate_project(autumn: Autumn, project_id: str | None) -> None:
+    """Register a project id so it shows up in /projects. No-op when unset."""
+    if not project_id:
+        return
+    projects = getattr(autumn, "projects", None)
+    if projects is not None:
+        await projects.register(project_id)
+
+
+def _projects_or_501(autumn: Autumn):
+    """Return the ProjectMemory manager, or 501 if this build predates it."""
+    projects = getattr(autumn, "projects", None)
+    if projects is None:
+        raise HTTPException(
+            status_code=501, detail="Per-project memory is not available on this server."
+        )
+    return projects
+
+
+def _consolidation_model_or_400(autumn: Autumn):
+    """Return the model used to summarise memory (A4 slot), or 400 if absent."""
+    api = getattr(autumn, "a4", None)
+    if api is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Memory consolidation needs the A4 model slot; none is configured.",
+        )
+    return api
+
+
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
     """Stash a short failure summary on app.state so /health can report it,
     then return a 502 the caller can `raise from exc`."""
@@ -259,6 +342,7 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
         stages=stages,
         total_prompt_tokens=prompt_sum or None,
         total_completion_tokens=completion_sum or None,
+        total_cost_usd=run.total_cost_usd,
     )
 
 
@@ -336,13 +420,15 @@ def create_app() -> FastAPI:
     @app.post("/process", response_model=ProcessResponse)
     async def process(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
+        await _activate_project(autumn, req.project_id)
         try:
-            output = await autumn.process(
-                _apply_project_context(req.input, req.project_instructions),
-                mission_route=req.route,
-                input_type=req.input_type,
-                task_type=req.task_type,
-            )
+            with project_context(req.project_id):
+                output = await autumn.process(
+                    _apply_project_context(req.input, req.project_instructions),
+                    mission_route=req.route,
+                    input_type=req.input_type,
+                    task_type=req.task_type,
+                )
         except HTTPException:
             raise
         except Exception as exc:
@@ -352,13 +438,15 @@ def create_app() -> FastAPI:
     @app.post("/trace", response_model=TraceResponse)
     async def trace(req: ProcessRequest, request: Request):
         autumn = _autumn_or_503(request)
+        await _activate_project(autumn, req.project_id)
         try:
-            run = await autumn.process_with_trace(
-                _apply_project_context(req.input, req.project_instructions),
-                mission_route=req.route,
-                input_type=req.input_type,
-                task_type=req.task_type,
-            )
+            with project_context(req.project_id):
+                run = await autumn.process_with_trace(
+                    _apply_project_context(req.input, req.project_instructions),
+                    mission_route=req.route,
+                    input_type=req.input_type,
+                    task_type=req.task_type,
+                )
         except HTTPException:
             raise
         except Exception as exc:
@@ -372,12 +460,13 @@ def create_app() -> FastAPI:
         # they may shift the classifier's read (e.g. a project full of code
         # work is more likely to interpret short prompts as TASK).
         try:
-            sel, route = await autumn.classify_intent(
-                _apply_project_context(req.input, req.project_instructions),
-                mission_route=req.route,
-                input_type=req.input_type,
-                task_type=req.task_type,
-            )
+            with project_context(req.project_id):
+                sel, route = await autumn.classify_intent(
+                    _apply_project_context(req.input, req.project_instructions),
+                    mission_route=req.route,
+                    input_type=req.input_type,
+                    task_type=req.task_type,
+                )
         except HTTPException:
             raise
         except Exception as exc:
@@ -402,9 +491,13 @@ def create_app() -> FastAPI:
     ):
         autumn = _autumn_or_503(request)
         effective_input = _apply_project_context(input, project_instructions)
-        _ = project_id  # reserved for future per-project memory scoping
 
         async def event_stream():
+            # Bind the active project for this stream. Set inside the generator so
+            # the per-event Tasks spawned below copy a context that includes it,
+            # which is what makes project-scoped memory skills resolve correctly.
+            await _activate_project(autumn, project_id)
+            proj_token = set_current_project(project_id) if project_id else None
             stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
             iterator = stream_fn(
                 effective_input,
@@ -465,6 +558,8 @@ def create_app() -> FastAPI:
                         await aclose()
                     except Exception:  # noqa: BLE001
                         pass
+                if proj_token is not None:
+                    reset_current_project(proj_token)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -493,11 +588,197 @@ def create_app() -> FastAPI:
         history = await mom.get_history()
         return history[offset:offset + limit]
 
+    @app.get("/memory/{area}/stats")
+    async def memory_stats(area: MemoryArea, request: Request):
+        autumn = _autumn_or_503(request)
+        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        return await mom.stats()
+
+    @app.post("/memory/{area}/consolidate")
+    async def memory_consolidate(
+        area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest()
+    ):
+        autumn = _autumn_or_503(request)
+        api = _consolidation_model_or_400(autumn)
+        mom = {"mom1": autumn.mom1, "mom2": autumn.mom2, "mom3": autumn.mom3}[area]
+        try:
+            summary = await mom.consolidate(
+                api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        if summary is None:
+            return {"status": "noop", "summary": None}
+        return {"status": "ok", "summary": summary.to_dict()}
+
+    # ── Per-project shared memory ────────────────────────────────────────────
+    # Each project id gets its own isolated shared memory zone. The zone is
+    # written to whenever a /process, /trace or /stream call carries a
+    # project_id (and project-scoped memory skills are wired). These endpoints
+    # let the client list, inspect and clear that per-project memory.
+
+    @app.get("/projects")
+    async def list_projects(request: Request):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        return {"projects": await projects.list_projects()}
+
+    @app.get("/projects/{project_id}/memory")
+    async def project_memory(
+        project_id: str,
+        request: Request,
+        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+        offset: int = Query(0, ge=0),
+    ):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        history = await projects.zone(project_id).get_history()
+        return history[offset:offset + limit]
+
+    @app.get("/projects/{project_id}/stats")
+    async def project_stats(project_id: str, request: Request):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        return await projects.zone(project_id).stats()
+
+    @app.post("/projects/{project_id}/consolidate")
+    async def project_consolidate(
+        project_id: str,
+        request: Request,
+        req: ConsolidateRequest = ConsolidateRequest(),
+    ):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        api = _consolidation_model_or_400(autumn)
+        try:
+            summary = await projects.zone(project_id).consolidate(
+                api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        if summary is None:
+            return {"status": "noop", "summary": None}
+        return {"status": "ok", "summary": summary.to_dict()}
+
+    @app.delete("/projects/{project_id}")
+    async def clear_project(project_id: str, request: Request):
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        await projects.clear_project(project_id)
+        return {"status": "ok", "project_id": project_id}
+
     @app.post("/session/end")
     async def end_session(request: Request):
         autumn = _autumn_or_503(request)
         await autumn.end_session()
         return {"status": "ok"}
+
+    # ── Ollama (local model) management ──────────────────────────────────────
+    # Proxy to a local Ollama daemon so the user can deploy and wire up a local
+    # A4 memory model from inside the app. These do NOT require Autumn to be
+    # configured — you set up the local model *before* applying config.
+    #
+    # The model must be reachable by *this server*: local models work when the
+    # server runs alongside Ollama (local dev / self-host). A cloud container
+    # can't see your machine's localhost, so there /ollama/status reports down —
+    # which is correct, because A4 inference couldn't reach it either.
+
+    @app.post("/ollama/status")
+    async def ollama_status(req: OllamaTarget):
+        base = _ollama_base(req.base_url)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base}/api/version")
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            return {"running": False, "base_url": base, "error": str(exc)}
+        return {"running": True, "base_url": base, "version": data.get("version")}
+
+    @app.post("/ollama/models")
+    async def ollama_models(req: OllamaTarget):
+        base = _ollama_base(req.base_url)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{base}/api/tags")
+                resp.raise_for_status()
+                payload = resp.json()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Ollama 未响应: {exc}") from exc
+        models = []
+        for item in payload.get("models", []):
+            details = item.get("details") or {}
+            models.append(
+                {
+                    "name": item.get("name"),
+                    "size": item.get("size"),
+                    "parameter_size": details.get("parameter_size"),
+                    "family": details.get("family"),
+                    "modified_at": item.get("modified_at"),
+                }
+            )
+        return {"models": models}
+
+    @app.delete("/ollama/models")
+    async def ollama_delete(req: OllamaDeleteRequest):
+        base = _ollama_base(req.base_url)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.request(
+                    "DELETE",
+                    f"{base}/api/delete",
+                    json={"name": req.name, "model": req.name},
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"删除失败: {exc}") from exc
+        return {"status": "ok", "name": req.name}
+
+    @app.get("/ollama/recommended")
+    async def ollama_recommended():
+        return {"models": _OLLAMA_RECOMMENDED}
+
+    @app.get("/ollama/pull")
+    async def ollama_pull(
+        name: str,
+        request: Request,
+        base_url: str = "http://localhost:11434",
+    ):
+        base = _ollama_base(base_url)
+
+        async def event_stream():
+            # No read timeout — a pull can take minutes — but bound the connect.
+            timeout = httpx.Timeout(None, connect=5.0)
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{base}/api/pull",
+                        json={"name": name, "model": name, "stream": True},
+                    ) as resp:
+                        if resp.status_code != 200:
+                            body = (await resp.aread()).decode("utf-8", "ignore")
+                            err = json.dumps(
+                                {"error": f"HTTP {resp.status_code}: {body[:200]}"},
+                                ensure_ascii=False,
+                            )
+                            yield f"data: {err}\n\n"
+                            yield "data: [DONE]\n\n"
+                            return
+                        async for line in resp.aiter_lines():
+                            if await request.is_disconnected():
+                                return
+                            line = line.strip()
+                            if line:
+                                # Ollama emits NDJSON progress; forward each verbatim.
+                                yield f"data: {line}\n\n"
+                yield "data: [DONE]\n\n"
+            except httpx.HTTPError as exc:
+                err = json.dumps({"error": f"Ollama 未响应: {exc}"}, ensure_ascii=False)
+                yield f"data: {err}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     return app
 

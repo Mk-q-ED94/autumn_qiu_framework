@@ -11,6 +11,7 @@ from .memory.shared import SharedZone
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
 from .memory.mom3 import Mom3
+from .memory.project import ProjectMemory, ProjectZone, project_context
 from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
@@ -28,6 +29,33 @@ from ..plugins.loader import PluginLoader
 def _mark_terr_source(callable_obj, terr: Terr) -> None:
     callable_obj.source_terr = terr.name
     callable_obj.source_terr_description = terr.description
+
+
+def _annotate_costs(run: WorkflowRun, config: AutumnConfig) -> WorkflowRun:
+    """Fill per-stage ``cost_usd`` and ``run.total_cost_usd`` from slot prices.
+
+    Each stage is priced by the workspace that produced it: WP1→a1, WP2→a2,
+    WP3→a3 (tool stages inherit their workspace's slot). No-op when no slot has
+    pricing configured, so unpriced setups see ``None`` exactly as before.
+    """
+    slots = {"WP1": config.a1, "WP2": config.a2, "WP3": config.a3}
+    if not any(slot.has_pricing for slot in slots.values()):
+        return run
+    total = 0.0
+    priced = False
+    for stage in run.stages:
+        slot = slots.get(stage.workspace)
+        if slot is None or not slot.has_pricing:
+            continue
+        if stage.prompt_tokens is None and stage.completion_tokens is None:
+            continue
+        cost = slot.cost(stage.prompt_tokens, stage.completion_tokens)
+        stage.cost_usd = round(cost, 6)
+        total += cost
+        priced = True
+    if priced:
+        run.total_cost_usd = round(total, 6)
+    return run
 
 
 class Autumn:
@@ -75,13 +103,36 @@ class Autumn:
         self.a4 = A4(config.a4) if config.a4 is not None else None
 
         db = config.storage.db_path
+        b = config.behavior
+        hist = b.history_limit
+        decay = b.memory_decay_half_life or None
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
-        self.shared = SharedZone(HybridBackend(SQLiteBackend(db + ".shared")))
+        self.shared = SharedZone(
+            HybridBackend(SQLiteBackend(db + ".shared")),
+            history_limit=hist, decay_half_life=decay,
+        )
 
-        self.mom2 = Mom2(HybridBackend(SQLiteBackend(db + ".mom2")), self.shared)
-        self.mom3 = Mom3(HybridBackend(SQLiteBackend(db + ".mom3")), self.shared)
-        self.mom1 = Mom1(HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3)
+        self.mom2 = Mom2(
+            HybridBackend(SQLiteBackend(db + ".mom2")), self.shared,
+            history_limit=hist, decay_half_life=decay,
+        )
+        self.mom3 = Mom3(
+            HybridBackend(SQLiteBackend(db + ".mom3")), self.shared,
+            history_limit=hist, decay_half_life=decay,
+        )
+        self.mom1 = Mom1(
+            HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3,
+            history_limit=hist, decay_half_life=decay,
+        )
+
+        # Per-project shared memory: each project id gets its own isolated zone,
+        # but within a project the zone is shared across every workspace and turn.
+        # Resolved per-request via project_scope()/the active-project contextvar.
+        self.projects = ProjectMemory(
+            HybridBackend(SQLiteBackend(db + ".projects")),
+            history_limit=hist, decay_half_life=decay,
+        )
 
         self._embedding: EmbeddingInterface | None = None
         if config.embedding is not None:
@@ -99,6 +150,7 @@ class Autumn:
             self.a2, self.mom2,
             system_prompt=p.wp2_task,
             tool_provider=self._collect_plugins,
+            agent_max_steps=b.agent_max_steps,
         )
         self.wp3 = WP3Mis(self.a3, self.mom3, direct_prompt=p.wp3_direct, convert_prompt=p.wp3_convert)
         self.wp1 = WP1Tot(
@@ -107,11 +159,12 @@ class Autumn:
             selector_prompt=p.selector,
             headless_mission_route=config.headless_mission_route,
             validate_before_stream=config.validate_before_stream,
+            confirm_threshold=b.confirm_threshold,
         )
 
-        self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker)
-        self.wp2.checker = Checker("wp2", self.a2, eval_prompt=p.wp2_checker)
-        self.wp3.checker = Checker("wp3", self.a3, eval_prompt=p.wp3_checker)
+        self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker, retries=b.checker_retries)
+        self.wp2.checker = Checker("wp2", self.a2, eval_prompt=p.wp2_checker, retries=b.checker_retries)
+        self.wp3.checker = Checker("wp3", self.a3, eval_prompt=p.wp3_checker, retries=b.checker_retries)
 
     # ── public api ────────────────────────────────────────────────────────────
 
@@ -138,12 +191,13 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
-        return await self.wp1.process_with_trace(
+        run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
         )
+        return _annotate_costs(run, self.config)
 
     async def classify_intent(
         self,
@@ -198,7 +252,10 @@ class Autumn:
             input_type=input_type,
             task_type=task_type,
         ):
-            yield event
+            if isinstance(event, WorkflowRun):
+                yield _annotate_costs(event, self.config)
+            else:
+                yield event
 
     def describe_terrs(self) -> list[dict]:
         """Return serializable Terr summaries for desktop/debug UI."""
@@ -265,10 +322,19 @@ class Autumn:
         ----------
         area:
             Which memory zone to bind to.  One of ``"shared"``, ``"mom1"``,
-            ``"mom2"``, or ``"mom3"``.  Defaults to ``"shared"`` so facts
-            persist across workspaces.
+            ``"mom2"``, ``"mom3"``, or ``"project"``.  Defaults to ``"shared"``
+            so facts persist across workspaces.
+
+            ``"project"`` binds the skills to the *context-active project's*
+            shared zone: a single registration that transparently reads and
+            writes whichever project is active for the current request (set via
+            :meth:`project_scope`).
         """
-        from .memory.skills import make_memory_skills
+        from .memory.skills import make_memory_skills, make_project_memory_skills
+        if area == "project":
+            for skill in make_project_memory_skills(self.projects, api=self.a4):
+                self.register_skill(skill)
+            return
         _areas = {
             "shared": self.shared,
             "mom1": self.mom1,
@@ -277,10 +343,32 @@ class Autumn:
         }
         if area not in _areas:
             raise ValueError(
-                f"Unknown memory area: {area!r}.  Choose from: {list(_areas)}"
+                f"Unknown memory area: {area!r}.  "
+                f"Choose from: {list(_areas) + ['project']}"
             )
         for skill in make_memory_skills(_areas[area], api=self.a4):
             self.register_skill(skill)
+
+    def project_zone(self, project_id: str | None = None) -> ProjectZone:
+        """Return the dedicated shared memory zone for a project.
+
+        Each project id gets its own isolated namespace; within a project the
+        zone is shared across all workspaces and turns. Pass ``None`` for the
+        default project.
+        """
+        return self.projects.zone(project_id)
+
+    def project_scope(self, project_id: str | None):
+        """Context manager binding ``project_id`` for project-scoped memory.
+
+        While the block is active, memory skills registered with
+        ``add_memory_skills("project")`` resolve to this project's shared zone::
+
+            autumn.add_memory_skills("project")
+            with autumn.project_scope("acme-app"):
+                await autumn.process("remember the deploy target is fly.io")
+        """
+        return project_context(project_id)
 
     def register_tool(self, tool: Tool) -> None:
         self.plugins.register(tool.name, tool)

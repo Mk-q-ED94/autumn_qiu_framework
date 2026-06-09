@@ -11,8 +11,17 @@ class Mom1(MemoryArea):
     Mom2 and Mom3 cannot read Mom1.
     """
 
-    def __init__(self, backend: MemoryBackend, mom2: Mom2, mom3: Mom3):
-        super().__init__("mom1", backend)
+    def __init__(
+        self,
+        backend: MemoryBackend,
+        mom2: Mom2,
+        mom3: Mom3,
+        history_limit: int = 50,
+        decay_half_life: float | None = None,
+    ):
+        super().__init__(
+            "mom1", backend, history_limit=history_limit, decay_half_life=decay_half_life
+        )
         self.mom2 = mom2
         self.mom3 = mom3
 
@@ -21,6 +30,15 @@ class Mom1(MemoryArea):
 
     async def read_mom3(self, key: str) -> Any:
         return await self.mom3.get(key)
+
+    async def broadcast(self, key: str, value: Any) -> None:
+        """Write an insight to the SharedZone so both WP2 and WP3 can access it.
+
+        This is the only downward communication channel from WP1 to the
+        task/mission workspaces — use it sparingly for cross-workspace context
+        (e.g. user preferences, session-level facts learned during routing).
+        """
+        await self.mom2.shared.set(key, value)
 
     async def snapshot(self) -> dict[str, list[str]]:
         """Returns all keys across Mom1, Mom2, and Mom3."""

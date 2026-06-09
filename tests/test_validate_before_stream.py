@@ -130,7 +130,7 @@ async def test_validated_stream_persists_history_once():
     async for _ in wp1.stream("do something"):
         pass
     history = await mom1.get_history()
-    matching = [h for h in history if h.get("input") == "do something"]
+    matching = [h for h in history if isinstance(h.content, dict) and h.content.get("input") == "do something"]
     assert len(matching) == 1
 
 
@@ -143,7 +143,7 @@ async def test_validated_stream_records_task_type_in_history():
     async for _ in wp1.stream("write code"):
         pass
     history = await mom1.get_history()
-    assert history[-1]["type"] == "task"
+    assert history[-1].content["type"] == "task"
 
 
 async def test_validated_stream_records_mission_route_in_history():
@@ -156,7 +156,7 @@ async def test_validated_stream_records_mission_route_in_history():
     async for _ in wp1.stream("hi", mission_route=MissionRoute.DIRECT):
         pass
     history = await mom1.get_history()
-    assert history[-1]["route"] == "direct"
+    assert history[-1].content["route"] == "direct"
 
 
 async def test_validated_stream_uses_complete_not_stream_complete():

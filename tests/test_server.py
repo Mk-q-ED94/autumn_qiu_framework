@@ -22,9 +22,52 @@ server_app = importlib.import_module("autumn.server.app")
 class _MockMemory:
     def __init__(self, history):
         self._history = history
+        self.consolidated = None
 
     async def get_history(self):
         return self._history
+
+    async def stats(self):
+        return {
+            "area": "mock",
+            "total": len(self._history),
+            "pinned": 0,
+            "expired": 0,
+            "tags": {},
+            "history_limit": 50,
+            "has_vector": False,
+        }
+
+    async def consolidate(self, api, keep_recent=10, min_candidates=3):
+        self.consolidated = {"keep_recent": keep_recent, "min_candidates": min_candidates}
+        if len(self._history) < min_candidates:
+            return None
+        from autumn.core.memory.base import MemoryEntry
+        return MemoryEntry(
+            id="sum", content="summary", timestamp=0.0,
+            importance=1.5, tags=["summary"], meta={"consolidated": len(self._history)},
+        )
+
+
+class _MockProjects:
+    """Stand-in for ProjectMemory recording register/clear and serving history."""
+
+    def __init__(self):
+        self.registered: list[str] = []
+        self.cleared: list[str] = []
+        self.history: dict[str, list] = {}
+
+    async def register(self, project_id):
+        self.registered.append(project_id)
+
+    async def list_projects(self):
+        return sorted(set(self.registered))
+
+    async def clear_project(self, project_id):
+        self.cleared.append(project_id)
+
+    def zone(self, project_id=None):
+        return _MockMemory(self.history.get(project_id, []))
 
 
 class _MockAutumn:
@@ -32,6 +75,8 @@ class _MockAutumn:
         self.mom1 = _MockMemory([{"turn": 1, "input": "hi", "output": "ok"}])
         self.mom2 = _MockMemory([])
         self.mom3 = _MockMemory([])
+        self.projects = _MockProjects()
+        self.a4 = object()  # present → consolidation allowed
         self.ended = False
         self.closed = False
         self.process_calls = []
@@ -354,6 +399,23 @@ def test_apply_config_requires_model(configured_client):
     assert r.status_code == 400
 
 
+def test_apply_config_passes_pricing(configured_client, monkeypatch):
+    _ConfiguredAutumn.instances = []
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+    payload = _config_payload()
+    payload["a2"]["input_price_per_1m"] = 3.0
+    payload["a2"]["output_price_per_1m"] = 15.0
+
+    r = configured_client.post("/config/apply", json=payload)
+
+    assert r.status_code == 200
+    autumn = _ConfiguredAutumn.instances[-1]
+    assert autumn.config.a2.input_price_per_1m == 3.0
+    assert autumn.config.a2.output_price_per_1m == 15.0
+    # Unset slot defaults to no pricing.
+    assert autumn.config.a1.input_price_per_1m == 0.0
+
+
 # ── /process ──────────────────────────────────────────────────────────────────
 
 
@@ -661,6 +723,119 @@ def test_history_pagination_caps_limit(configured_client):
     assert r.status_code == 422
 
 
+# ── /memory/{area}/stats + /consolidate ────────────────────────────────────────
+
+
+def test_memory_stats(configured_client):
+    r = configured_client.get("/memory/mom1/stats")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["area"] == "mock"
+
+
+def test_memory_stats_unknown_area_rejected(configured_client):
+    r = configured_client.get("/memory/bogus/stats")
+    assert r.status_code == 422
+
+
+def test_memory_consolidate_returns_summary(configured_client):
+    configured_client.app.state.autumn.mom1 = _MockMemory([{"i": i} for i in range(5)])
+    r = configured_client.post("/memory/mom1/consolidate", json={"keep_recent": 2, "min_candidates": 3})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["summary"]["tags"] == ["summary"]
+    # tuning params reached the memory layer
+    assert configured_client.app.state.autumn.mom1.consolidated == {
+        "keep_recent": 2, "min_candidates": 3
+    }
+
+
+def test_memory_consolidate_noop_when_too_few(configured_client):
+    configured_client.app.state.autumn.mom1 = _MockMemory([{"i": 0}])
+    r = configured_client.post("/memory/mom1/consolidate", json={"min_candidates": 3})
+    assert r.status_code == 200
+    assert r.json() == {"status": "noop", "summary": None}
+
+
+def test_memory_consolidate_requires_a4(configured_client):
+    configured_client.app.state.autumn.a4 = None
+    r = configured_client.post("/memory/mom1/consolidate")
+    assert r.status_code == 400
+    assert "A4" in r.json()["detail"]
+
+
+# ── /projects (per-project shared memory) ──────────────────────────────────────
+
+
+def test_list_projects_empty(configured_client):
+    r = configured_client.get("/projects")
+    assert r.status_code == 200
+    assert r.json() == {"projects": []}
+
+
+def test_process_registers_project(configured_client):
+    r = configured_client.post("/process", json={"input": "hi", "project_id": "acme"})
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.projects.registered == ["acme"]
+    # And it now appears in the listing.
+    listing = configured_client.get("/projects").json()
+    assert listing == {"projects": ["acme"]}
+
+
+def test_process_without_project_does_not_register(configured_client):
+    r = configured_client.post("/process", json={"input": "hi"})
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.projects.registered == []
+
+
+def test_trace_registers_project(configured_client):
+    r = configured_client.post("/trace", json={"input": "hi", "project_id": "p2"})
+    assert r.status_code == 200
+    assert "p2" in configured_client.app.state.autumn.projects.registered
+
+
+def test_project_memory_returns_history(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [
+        {"k": "deploy", "v": "fly.io"},
+    ]
+    r = configured_client.get("/projects/acme/memory")
+    assert r.status_code == 200
+    assert r.json() == [{"k": "deploy", "v": "fly.io"}]
+
+
+def test_project_memory_pagination(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [
+        {"i": i} for i in range(10)
+    ]
+    r = configured_client.get("/projects/acme/memory", params={"limit": 3, "offset": 2})
+    assert r.status_code == 200
+    assert r.json() == [{"i": 2}, {"i": 3}, {"i": 4}]
+
+
+def test_project_stats(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [{"i": 0}, {"i": 1}]
+    r = configured_client.get("/projects/acme/stats")
+    assert r.status_code == 200
+    assert r.json()["total"] == 2
+
+
+def test_project_consolidate(configured_client):
+    configured_client.app.state.autumn.projects.history["acme"] = [{"i": i} for i in range(4)]
+    r = configured_client.post("/projects/acme/consolidate", json={"min_candidates": 2})
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+    assert r.json()["summary"]["tags"] == ["summary"]
+
+
+def test_clear_project(configured_client):
+    r = configured_client.delete("/projects/acme")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "project_id": "acme"}
+    assert configured_client.app.state.autumn.projects.cleared == ["acme"]
+
+
 # ── /session/end ──────────────────────────────────────────────────────────────
 
 
@@ -694,3 +869,156 @@ def test_terrs_can_toggle_domain(configured_client):
 def test_terrs_toggle_unknown_domain_404(configured_client):
     r = configured_client.patch("/terrs/missing", json={"enabled": False})
     assert r.status_code == 404
+
+
+# ── /ollama (local model management) ────────────────────────────────────────────
+
+
+class _FakeStreamResponse:
+    def __init__(self, lines, status_code=200):
+        self._lines = lines
+        self.status_code = status_code
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+    async def aread(self):
+        return b"boom"
+
+
+class _FakeOllamaClient:
+    version = {"version": "0.5.7"}
+    tags = {
+        "models": [
+            {
+                "name": "qwen2.5:1.5b",
+                "size": 986000000,
+                "modified_at": "2025-06-01T00:00:00Z",
+                "details": {"parameter_size": "1.5B", "family": "qwen2"},
+            }
+        ]
+    }
+    pull_lines = [
+        '{"status":"pulling manifest"}',
+        '{"status":"downloading","total":1000,"completed":1000}',
+        '{"status":"success"}',
+    ]
+    pull_status = 200
+    deleted = []
+    seen_urls = []
+
+    def __init__(self, timeout=None, headers=None):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def get(self, url):
+        self.__class__.seen_urls.append(url)
+        if url.endswith("/api/version"):
+            return _FakeHTTPResponse(self.__class__.version)
+        if url.endswith("/api/tags"):
+            return _FakeHTTPResponse(self.__class__.tags)
+        return _FakeHTTPResponse({}, 404)
+
+    async def request(self, method, url, json=None):
+        if url.endswith("/api/delete"):
+            self.__class__.deleted.append(json)
+            return _FakeHTTPResponse({})
+        return _FakeHTTPResponse({}, 404)
+
+    def stream(self, method, url, json=None):
+        self.__class__.seen_urls.append(url)
+        return _FakeStreamResponse(self.__class__.pull_lines, self.__class__.pull_status)
+
+
+class _DownOllamaClient(_FakeOllamaClient):
+    async def get(self, url):
+        raise server_app.httpx.ConnectError("connection refused")
+
+
+def test_ollama_status_running(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    r = unconfigured_client.post("/ollama/status", json={"base_url": "http://localhost:11434"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["running"] is True
+    assert body["version"] == "0.5.7"
+
+
+def test_ollama_status_down_is_graceful(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _DownOllamaClient)
+    r = unconfigured_client.post("/ollama/status", json={"base_url": "http://x:1"})
+    assert r.status_code == 200
+    assert r.json()["running"] is False
+
+
+def test_ollama_models_strips_v1_suffix(unconfigured_client, monkeypatch):
+    _FakeOllamaClient.seen_urls = []
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    # A /v1 base (the A4 chat URL) must be normalised to the native /api endpoint.
+    r = unconfigured_client.post("/ollama/models", json={"base_url": "http://localhost:11434/v1"})
+    assert r.status_code == 200
+    models = r.json()["models"]
+    assert models[0]["name"] == "qwen2.5:1.5b"
+    assert models[0]["parameter_size"] == "1.5B"
+    assert any(u == "http://localhost:11434/api/tags" for u in _FakeOllamaClient.seen_urls)
+
+
+def test_ollama_models_error_returns_502(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _DownOllamaClient)
+    r = unconfigured_client.post("/ollama/models", json={})
+    assert r.status_code == 502
+
+
+def test_ollama_recommended_has_a_default(unconfigured_client):
+    r = unconfigured_client.get("/ollama/recommended")
+    assert r.status_code == 200
+    models = r.json()["models"]
+    assert len(models) >= 1
+    assert any(m["recommended"] for m in models)
+    assert all({"name", "label", "size", "note"} <= set(m) for m in models)
+
+
+def test_ollama_delete_forwards_name(unconfigured_client, monkeypatch):
+    _FakeOllamaClient.deleted = []
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    r = unconfigured_client.request(
+        "DELETE",
+        "/ollama/models",
+        json={"base_url": "http://localhost:11434", "name": "qwen2.5:1.5b"},
+    )
+    assert r.status_code == 200
+    assert _FakeOllamaClient.deleted[0]["name"] == "qwen2.5:1.5b"
+
+
+def test_ollama_pull_streams_progress_then_done(unconfigured_client, monkeypatch):
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeOllamaClient)
+    r = unconfigured_client.get("/ollama/pull", params={"name": "qwen2.5:1.5b"})
+    assert r.status_code == 200
+    datas = [line[6:] for line in r.text.splitlines() if line.startswith("data: ")]
+    assert datas[-1] == "[DONE]"
+    parsed = [json.loads(d) for d in datas if d != "[DONE]"]
+    assert any(p.get("status") == "success" for p in parsed)
+
+
+def test_ollama_pull_http_error_emits_error_event(unconfigured_client, monkeypatch):
+    class _ErrClient(_FakeOllamaClient):
+        pull_status = 500
+
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _ErrClient)
+    r = unconfigured_client.get("/ollama/pull", params={"name": "x"})
+    assert r.status_code == 200
+    datas = [line[6:] for line in r.text.splitlines() if line.startswith("data: ")]
+    assert any("error" in d for d in datas)
+    assert datas[-1] == "[DONE]"

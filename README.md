@@ -37,6 +37,33 @@ A multi-model collaborative workflow framework. Three model API interfaces (A1, 
 - `Mom2` and `Mom3` share a public zone but cannot read `Mom1`.
 - Each layer has two tiers: short-term in-memory cache + persistent SQLite.
 
+**Per-project shared memory** — each project id gets its own isolated zone, but
+within a project the zone is *shared* across every workspace and turn:
+
+```python
+autumn.add_memory_skills("project")        # recall/remember bind to the active project
+with autumn.project_scope("acme-app"):     # sets the active project for this block
+    await autumn.process("remember the deploy target is fly.io")
+# A different project sees nothing of acme-app's memory:
+await autumn.project_zone("acme-app").get("...")   # isolated namespace
+```
+
+Over HTTP, pass `project_id` to `/process`, `/trace`, or `/stream`; manage zones
+with `GET /projects`, `GET /projects/{id}/memory`, and `DELETE /projects/{id}`.
+
+**Memory lifecycle** — every zone (Mom1/2/3, shared, project) supports:
+
+- **Importance & pinning** — `append_history(..., importance=2.0)` pins an entry;
+  pinned entries never evict. Eviction drops the lowest-importance entries first.
+- **TTL / expiry** — `append_history(..., ttl=3600)` makes an entry ephemeral;
+  expired entries are filtered on read and purged on the next write.
+- **Time-decay** — set `MEMORY_DECAY_HALF_LIFE` (seconds) so stale low-value
+  memories fade and get evicted before fresh ones.
+- **Consolidation** — `await zone.consolidate(api)` summarises old entries into a
+  single pinned digest (uses the A4 model); over HTTP: `POST /memory/{area}/consolidate`.
+- **Forget & stats** — `zone.forget(tags=..., before=..., expired=True)` bulk-prunes;
+  `zone.stats()` / `GET /memory/{area}/stats` report counts, tags and time span.
+
 ## Quick start
 
 ```bash
@@ -126,7 +153,7 @@ config = AutumnConfig(
                    model="llama3.1:8b", protocol=Protocol.OPENAI),
 )
 async with Autumn(config) as autumn:
-    autumn.add_memory_skills("shared")  # or "mom1" / "mom2" / "mom3"
+    autumn.add_memory_skills("shared")  # or "mom1" / "mom2" / "mom3" / "project"
     await autumn.process("回忆一下我上周让你研究的事情")
 ```
 
@@ -138,6 +165,49 @@ from autumn import CLIInteraction
 async with Autumn(config, interaction=CLIInteraction()) as autumn:
     await autumn.process("...")  # confirms low-confidence classifications, asks mission route
 ```
+
+## Built-in capability domains (Terrs)
+
+`autumn.builtin` ships ready-made Terr factories for the chores every agent
+ends up needing — telling time, doing math, parsing JSON, fetching URLs,
+reading sandbox files. They register through the same enable/disable toggle
+the desktop UI uses for every other Terr.
+
+| Terr     | Safety       | Tools / skills                                                |
+| -------- | ------------ | ------------------------------------------------------------- |
+| `time`   | always safe  | `now`, `parse_time`, `time_diff`, `time_add`, `time_today`    |
+| `math`   | always safe  | `calc` (AST-whitelisted), `stats`                             |
+| `text`   | always safe  | `count_text`, `regex_find`, `extract_urls`, `split`, `replace`|
+| `data`   | always safe  | `parse_json`, `to_json`, `parse_csv`, `to_csv`, `json_path`   |
+| `web`    | opt-in (net) | `http_get`, `http_get_json`, `http_head`, `fetch_text`        |
+| `fs`     | sandboxed    | `read_file`, `write_file`, `list_dir`, `file_info`, `delete_file` |
+| `memory` | bound to area | `recall`, `remember` (re-export of memory skills)           |
+
+```python
+from autumn import time_terr, math_terr, register_safe_builtins, register_builtins
+
+# Pick what you need
+autumn.register_terr(time_terr())
+autumn.register_terr(math_terr())
+
+# Or wire up the safe set in one call
+register_safe_builtins(autumn)               # time + math + text + data
+
+# Opt into network + filesystem + memory
+register_builtins(
+    autumn,
+    include_web=True,
+    fs_root="/tmp/agent-ws",
+    include_memory=True,
+    memory_area="shared",
+)
+```
+
+`autumn.builtin.mcp_catalog` exposes factory functions for the official MCP
+servers most commonly used by agents: `mcp_filesystem`, `mcp_fetch`,
+`mcp_git`, `mcp_sqlite`, `mcp_brave_search`, `mcp_github`, `mcp_puppeteer`,
+`mcp_memory`. Each returns an unconnected `StdioMCPClient`; pass it into a
+`Terr(mcps=[...])` and `await autumn.add_terr(...)` to connect and register.
 
 ## Plugins
 

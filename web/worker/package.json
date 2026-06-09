@@ -1,0 +1,9 @@
+{
+  "name": "autumn-worker",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250523.0",
+    "typescript": "^5.4.5"
+  }
+}

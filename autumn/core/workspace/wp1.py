@@ -102,11 +102,12 @@ class WP1Tot(WorkspaceBase):
         selector_prompt: str | None = None,
         headless_mission_route: MissionRoute | Literal["auto"] = "auto",
         validate_before_stream: bool = True,
+        confirm_threshold: float = 0.75,
     ):
         super().__init__(api, memory)
         self.wp2 = wp2
         self.wp3 = wp3
-        self.selector = Selector(api, system_prompt=selector_prompt)
+        self.selector = Selector(api, system_prompt=selector_prompt, confirm_threshold=confirm_threshold)
         self.interaction = interaction
         self._headless_route = headless_mission_route
         self._validate_before_stream = validate_before_stream

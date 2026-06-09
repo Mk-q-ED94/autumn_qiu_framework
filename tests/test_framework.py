@@ -148,6 +148,45 @@ def test_add_memory_skills_unknown_area_raises(tmp_path):
         autumn.add_memory_skills("nonexistent")
 
 
+def test_add_memory_skills_project_area(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    autumn.add_memory_skills("project")
+    names = {name for name, obj in autumn.plugins.all().items() if isinstance(obj, Skill)}
+    assert {"recall", "remember", "list_recent", "pin_memory"} <= names
+
+
+# ── per-project shared memory ───────────────────────────────────────────────────
+
+
+def test_project_zone_isolated_per_id(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    assert autumn.project_zone("a").project_id == "a"
+    assert autumn.project_zone("a") is autumn.project_zone("a")  # cached
+    assert autumn.project_zone("a") is not autumn.project_zone("b")
+
+
+async def test_project_scope_routes_memory_skills(tmp_path):
+    """add_memory_skills('project') + project_scope() → reads/writes the active
+    project's shared zone, isolated from other projects."""
+    autumn = Autumn(_config(tmp_path))
+    autumn.add_memory_skills("project")
+    plugins = autumn.plugins.all()
+    recall = plugins["recall"]
+    remember = plugins["remember"]
+
+    with autumn.project_scope("alpha"):
+        await remember.execute(key="target", value="fly.io")
+    with autumn.project_scope("beta"):
+        await remember.execute(key="target", value="render.com")
+        assert await recall.execute(query="target") == "render.com"
+    with autumn.project_scope("alpha"):
+        assert await recall.execute(query="target") == "fly.io"
+
+    # And the data is actually in the per-project zones.
+    assert await autumn.project_zone("alpha").get("target") == "fly.io"
+    assert await autumn.project_zone("beta").get("target") == "render.com"
+
+
 # ── end_session ───────────────────────────────────────────────────────────────
 
 

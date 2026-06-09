@@ -112,10 +112,12 @@ class WP2Tas(WorkspaceBase):
         memory,
         system_prompt: str | None = None,
         tool_provider: ToolProvider | None = None,
+        agent_max_steps: int = 10,
     ):
         super().__init__(api, memory)
         self._system = system_prompt or _DEFAULT_SYSTEM
         self._tool_provider = tool_provider
+        self._agent_max_steps = agent_max_steps
 
     async def process(self, task_input: str, task_type: TaskType | None = None) -> str:
         output, *_ = await self._execute(task_input, task_type)
@@ -217,6 +219,7 @@ class WP2Tas(WorkspaceBase):
             tools=tools,
             skills=skills,
             instructions=_apply_hint(self._system, task_type),
+            max_steps=self._agent_max_steps,
         )
         result = await agent.run(task_input, memory=self.memory, steps=steps)
         return result, agent.total_prompt_tokens, agent.total_completion_tokens

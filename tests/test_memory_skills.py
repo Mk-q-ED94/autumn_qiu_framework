@@ -1,4 +1,4 @@
-"""Tests for the memory-backed recall/remember Skills."""
+"""Tests for the memory-backed recall/remember/list_recent/pin_memory Skills."""
 import pytest
 
 from autumn.core.memory.backends import DictBackend
@@ -13,9 +13,12 @@ def _make_memory(name: str = "test") -> MemoryArea:
     return MemoryArea(name, DictBackend())
 
 
-class _FakeAPI:
-    """Minimal async API stub for A4 synthesis tests."""
+def _skills(mem, api=None):
+    skills = make_memory_skills(mem, api=api)
+    return skills[0], skills[1], skills[2], skills[3]  # recall, remember, list_recent, pin_memory
 
+
+class _FakeAPI:
     def __init__(self, answer: str):
         self._answer = answer
 
@@ -28,7 +31,7 @@ class _FakeAPI:
 
 async def test_remember_stores_string():
     mem = _make_memory()
-    recall, remember = make_memory_skills(mem)
+    recall, remember, _, _ = _skills(mem)
     result = await remember.execute(key="city", value="Beijing")
     assert "[remembered 'city']" == result
     assert await mem.get("city") == "Beijing"
@@ -37,21 +40,21 @@ async def test_remember_stores_string():
 async def test_recall_exact_key_hit():
     mem = _make_memory()
     await mem.set("lang", "Python")
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     result = await recall.execute(query="lang")
     assert result == "Python"
 
 
 async def test_recall_missing_returns_message():
     mem = _make_memory()
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     result = await recall.execute(query="nonexistent")
     assert "no memory found" in result
 
 
 async def test_recall_after_remember():
     mem = _make_memory()
-    recall, remember = make_memory_skills(mem)
+    recall, remember, _, _ = _skills(mem)
     await remember.execute(key="project", value="Autumn")
     result = await recall.execute(query="project")
     assert result == "Autumn"
@@ -60,7 +63,7 @@ async def test_recall_after_remember():
 async def test_recall_dict_value_as_json():
     mem = _make_memory()
     await mem.set("config", {"a": 1, "b": 2})
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     result = await recall.execute(query="config")
     import json
     assert json.loads(result) == {"a": 1, "b": 2}
@@ -69,7 +72,7 @@ async def test_recall_dict_value_as_json():
 async def test_recall_list_value_as_json():
     mem = _make_memory()
     await mem.set("tags", ["fast", "reliable"])
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     result = await recall.execute(query="tags")
     import json
     assert json.loads(result) == ["fast", "reliable"]
@@ -83,24 +86,26 @@ def test_skill_names():
     skills = make_memory_skills(mem)
     assert skills[0].name == "recall"
     assert skills[1].name == "remember"
+    assert skills[2].name == "list_recent"
+    assert skills[3].name == "pin_memory"
 
 
 def test_recall_schema_has_query_param():
     mem = _make_memory()
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     assert any(p.name == "query" for p in recall.parameters)
 
 
 def test_remember_schema_has_key_and_value():
     mem = _make_memory()
-    _, remember = make_memory_skills(mem)
+    _, remember, _, _ = _skills(mem)
     names = {p.name for p in remember.parameters}
     assert names == {"key", "value"}
 
 
 def test_openai_schema_structure():
     mem = _make_memory()
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     schema = recall.to_openai_schema()
     assert schema["type"] == "function"
     assert schema["function"]["name"] == "recall"
@@ -109,7 +114,7 @@ def test_openai_schema_structure():
 
 def test_anthropic_schema_structure():
     mem = _make_memory()
-    recall, _ = make_memory_skills(mem)
+    recall, _, _, _ = _skills(mem)
     schema = recall.to_anthropic_schema()
     assert schema["name"] == "recall"
     assert "query" in schema["input_schema"]["properties"]
@@ -119,18 +124,15 @@ def test_anthropic_schema_structure():
 
 
 async def test_recall_no_vector_skips_api():
-    """Without vector search, A4 is never consulted."""
     mem = _make_memory()
     api = _FakeAPI("should not appear")
-    recall, _ = make_memory_skills(mem, api=api)
-    # No exact key match and no vector layer → fallback message, not A4 output
+    recall, _, _, _ = _skills(mem, api=api)
     result = await recall.execute(query="unknown")
     assert "no memory found" in result
     assert "should not appear" not in result
 
 
 async def test_recall_with_api_none_returns_snippets(monkeypatch):
-    """Vector results returned raw when no A4 api is configured."""
     from autumn.core.memory.base import MemoryArea, _VectorLayer
 
     class _FakeResult:
@@ -146,14 +148,13 @@ async def test_recall_with_api_none_returns_snippets(monkeypatch):
 
     mem = _make_memory()
     mem._vector = _VectorLayer(_FakeEmbedding(), _FakeStore())
-    recall, _ = make_memory_skills(mem, api=None)
+    recall, _, _, _ = _skills(mem, api=None)
     result = await recall.execute(query="capital of Germany")
     assert "Berlin is the capital" in result
     assert "relevance=" in result
 
 
 async def test_recall_with_api_synthesises_results(monkeypatch):
-    """When A4 is set and vector search finds results, A4 is used to synthesise."""
     from autumn.core.memory.base import MemoryArea, _VectorLayer
 
     class _FakeResult:
@@ -170,7 +171,7 @@ async def test_recall_with_api_synthesises_results(monkeypatch):
     mem = _make_memory()
     mem._vector = _VectorLayer(_FakeEmbedding(), _FakeStore())
     api = _FakeAPI("Paris")
-    recall, _ = make_memory_skills(mem, api=api)
+    recall, _, _, _ = _skills(mem, api=api)
     result = await recall.execute(query="capital of France")
     assert result == "Paris"
 
@@ -179,7 +180,6 @@ async def test_recall_with_api_synthesises_results(monkeypatch):
 
 
 async def test_remember_indexes_when_vector_enabled(monkeypatch):
-    """remember() should call memory.index() when vector layer is present."""
     from autumn.core.memory.base import MemoryArea, _VectorLayer
 
     indexed: list[tuple] = []
@@ -192,6 +192,64 @@ async def test_remember_indexes_when_vector_enabled(monkeypatch):
 
     mem = _make_memory()
     mem._vector = _VectorLayer(_FakeEmbedding(), _FakeStore())
-    _, remember = make_memory_skills(mem)
+    _, remember, _, _ = _skills(mem)
     await remember.execute(key="fact", value="The sky is blue")
     assert any("fact" in idx[0] for idx in indexed)
+
+
+# ── list_recent skill ─────────────────────────────────────────────────────────
+
+
+async def test_list_recent_empty():
+    mem = _make_memory()
+    _, _, list_recent, _ = _skills(mem)
+    result = await list_recent.execute(n="5")
+    assert "no history" in result
+
+
+async def test_list_recent_shows_entries():
+    mem = _make_memory()
+    await mem.append_history({"msg": "hello"})
+    await mem.append_history({"msg": "world"})
+    _, _, list_recent, _ = _skills(mem)
+    result = await list_recent.execute(n="5")
+    assert "hello" in result or "world" in result  # content appears in text
+
+
+async def test_list_recent_respects_n():
+    mem = _make_memory()
+    for i in range(10):
+        await mem.append_history({"i": i})
+    _, _, list_recent, _ = _skills(mem)
+    result = await list_recent.execute(n="3")
+    lines = [l for l in result.strip().split("\n") if l]
+    assert len(lines) == 3
+
+
+# ── pin_memory skill ──────────────────────────────────────────────────────────
+
+
+async def test_pin_memory_found():
+    mem = _make_memory()
+    entry = await mem.append_history("important")
+    _, _, _, pin_memory = _skills(mem)
+    result = await pin_memory.execute(entry_id=entry.id)
+    assert "pinned" in result
+
+
+async def test_pin_memory_not_found():
+    mem = _make_memory()
+    _, _, _, pin_memory = _skills(mem)
+    result = await pin_memory.execute(entry_id="does-not-exist")
+    assert "not found" in result
+
+
+async def test_pin_memory_survives_eviction():
+    mem = MemoryArea("ws", DictBackend(), history_limit=2)
+    entry = await mem.append_history("keep this")
+    _, _, _, pin_memory = _skills(mem)
+    await pin_memory.execute(entry_id=entry.id)
+    await mem.append_history("fill 1")
+    await mem.append_history("fill 2")
+    history = await mem.get_history()
+    assert any(e.id == entry.id for e in history)

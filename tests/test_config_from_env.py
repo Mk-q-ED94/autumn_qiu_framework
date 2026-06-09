@@ -15,7 +15,11 @@ from autumn.core.types import Protocol, MissionRoute
 def clean_env(monkeypatch):
     """Strip every Autumn-related env var before each test."""
     for key in list(os.environ):
-        if any(key.startswith(p) for p in ("A1_", "A2_", "A3_", "EMBEDDING_", "STORAGE_", "HEADLESS_", "AUTO_INDEX")):
+        if any(key.startswith(p) for p in (
+            "A1_", "A2_", "A3_", "A4_", "X_", "EMBEDDING_", "STORAGE_", "HEADLESS_",
+            "AUTO_INDEX", "VALIDATE_", "AGENT_MAX_STEPS", "CHECKER_RETRIES",
+            "CONFIRM_THRESHOLD", "HISTORY_LIMIT", "MEMORY_DECAY_HALF_LIFE",
+        )):
             monkeypatch.delenv(key, raising=False)
     return monkeypatch
 
@@ -188,3 +192,87 @@ def test_autumn_config_from_env_with_file(clean_env, tmp_path):
     cfg = AutumnConfig.from_env(env_file=str(f))
     assert cfg.a1.api_key == "k1"
     assert cfg.a3.model == "m3"
+
+
+# ── ModelConfig pricing ─────────────────────────────────────────────────────────
+
+def test_model_config_pricing_from_env(clean_env):
+    clean_env.setenv("X_API_KEY", "k")
+    clean_env.setenv("X_BASE_URL", "https://x")
+    clean_env.setenv("X_MODEL", "m")
+    clean_env.setenv("X_INPUT_PRICE", "2.5")
+    clean_env.setenv("X_OUTPUT_PRICE", "10")
+    cfg = ModelConfig.from_env("X")
+    assert cfg.input_price_per_1m == 2.5
+    assert cfg.output_price_per_1m == 10.0
+    assert cfg.has_pricing is True
+
+
+def test_model_config_pricing_defaults_to_zero(clean_env):
+    clean_env.setenv("X_API_KEY", "k")
+    clean_env.setenv("X_BASE_URL", "https://x")
+    clean_env.setenv("X_MODEL", "m")
+    cfg = ModelConfig.from_env("X")
+    assert cfg.input_price_per_1m == 0.0
+    assert cfg.has_pricing is False
+
+
+def test_model_config_pricing_junk_falls_back(clean_env):
+    clean_env.setenv("X_API_KEY", "k")
+    clean_env.setenv("X_BASE_URL", "https://x")
+    clean_env.setenv("X_MODEL", "m")
+    clean_env.setenv("X_INPUT_PRICE", "not-a-number")
+    cfg = ModelConfig.from_env("X")
+    assert cfg.input_price_per_1m == 0.0
+
+
+def test_model_config_cost_computation():
+    cfg = ModelConfig("k", "u", "m", Protocol.OPENAI,
+                      input_price_per_1m=3.0, output_price_per_1m=15.0)
+    # 1000 prompt @ $3/1M + 500 completion @ $15/1M = 0.003 + 0.0075
+    assert cfg.cost(1000, 500) == pytest.approx(0.0105)
+    assert cfg.cost(None, None) == 0.0
+
+
+# ── BehaviorConfig ──────────────────────────────────────────────────────────────
+
+def test_behavior_config_defaults():
+    from autumn.core.config import BehaviorConfig
+    b = BehaviorConfig()
+    assert b.agent_max_steps == 10
+    assert b.checker_retries == 3
+    assert b.confirm_threshold == 0.75
+    assert b.history_limit == 50
+    assert b.memory_decay_half_life == 0.0  # off by default
+
+
+def test_behavior_config_from_env(clean_env):
+    from autumn.core.config import BehaviorConfig
+    clean_env.setenv("AGENT_MAX_STEPS", "20")
+    clean_env.setenv("CHECKER_RETRIES", "1")
+    clean_env.setenv("CONFIRM_THRESHOLD", "0.5")
+    clean_env.setenv("HISTORY_LIMIT", "200")
+    clean_env.setenv("MEMORY_DECAY_HALF_LIFE", "3600")
+    b = BehaviorConfig.from_env()
+    assert b.agent_max_steps == 20
+    assert b.checker_retries == 1
+    assert b.confirm_threshold == 0.5
+    assert b.history_limit == 200
+    assert b.memory_decay_half_life == 3600.0
+
+
+def test_behavior_config_from_env_partial_keeps_defaults(clean_env):
+    from autumn.core.config import BehaviorConfig
+    clean_env.setenv("AGENT_MAX_STEPS", "7")
+    b = BehaviorConfig.from_env()
+    assert b.agent_max_steps == 7
+    assert b.checker_retries == 3  # untouched default
+
+
+def test_autumn_config_from_env_includes_behavior(clean_env):
+    _set_minimum(clean_env)
+    clean_env.setenv("AGENT_MAX_STEPS", "15")
+    clean_env.setenv("A1_INPUT_PRICE", "1.0")
+    cfg = AutumnConfig.from_env()
+    assert cfg.behavior.agent_max_steps == 15
+    assert cfg.a1.input_price_per_1m == 1.0

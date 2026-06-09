@@ -1,0 +1,15 @@
+{
+  "name": "autumn-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "dev:frontend": "cd frontend && npm install && npm run dev",
+    "deploy": "npm run build && wrangler deploy",
+    "dev": "npm run build && wrangler dev",
+    "secret:auth": "wrangler secret put AUTH_TOKEN"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
+  }
+}
