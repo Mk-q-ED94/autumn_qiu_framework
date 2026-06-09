@@ -728,7 +728,7 @@ def create_app() -> FastAPI:
         """Partially update a project's metadata. Omitted fields are unchanged."""
         autumn = _autumn_or_503(request)
         projects = _projects_or_501(autumn)
-        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        updates = {k: v for k, v in body.dict().items() if v is not None}
         meta = await projects.update_metadata(project_id, **updates)
         return meta.to_dict()
 
