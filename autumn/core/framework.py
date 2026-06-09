@@ -7,6 +7,7 @@ from .interaction import UserInteraction
 from .api.interfaces import A1, A2, A3, A4
 from .api.embedding import EmbeddingInterface
 from .memory.backends import SQLiteBackend, HybridBackend, SQLiteVectorStore
+from .memory.base import MemoryArea
 from .memory.shared import SharedZone
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
@@ -15,6 +16,7 @@ from .memory.project import ProjectMemory, ProjectZone, project_context
 from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
+from .workspace.wp4 import WP4Mem
 from .components.checker import Checker
 from .components.agent import Agent
 from .components.skill import Skill
@@ -132,6 +134,25 @@ class Autumn:
         self.projects = ProjectMemory(
             HybridBackend(SQLiteBackend(db + ".projects")),
             history_limit=hist, decay_half_life=decay,
+        )
+
+        # WP4 (A4) — the dedicated memory-management workspace. It owns the A4
+        # slot and curates every zone above: recall synthesis and consolidation
+        # run on A4, while forget/stats/pin delegate to the target area. Its own
+        # audit log records each management action it performs.
+        self.wp4 = WP4Mem(
+            self.a4,
+            MemoryArea(
+                "wp4", HybridBackend(SQLiteBackend(db + ".wp4")),
+                history_limit=hist, decay_half_life=decay,
+            ),
+            zones={
+                "mom1": self.mom1,
+                "mom2": self.mom2,
+                "mom3": self.mom3,
+                "shared": self.shared,
+            },
+            projects=self.projects,
         )
 
         self._embedding: EmbeddingInterface | None = None
@@ -329,24 +350,11 @@ class Autumn:
             shared zone: a single registration that transparently reads and
             writes whichever project is active for the current request (set via
             :meth:`project_scope`).
+
+        The skills are built by WP4, the memory-management workspace, so they
+        share the A4 model and zone resolution WP4 uses everywhere else.
         """
-        from .memory.skills import make_memory_skills, make_project_memory_skills
-        if area == "project":
-            for skill in make_project_memory_skills(self.projects, api=self.a4):
-                self.register_skill(skill)
-            return
-        _areas = {
-            "shared": self.shared,
-            "mom1": self.mom1,
-            "mom2": self.mom2,
-            "mom3": self.mom3,
-        }
-        if area not in _areas:
-            raise ValueError(
-                f"Unknown memory area: {area!r}.  "
-                f"Choose from: {list(_areas) + ['project']}"
-            )
-        for skill in make_memory_skills(_areas[area], api=self.a4):
+        for skill in self.wp4.skills(area):
             self.register_skill(skill)
 
     def project_zone(self, project_id: str | None = None) -> ProjectZone:
