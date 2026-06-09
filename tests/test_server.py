@@ -12,6 +12,9 @@ os.environ["AUTUMN_SKIP_INIT"] = "1"
 
 from autumn.server.app import create_app  # noqa: E402
 from autumn.core.types import InputType, MissionRoute, SelectorResult, TaskType, WorkflowRun, WorkflowStage  # noqa: E402
+from autumn.core.memory.backends import DictBackend  # noqa: E402
+from autumn.core.memory.base import MemoryArea  # noqa: E402
+from autumn.core.workspace.wp4 import WP4Mem  # noqa: E402
 
 server_app = importlib.import_module("autumn.server.app")
 
@@ -75,8 +78,20 @@ class _MockAutumn:
         self.mom1 = _MockMemory([{"turn": 1, "input": "hi", "output": "ok"}])
         self.mom2 = _MockMemory([])
         self.mom3 = _MockMemory([])
+        self.shared = _MockMemory([])
         self.projects = _MockProjects()
         self.a4 = object()  # present → consolidation allowed
+        # WP4 curates every memory zone; the server routes memory endpoints
+        # through it. A real WP4Mem over the mock zones keeps that path honest.
+        self.wp4 = WP4Mem(
+            self.a4,
+            MemoryArea("wp4", DictBackend()),
+            zones={
+                "mom1": self.mom1, "mom2": self.mom2,
+                "mom3": self.mom3, "shared": self.shared,
+            },
+            projects=self.projects,
+        )
         self.ended = False
         self.closed = False
         self.process_calls = []
@@ -705,7 +720,7 @@ def test_history_pagination_slices_results(configured_client):
     """Limit + offset return a window over the full history so big sessions
     don't blow up the wire."""
     entries = [{"turn": i} for i in range(10)]
-    configured_client.app.state.autumn.mom1 = _MockMemory(entries)
+    configured_client.app.state.autumn.mom1._history = entries
 
     r = configured_client.get("/memory/mom1/history", params={"limit": 3, "offset": 2})
     assert r.status_code == 200
@@ -740,7 +755,7 @@ def test_memory_stats_unknown_area_rejected(configured_client):
 
 
 def test_memory_consolidate_returns_summary(configured_client):
-    configured_client.app.state.autumn.mom1 = _MockMemory([{"i": i} for i in range(5)])
+    configured_client.app.state.autumn.mom1._history = [{"i": i} for i in range(5)]
     r = configured_client.post("/memory/mom1/consolidate", json={"keep_recent": 2, "min_candidates": 3})
     assert r.status_code == 200
     body = r.json()
@@ -753,17 +768,27 @@ def test_memory_consolidate_returns_summary(configured_client):
 
 
 def test_memory_consolidate_noop_when_too_few(configured_client):
-    configured_client.app.state.autumn.mom1 = _MockMemory([{"i": 0}])
+    configured_client.app.state.autumn.mom1._history = [{"i": 0}]
     r = configured_client.post("/memory/mom1/consolidate", json={"min_candidates": 3})
     assert r.status_code == 200
     assert r.json() == {"status": "noop", "summary": None}
 
 
 def test_memory_consolidate_requires_a4(configured_client):
-    configured_client.app.state.autumn.a4 = None
+    # WP4 owns the A4 slot now; drop it and consolidation must 400.
+    configured_client.app.state.autumn.wp4.api = None
     r = configured_client.post("/memory/mom1/consolidate")
     assert r.status_code == 400
     assert "A4" in r.json()["detail"]
+
+
+def test_memory_stats_overview_aggregates_zones(configured_client):
+    r = configured_client.get("/memory/stats")
+    assert r.status_code == 200
+    body = r.json()
+    # Every managed zone is reported; mom1 seeds one entry by default.
+    assert set(body["zones"]) == {"mom1", "mom2", "mom3", "shared"}
+    assert body["total"] == 1
 
 
 # ── /projects (per-project shared memory) ──────────────────────────────────────
