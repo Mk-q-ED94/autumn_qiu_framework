@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="./assets/icon.png" alt="秋 / Autumn" width="120" height="120">
+  <img src="./assets/banner.png" alt="秋 / Autumn — 多模型协同工作流框架" width="100%">
 </p>
-
-<h1 align="center">秋 / Autumn</h1>
 
 <p align="center"><a href="./README.md">English</a> | <strong>简体中文</strong></p>
 
