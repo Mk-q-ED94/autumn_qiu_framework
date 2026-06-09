@@ -16,9 +16,16 @@ Zones are addressed by name:
 WP4 keeps its own audit log (``self.memory``) so each management action it
 performs — consolidations, forgets, remembers — is itself recorded and
 observable, the same way every other workspace logs its turns to its Mom area.
+
+WP4 also provides A4-powered project intelligence:
+
+* :meth:`draft_description` — synthesise a project description from free text
+* :meth:`draft_goals` — structure goals into master / long-term / short-term
+* :meth:`infer_environment` — suggest terrs, skills, tools, MCP, agent channel
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -27,7 +34,7 @@ from .base import WorkspaceBase
 if TYPE_CHECKING:
     from ..components.skill import Skill
     from ..memory.base import MemoryArea, MemoryEntry
-    from ..memory.project import ProjectMemory
+    from ..memory.project import ProjectGoals, ProjectMeta, ProjectMemory
 
 
 class WP4Mem(WorkspaceBase):
@@ -237,6 +244,141 @@ class WP4Mem(WorkspaceBase):
             "total": sum(z.get("total", 0) for z in zones.values()),
             "areas": list(zones),
         }
+
+    # ── project intelligence (A4-powered) ──────────────────────────────────────
+
+    def _require_model(self, op: str) -> None:
+        if not self.has_model:
+            raise RuntimeError(
+                f"{op} needs the A4 model slot; none is configured."
+            )
+
+    def _require_projects(self) -> "ProjectMemory":
+        if self._projects is None:
+            raise ValueError("Project memory is not configured.")
+        return self._projects
+
+    @staticmethod
+    def _extract_json(text: str) -> str:
+        """Strip markdown fences so json.loads can parse AI responses."""
+        text = text.strip()
+        if "```" in text:
+            parts = text.split("```")
+            for part in parts[1::2]:  # odd parts are inside fences
+                code = part.strip()
+                if code.lower().startswith("json"):
+                    code = code[4:].strip()
+                if code.startswith(("{", "[")):
+                    return code
+        return text
+
+    async def draft_description(self, user_input: str, project_id: str) -> str:
+        """Synthesise a concise project description from the user's free-text input.
+
+        The result is *not* persisted automatically — call
+        ``projects.update_metadata(project_id, description=result)`` to save it.
+        """
+        self._require_model("Description drafting")
+        self._require_projects()
+        from ..types import Message, Role
+
+        messages = [
+            Message(
+                role=Role.SYSTEM,
+                content=(
+                    "You are a project assistant. The user will describe their project idea. "
+                    "Synthesise a clear, concise project description (2–4 sentences). "
+                    "Return only the description text, no preamble or commentary."
+                ),
+            ),
+            Message(role=Role.USER, content=user_input),
+        ]
+        result = await self.api.complete(messages)
+        return result.strip()
+
+    async def draft_goals(self, user_input: str, project_id: str) -> "ProjectGoals":
+        """Structure the user's goal description into master / long-term / short-term.
+
+        Returns a :class:`~autumn.core.memory.project.ProjectGoals` instance.
+        The result is *not* persisted automatically — call
+        ``projects.update_metadata(project_id, goals=result.to_dict())`` to save it.
+        """
+        self._require_model("Goals drafting")
+        projects = self._require_projects()
+        from ..memory.project import ProjectGoals
+        from ..types import Message, Role
+
+        meta = await projects.zone(project_id).get_meta()
+        desc_context = f"Project description: {meta.description}\n\n" if meta.description else ""
+
+        messages = [
+            Message(
+                role=Role.SYSTEM,
+                content=(
+                    "You are a project planning assistant. Structure the user's goals into "
+                    "one master goal, a list of long-term goals, and a list of short-term goals. "
+                    'Respond ONLY with valid JSON: {"master": "...", "long_term": ["..."], "short_term": ["..."]}'
+                ),
+            ),
+            Message(
+                role=Role.USER,
+                content=f"{desc_context}Goals description: {user_input}",
+            ),
+        ]
+        response = await self.api.complete(messages)
+        try:
+            data = json.loads(self._extract_json(response))
+            return ProjectGoals.from_dict(data)
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            return ProjectGoals(master=response.strip()[:300])
+
+    async def infer_environment(self, project_id: str) -> "ProjectMeta":
+        """Infer an appropriate environment config for *project_id* using A4.
+
+        Reads the project's type, description, and master goal, calls A4 to
+        suggest terrs / skills / tools / MCP / agent channel, and **persists**
+        the result back into the project's metadata. Returns the full updated
+        :class:`~autumn.core.memory.project.ProjectMeta`.
+        """
+        self._require_model("Environment inference")
+        projects = self._require_projects()
+        from ..memory.project import ProjectEnvironment
+        from ..types import Message, Role
+
+        zone = projects.zone(project_id)
+        meta = await zone.get_meta()
+
+        messages = [
+            Message(
+                role=Role.SYSTEM,
+                content=(
+                    "You are a project setup assistant. Based on the project information, "
+                    "suggest an appropriate runtime environment configuration. "
+                    "Respond ONLY with valid JSON in exactly this shape:\n"
+                    '{"terrs": [...], "skills": [...], "tools": [...], '
+                    '"mcp": [...], "agent_channel": "name_or_null"}\n'
+                    "Use short lowercase identifiers. Keep each list concise (2–5 items). "
+                    'Set "agent_channel" to null if none is needed.'
+                ),
+            ),
+            Message(
+                role=Role.USER,
+                content=(
+                    f"Project type: {meta.project_type or 'unspecified'}\n"
+                    f"Description: {meta.description or '(none)'}\n"
+                    f"Master goal: {meta.goals.master or '(none)'}"
+                ),
+            ),
+        ]
+        response = await self.api.complete(messages)
+        try:
+            data = json.loads(self._extract_json(response))
+            meta.environment = ProjectEnvironment.from_dict(data)
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            pass  # leave environment unchanged if A4 returns unparseable output
+        await zone.set_meta(meta)
+        await self._log("infer_environment", "project", {"project_id": project_id})
+        return meta
 
     # ── WorkspaceBase compliance ────────────────────────────────────────────────
 
