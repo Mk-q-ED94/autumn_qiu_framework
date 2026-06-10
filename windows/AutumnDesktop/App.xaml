@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="AutumnDesktop.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:common="using:AutumnDesktop.Common">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Value converters -->
+            <common:NotNullToBoolConverter x:Key="NotNullToBool" />
+            <common:NotNullToVisibilityConverter x:Key="NotNullToVisibility" />
+
+            <!-- Brand brushes derived from the Autumn palette. -->
+            <SolidColorBrush x:Key="AutumnAccentBrush" Color="#D96B27" />
+            <SolidColorBrush x:Key="AutumnSuccessBrush" Color="#4CA866" />
+            <SolidColorBrush x:Key="AutumnWarningBrush" Color="#E09B2A" />
+            <SolidColorBrush x:Key="AutumnDangerBrush" Color="#C94B4B" />
+
+            <x:Double x:Key="AutumnRadiusMedium">10</x:Double>
+            <CornerRadius x:Key="AutumnCardRadius">10</CornerRadius>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

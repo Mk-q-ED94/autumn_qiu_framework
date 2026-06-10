@@ -21,6 +21,12 @@ class SQLiteBackend(MemoryBackend):
 
     def __init__(self, db_path: str):
         self._path = Path(db_path)
+        # Ensure the parent directory exists so a per-user data dir (e.g.
+        # %APPDATA%\Autumn on Windows) works on first run. Bare filenames have
+        # parent "." which already exists, so this is a no-op for the default.
+        parent = self._path.parent
+        if parent and not parent.exists():
+            parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._init_db()
 

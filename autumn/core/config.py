@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from typing import Literal
+from .paths import resolve_data_path
 from .types import Protocol, MissionRoute
 
 
@@ -160,6 +161,7 @@ class AutumnConfig:
             A4_API_KEY / A4_BASE_URL / A4_MODEL / A4_PROTOCOL  (optional memory model)
             EMBEDDING_API_KEY / _BASE_URL / _MODEL / _DIMENSIONS  (optional)
             STORAGE_DB_PATH                          (default: autumn_memory.db)
+            AUTUMN_DATA_DIR                          (roots a relative STORAGE_DB_PATH; per-user on Win/macOS)
             HEADLESS_MISSION_ROUTE                   (auto | direct | convert)
             AUTO_INDEX                               (true | false)
 
@@ -192,7 +194,7 @@ class AutumnConfig:
             a2=ModelConfig.from_env(f"{prefix}A2"),
             a3=ModelConfig.from_env(f"{prefix}A3"),
             a4=a4,
-            storage=StorageConfig(db_path=env("STORAGE_DB_PATH", "autumn_memory.db")),
+            storage=StorageConfig(db_path=resolve_data_path(env("STORAGE_DB_PATH", "autumn_memory.db"))),
             behavior=BehaviorConfig.from_env(prefix),
             headless_mission_route=route,
             embedding=EmbeddingConfig.from_env(f"{prefix}EMBEDDING_"),
