@@ -1,4 +1,9 @@
-# 秋 / Autumn
+<p align="center">
+  <img src="./assets/banner.png" alt="秋 / Autumn — Multi-Model Collaborative Workflow Framework" width="100%">
+</p>
+
+<p align="center"><strong>English</strong> | <a href="./README.zh-CN.md">简体中文</a></p>
+
 
 A multi-model collaborative workflow framework. Three model API interfaces (A1, A2, A3) each govern a workspace (WP1, WP2, WP3) backed by a memory area (Mom1, Mom2, Mom3), coordinated by a strict routing protocol to produce results that exceed what any single model can achieve alone. A fourth, optional model (A4) drives **WP4**, the dedicated memory-management workspace that curates every zone.
 
@@ -343,6 +348,46 @@ full endpoint reference and workflow.
 pip install -e ".[dev]"
 python -m pytest
 ```
+
+## Development history
+
+Current version: **0.2.0**. Autumn follows semantic versioning; while `0.x`,
+minor versions add features and may adjust APIs.
+
+### 0.2.0 — Memory system & project intelligence
+
+- **WP4 memory-management workspace** — the optional A4 model gains its own
+  workspace dedicated to curating *every* memory zone (recall synthesis,
+  consolidation, forget, pin, stats), addressing each zone by name and keeping
+  its own audit log. Exposed over HTTP via `GET /memory/stats` and the
+  `/memory/{area}/…` endpoints.
+- **Project metadata** — each project now carries a structured **type**,
+  **description**, **goals** (one master + long-term + short-term), tracked
+  **files**, and an AI-inferred **environment** (terrs, skills, tools, MCP, agent
+  channel). WP4 drafts descriptions and goals and infers environments through
+  A4; managed over HTTP under `/projects/{id}/metadata|files|describe|goals|infer-environment`.
+- **Per-project shared memory** — every project id gets an isolated zone that is
+  *shared* across all workspaces and turns within that project.
+- **Memory lifecycle** — importance & pinning, TTL/expiry, time-decay,
+  A4-powered consolidation, bulk `forget`, and `stats` across every zone.
+- **Memory module redesign** — `MemoryEntry`, importance-weighted eviction, and
+  unified recall (exact key → tags → semantic).
+- **Built-in capability domains (Terrs)** — ready-made `time`, `math`, `text`,
+  `data`, `web`, `fs`, and `memory` Terrs, plus an MCP catalog of common servers.
+- **A4 local model automation** — in-app Ollama deploy and one-click A4 config.
+- **Cost & tuning** — per-turn USD cost tracking and a tunable `BehaviorConfig`.
+- **Web deployment** — Cloudflare (Container + Worker + React SPA) and Hugging
+  Face Spaces single-container targets.
+
+### 0.1.0 — Multi-model collaborative core
+
+- Three-model workflow: A1/A2/A3 governing WP1/WP2/WP3 over layered memory
+  (Mom1/2/3), with a strict routing protocol and a checker per workspace.
+- Multi-level selector routing with task sub-classification.
+- Real-time streaming with a post-hoc advisory checker.
+- Plugin system: skills, tools, ReAct agents (Hermes loop), and MCP clients.
+- Terr (域) capability-domain abstraction with enable/disable controls.
+- SwiftUI macOS desktop client with a live workflow trace.
 
 ## License
 

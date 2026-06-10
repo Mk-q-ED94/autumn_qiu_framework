@@ -5,6 +5,7 @@ options:
   deploymentTarget:
     macOS: "14.0"
   groupSortPosition: top
+  developmentLanguage: zh-Hans
 
 settings:
   base:
@@ -23,14 +24,18 @@ targets:
           - "Resources/Info.plist"
           - "Resources/Assets.xcassets"
           - "Resources/AutumnDesktop.entitlements"
+          - "Resources/zh-Hans.lproj"
+          - "Resources/en.lproj"
     resources:
       - path: AutumnApp/Resources/Assets.xcassets
+      - path: AutumnApp/Resources/zh-Hans.lproj
+      - path: AutumnApp/Resources/en.lproj
     info:
       path: AutumnApp/Resources/Info.plist
       properties:
         AutumnRepositoryRoot: "$(SRCROOT)/.."
         CFBundleDisplayName: Autumn
-        CFBundleShortVersionString: "0.1.0"
+        CFBundleShortVersionString: "0.2.0"
         CFBundleVersion: "1"
         NSPrincipalClass: NSApplication
         NSAppTransportSecurity:
@@ -45,3 +50,4 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: AutumnApp/Resources/AutumnDesktop.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

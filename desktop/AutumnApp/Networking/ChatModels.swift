@@ -46,6 +46,7 @@ struct WorkflowTrace: Decodable, Equatable {
     let stages: [WorkflowStage]
     let totalPromptTokens: Int?
     let totalCompletionTokens: Int?
+    let totalCostUsd: Double?
 
     init(
         output: String,
@@ -54,7 +55,8 @@ struct WorkflowTrace: Decodable, Equatable {
         taskType: String?,
         stages: [WorkflowStage],
         totalPromptTokens: Int? = nil,
-        totalCompletionTokens: Int? = nil
+        totalCompletionTokens: Int? = nil,
+        totalCostUsd: Double? = nil
     ) {
         self.output = output
         self.inputType = inputType
@@ -63,6 +65,7 @@ struct WorkflowTrace: Decodable, Equatable {
         self.stages = stages
         self.totalPromptTokens = totalPromptTokens
         self.totalCompletionTokens = totalCompletionTokens
+        self.totalCostUsd = totalCostUsd
     }
 
     init(from decoder: Decoder) throws {
@@ -74,6 +77,7 @@ struct WorkflowTrace: Decodable, Equatable {
         stages = try c.decode([WorkflowStage].self, forKey: .stages)
         totalPromptTokens = try c.decodeIfPresent(Int.self, forKey: .totalPromptTokens)
         totalCompletionTokens = try c.decodeIfPresent(Int.self, forKey: .totalCompletionTokens)
+        totalCostUsd = try c.decodeIfPresent(Double.self, forKey: .totalCostUsd)
     }
 
     var inputKind: WorkflowInputKind {
@@ -132,6 +136,7 @@ struct WorkflowTrace: Decodable, Equatable {
         case stages
         case totalPromptTokens = "total_prompt_tokens"
         case totalCompletionTokens = "total_completion_tokens"
+        case totalCostUsd = "total_cost_usd"
     }
 }
 
@@ -146,6 +151,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     let promptTokens: Int?
     let completionTokens: Int?
     let sourceTerr: String?
+    let costUsd: Double?
 
     init(
         id: String,
@@ -157,7 +163,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         durationMS: Double? = nil,
         promptTokens: Int? = nil,
         completionTokens: Int? = nil,
-        sourceTerr: String? = nil
+        sourceTerr: String? = nil,
+        costUsd: Double? = nil
     ) {
         self.id = id
         self.title = title
@@ -169,6 +176,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.sourceTerr = sourceTerr
+        self.costUsd = costUsd
     }
 
     init(from decoder: Decoder) throws {
@@ -183,6 +191,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         promptTokens = try c.decodeIfPresent(Int.self, forKey: .promptTokens)
         completionTokens = try c.decodeIfPresent(Int.self, forKey: .completionTokens)
         sourceTerr = try c.decodeIfPresent(String.self, forKey: .sourceTerr)
+        costUsd = try c.decodeIfPresent(Double.self, forKey: .costUsd)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -191,6 +200,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case sourceTerr = "source_terr"
+        case costUsd = "cost_usd"
     }
 }
 
@@ -310,6 +320,12 @@ enum StreamEvent {
 struct HealthResponse: Decodable {
     let status: String
     let configured: Bool
+    let lastError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status, configured
+        case lastError = "last_error"
+    }
 }
 
 struct ProviderConfigRequest: Codable {

@@ -30,6 +30,7 @@ final class AppSettings: ObservableObject {
     @Published private(set) var a1ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a2ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a3ModelState: ModelConnectionState = .unconfigured
+    @Published private(set) var a4ModelState: ModelConnectionState = .unconfigured
     @Published var activeRouteOverride: String? = nil
 
     private static let serverURLKey  = "AutumnDesktop.serverURL"
@@ -96,9 +97,15 @@ final class AppSettings: ObservableObject {
     }
 
     func applyConfigRequest() -> ApplyConfigRequest {
-        let a4Config: ProviderConfigRequest? = (a4Enabled && !a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            ? ProviderConfigRequest(apiKey: a4APIKey, baseURL: a4BaseURL,
-                                    model: a4Model.isEmpty ? nil : a4Model, apiProtocol: a4Protocol)
+        let a4Key = a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a4ModelName = a4Model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a4Config: ProviderConfigRequest? = (a4Enabled && !a4ModelName.isEmpty)
+            ? ProviderConfigRequest(
+                apiKey: a4Key.isEmpty ? "ollama" : a4Key,
+                baseURL: a4BaseURL,
+                model: a4ModelName,
+                apiProtocol: a4Protocol
+            )
             : nil
         return ApplyConfigRequest(
             a1: providerConfig(for: .a1),
@@ -152,6 +159,11 @@ final class AppSettings: ObservableObject {
                 && !(cfg.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             setModelState(configured ? .ready : .unconfigured, for: slot)
         }
+        let a4Configured = a4Enabled
+            && !a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !a4BaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !a4Model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        a4ModelState = a4Configured ? .ready : .unconfigured
     }
 
     // ── debounced persistence ─────────────────────────────────────────────────

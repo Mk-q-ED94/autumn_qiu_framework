@@ -5,12 +5,20 @@ struct SettingsView: View {
     @EnvironmentObject private var localServer: LocalServerManager
     @State private var selectedTab: SettingsTab = .server
     @State private var connectionState: ConnectionState = .unknown
+    @State private var serverLastError: String? = nil
     @State private var isChecking: Bool = false
     @State private var modelOptions: [ModelSlot: [String]] = [:]
     @State private var modelErrors: [ModelSlot: String] = [:]
     @State private var refreshTasks: [ModelSlot: Task<Void, Never>] = [:]
     @State private var isApplying: Bool = false
     @State private var applyMessage: String? = nil
+    @State private var ollamaStatus: OllamaStatus?
+    @State private var ollamaModels: [OllamaModel] = []
+    @State private var ollamaRecommended: [OllamaRecommendedModel] = []
+    @State private var isLoadingOllama = false
+    @State private var pullingOllamaModel: String?
+    @State private var ollamaPullProgress: String?
+    @State private var ollamaError: String?
 
     enum ConnectionState {
         case unknown
@@ -53,6 +61,9 @@ struct SettingsView: View {
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
+            if settings.a4Enabled {
+                Task { await loadOllama() }
+            }
         }
         .onChange(of: settings.a1APIKey)   { _, _ in scheduleModelRefresh(.a1) }
         .onChange(of: settings.a1BaseURL)  { _, _ in scheduleModelRefresh(.a1) }
@@ -63,6 +74,15 @@ struct SettingsView: View {
         .onChange(of: settings.a3APIKey)   { _, _ in scheduleModelRefresh(.a3) }
         .onChange(of: settings.a3BaseURL)  { _, _ in scheduleModelRefresh(.a3) }
         .onChange(of: settings.a3Protocol) { _, _ in scheduleModelRefresh(.a3) }
+        .onChange(of: settings.a4Enabled) { _, enabled in
+            if enabled {
+                Task { await loadOllama() }
+            }
+        }
+        .onChange(of: settings.a4BaseURL) { _, _ in
+            guard settings.a4Enabled else { return }
+            Task { await loadOllama() }
+        }
     }
 
     // ── tab bar ───────────────────────────────────────────────────────────────
@@ -213,6 +233,20 @@ struct SettingsView: View {
                     TextField("模型名称", text: $settings.a4Model)
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
+
+                    OllamaPanel(
+                        status: ollamaStatus,
+                        installedModels: ollamaModels,
+                        recommendedModels: ollamaRecommended,
+                        selectedModel: settings.a4Model,
+                        isLoading: isLoadingOllama,
+                        pullingModel: pullingOllamaModel,
+                        pullProgress: ollamaPullProgress,
+                        errorMessage: ollamaError,
+                        refresh: { Task { await loadOllama() } },
+                        useModel: useOllamaModel,
+                        pullModel: { name in Task { await pullOllamaModel(name) } }
+                    )
                 }
             } header: {
                 Text("记忆模型 A4")
@@ -269,10 +303,10 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("版本", value: "0.1.0")
+                LabeledContent("版本", value: "0.2.0")
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
-                Text("A1/A2/A3 配置由本页应用到本地 Autumn 服务器。")
+                Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -292,12 +326,19 @@ struct SettingsView: View {
         case .unknown:
             Text("未检测").font(.caption).foregroundStyle(.secondary)
         case .ok(let configured):
-            HStack(spacing: 4) {
-                Image(systemName: configured ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                Text(configured ? "已连接" : "已连接（服务器未配置 API key）")
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: configured ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    Text(configured ? "已连接" : "已连接（服务器未配置 API key）")
+                }
+                .font(.caption)
+                .foregroundStyle(configured ? .green : .orange)
+                if let err = serverLastError {
+                    Text(err)
+                        .font(.caption2)
+                        .foregroundStyle(Autumn.colors.danger)
+                }
             }
-            .font(.caption)
-            .foregroundStyle(configured ? .green : .orange)
         case .failed(let msg):
             HStack(spacing: 4) {
                 Image(systemName: "xmark.circle.fill")
@@ -326,8 +367,10 @@ struct SettingsView: View {
 
         let client = AutumnClient(baseURL: url)
         if let health = await client.health() {
+            serverLastError = health.lastError.flatMap { $0.isEmpty ? nil : $0 }
             connectionState = .ok(configured: health.configured)
         } else {
+            serverLastError = nil
             connectionState = .failed("无法连接到服务器")
         }
     }
@@ -484,6 +527,73 @@ struct SettingsView: View {
         }
         return true
     }
+
+    private func loadOllama() async {
+        guard let url = URL(string: settings.serverURL) else {
+            ollamaError = "服务器 URL 无效"
+            return
+        }
+        isLoadingOllama = true
+        ollamaError = nil
+        defer { isLoadingOllama = false }
+
+        do {
+            let client = AutumnClient(baseURL: url)
+            async let status = client.ollamaStatus(baseURL: settings.a4BaseURL)
+            async let recommended = client.ollamaRecommendedModels()
+            let resolvedStatus = try await status
+            ollamaStatus = resolvedStatus
+            ollamaRecommended = try await recommended
+            if resolvedStatus.running {
+                ollamaModels = try await client.ollamaModels(baseURL: settings.a4BaseURL)
+            } else {
+                ollamaModels = []
+                ollamaError = resolvedStatus.error
+            }
+        } catch {
+            ollamaModels = []
+            ollamaError = error.localizedDescription
+        }
+    }
+
+    private func useOllamaModel(_ name: String) {
+        settings.a4Enabled = true
+        settings.a4Protocol = "openai"
+        settings.a4APIKey = settings.a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "ollama"
+            : settings.a4APIKey
+        settings.a4Model = name
+    }
+
+    private func pullOllamaModel(_ name: String) async {
+        guard let url = URL(string: settings.serverURL) else {
+            ollamaError = "服务器 URL 无效"
+            return
+        }
+
+        pullingOllamaModel = name
+        ollamaPullProgress = "准备拉取"
+        ollamaError = nil
+        defer {
+            pullingOllamaModel = nil
+            ollamaPullProgress = nil
+        }
+
+        do {
+            let client = AutumnClient(baseURL: url)
+            for try await event in client.pullOllamaModel(name: name, baseURL: settings.a4BaseURL) {
+                if let fraction = event.progressFraction {
+                    ollamaPullProgress = "\(Int((fraction * 100).rounded()))%"
+                } else if let status = event.status {
+                    ollamaPullProgress = status
+                }
+            }
+            useOllamaModel(name)
+            await loadOllama()
+        } catch {
+            ollamaError = error.localizedDescription
+        }
+    }
 }
 
 // MARK: - Tab pill
@@ -528,7 +638,7 @@ private struct MemoryAreaCard: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: Autumn.radius.xs, style: .continuous)
                         .fill(Color.accentColor.opacity(0.12))
                 )
             VStack(alignment: .leading, spacing: 2) {

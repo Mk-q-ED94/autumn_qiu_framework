@@ -1,0 +1,39 @@
+/* WorkflowInputKind */
+"input.task.title" = "任务";
+"input.mission.title" = "使命";
+"input.task.badge" = "结构任务";
+"input.mission.badge" = "宏观使命";
+
+/* WorkflowTaskKind */
+"task.code.title" = "代码";
+"task.search.title" = "检索";
+"task.write.title" = "写作";
+"task.data.title" = "数据";
+"task.general.title" = "通用";
+"task.code.badge" = "代码任务";
+"task.search.badge" = "检索任务";
+"task.write.badge" = "写作任务";
+"task.data.badge" = "数据任务";
+"task.general.badge" = "通用任务";
+
+/* MissionRouteMode */
+"route.auto.title" = "自动";
+"route.direct.title" = "直接回答";
+"route.convert.title" = "转为任务";
+"route.auto.detail" = "每条 mission 由 A3 决定路径。";
+"route.direct.detail" = "A3 生成回答，A1 做最终检查。";
+"route.convert.detail" = "A3 转换任务，A2 执行，A1 检查。";
+
+/* AppSection */
+"section.workspace.title" = "协作";
+"section.memory.title" = "记忆";
+"section.settings.title" = "设置";
+"section.workspace.subtitle" = "A1/A2/A3 工作流";
+"section.memory.subtitle" = "Mom1-3 历史";
+"section.settings.subtitle" = "模型与服务器";
+
+/* MemoryArea */
+"memory.mom1.subtitle" = "总控记忆";
+"memory.mom2.subtitle" = "任务记忆";
+"memory.mom3.subtitle" = "Mission 记忆";
+"memory.shared.subtitle" = "跨工作区共享区";

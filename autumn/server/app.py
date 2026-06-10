@@ -189,6 +189,30 @@ class ConsolidateRequest(BaseModel):
     min_candidates: int = 3
 
 
+class ProjectMetaUpdateRequest(BaseModel):
+    """Partial update for project metadata. Omitted fields are unchanged."""
+    project_type: str | None = None
+    description: str | None = None
+    goals: dict | None = None
+    files: list[str] | None = None
+    environment: dict | None = None
+
+
+class ProjectDescribeRequest(BaseModel):
+    """Free-text input for AI-guided description generation."""
+    input: str
+
+
+class ProjectGoalsRequest(BaseModel):
+    """Free-text input for AI-guided goals structuring."""
+    input: str
+
+
+class AddFileRequest(BaseModel):
+    """A file path to append to the project's file list."""
+    path: str
+
+
 class OllamaTarget(BaseModel):
     base_url: str = "http://localhost:11434"
 
@@ -384,7 +408,7 @@ def _trace_payload(run: WorkflowRun) -> dict:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -705,6 +729,117 @@ def create_app() -> FastAPI:
         projects = _projects_or_501(autumn)
         await projects.clear_project(project_id)
         return {"status": "ok", "project_id": project_id}
+
+    # ── Project metadata ─────────────────────────────────────────────────────
+    # Structured fields: type, description, goals, files, environment.
+    # Metadata lives in the project's own zone under a reserved __meta__ key
+    # and is therefore isolated between projects and persisted across restarts.
+
+    @app.get("/projects/{project_id}/metadata")
+    async def get_project_metadata(project_id: str, request: Request):
+        """Return the full :class:`ProjectMeta` for a project."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        meta = await projects.zone(project_id).get_meta()
+        return meta.to_dict()
+
+    @app.patch("/projects/{project_id}/metadata")
+    async def update_project_metadata(
+        project_id: str,
+        request: Request,
+        body: ProjectMetaUpdateRequest = ProjectMetaUpdateRequest(),
+    ):
+        """Partially update a project's metadata. Omitted fields are unchanged."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        updates = {k: v for k, v in body.dict().items() if v is not None}
+        meta = await projects.update_metadata(project_id, **updates)
+        return meta.to_dict()
+
+    @app.post("/projects/{project_id}/files")
+    async def add_project_file(
+        project_id: str,
+        request: Request,
+        body: AddFileRequest,
+    ):
+        """Append a file path to the project's tracked file list."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        await projects.zone(project_id).add_file(body.path)
+        meta = await projects.zone(project_id).get_meta()
+        return {"status": "ok", "files": meta.files}
+
+    @app.delete("/projects/{project_id}/files/{file_path:path}")
+    async def remove_project_file(
+        project_id: str,
+        file_path: str,
+        request: Request,
+    ):
+        """Remove a file path from the project's tracked file list."""
+        autumn = _autumn_or_503(request)
+        projects = _projects_or_501(autumn)
+        await projects.zone(project_id).remove_file(file_path)
+        meta = await projects.zone(project_id).get_meta()
+        return {"status": "ok", "files": meta.files}
+
+    @app.post("/projects/{project_id}/describe")
+    async def draft_project_description(
+        project_id: str,
+        request: Request,
+        body: ProjectDescribeRequest,
+    ):
+        """Use A4 to synthesise a project description from free-text input.
+
+        Returns the drafted text; does **not** auto-save it.  To persist, follow
+        up with ``PATCH /projects/{id}/metadata`` and ``description=<result>``.
+        """
+        autumn = _autumn_or_503(request)
+        _projects_or_501(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            description = await wp4.draft_description(body.input, project_id)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return {"description": description}
+
+    @app.post("/projects/{project_id}/goals")
+    async def draft_project_goals(
+        project_id: str,
+        request: Request,
+        body: ProjectGoalsRequest,
+    ):
+        """Use A4 to structure a goals description into master/long_term/short_term.
+
+        Returns the drafted goal hierarchy; does **not** auto-save it.  To
+        persist, follow up with ``PATCH /projects/{id}/metadata``
+        and ``goals=<result>``.
+        """
+        autumn = _autumn_or_503(request)
+        _projects_or_501(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            goals = await wp4.draft_goals(body.input, project_id)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return goals.to_dict()
+
+    @app.post("/projects/{project_id}/infer-environment")
+    async def infer_project_environment(project_id: str, request: Request):
+        """Use A4 to infer and persist the environment config for a project.
+
+        Reads the project's type, description, and master goal, calls A4, and
+        writes the resulting environment (terrs, skills, tools, MCP, agent
+        channel) directly into the project's metadata. Returns the full updated
+        metadata.
+        """
+        autumn = _autumn_or_503(request)
+        _projects_or_501(autumn)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            meta = await wp4.infer_environment(project_id)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return meta.to_dict()
 
     @app.post("/session/end")
     async def end_session(request: Request):

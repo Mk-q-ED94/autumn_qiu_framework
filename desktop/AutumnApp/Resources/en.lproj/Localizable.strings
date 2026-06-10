@@ -1,0 +1,39 @@
+/* WorkflowInputKind */
+"input.task.title" = "Task";
+"input.mission.title" = "Mission";
+"input.task.badge" = "Structured Task";
+"input.mission.badge" = "Macro Mission";
+
+/* WorkflowTaskKind */
+"task.code.title" = "Code";
+"task.search.title" = "Search";
+"task.write.title" = "Write";
+"task.data.title" = "Data";
+"task.general.title" = "General";
+"task.code.badge" = "Code Task";
+"task.search.badge" = "Search Task";
+"task.write.badge" = "Write Task";
+"task.data.badge" = "Data Task";
+"task.general.badge" = "General Task";
+
+/* MissionRouteMode */
+"route.auto.title" = "Auto";
+"route.direct.title" = "Direct";
+"route.convert.title" = "Convert";
+"route.auto.detail" = "Each mission's path is decided by A3.";
+"route.direct.detail" = "A3 generates the response; A1 makes the final check.";
+"route.convert.detail" = "A3 converts to a task; A2 executes; A1 checks.";
+
+/* AppSection */
+"section.workspace.title" = "Workspace";
+"section.memory.title" = "Memory";
+"section.settings.title" = "Settings";
+"section.workspace.subtitle" = "A1/A2/A3 workflow";
+"section.memory.subtitle" = "Mom1-3 history";
+"section.settings.subtitle" = "Model & Server";
+
+/* MemoryArea */
+"memory.mom1.subtitle" = "Control memory";
+"memory.mom2.subtitle" = "Task memory";
+"memory.mom3.subtitle" = "Mission memory";
+"memory.shared.subtitle" = "Cross-workspace shared zone";

@@ -9,17 +9,17 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .workspace: return "协作"
-        case .memory: return "记忆"
-        case .settings: return "设置"
+        case .workspace: return NSLocalizedString("section.workspace.title", comment: "")
+        case .memory: return NSLocalizedString("section.memory.title", comment: "")
+        case .settings: return NSLocalizedString("section.settings.title", comment: "")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .workspace: return "A1/A2/A3 工作流"
-        case .memory: return "Mom1-3 历史"
-        case .settings: return "模型与服务器"
+        case .workspace: return NSLocalizedString("section.workspace.subtitle", comment: "")
+        case .memory: return NSLocalizedString("section.memory.subtitle", comment: "")
+        case .settings: return NSLocalizedString("section.settings.subtitle", comment: "")
         }
     }
 
