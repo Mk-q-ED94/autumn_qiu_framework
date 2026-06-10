@@ -203,15 +203,17 @@ async with Autumn(config, interaction=CLIInteraction()) as autumn:
 
 `autumn.builtin` 自带一批开箱即用的 Terr 工厂，覆盖每个 agent 最终都会用到的杂活——报时、做算术、解析 JSON、抓取 URL、读取沙箱文件。它们通过与桌面 UI 相同的启用/禁用开关注册。
 
-| Terr     | 安全性        | 工具 / 技能                                                    |
-| -------- | ------------ | ------------------------------------------------------------- |
-| `time`   | 始终安全      | `now`、`parse_time`、`time_diff`、`time_add`、`time_today`     |
-| `math`   | 始终安全      | `calc`（AST 白名单）、`stats`                                  |
-| `text`   | 始终安全      | `count_text`、`regex_find`、`extract_urls`、`split`、`replace`|
-| `data`   | 始终安全      | `parse_json`、`to_json`、`parse_csv`、`to_csv`、`json_path`    |
-| `web`    | 需开启（联网）| `http_get`、`http_get_json`、`http_head`、`fetch_text`         |
-| `fs`     | 沙箱限制      | `read_file`、`write_file`、`list_dir`、`file_info`、`delete_file` |
-| `memory` | 绑定到某区    | `recall`、`remember`（记忆技能的再导出）                       |
+| Terr         | 安全性        | 工具 / 技能                                                                          |
+| ------------ | ------------ | ----------------------------------------------------------------------------------- |
+| `time`       | 始终安全      | `now`、`parse_time`、`time_diff`、`time_add`、`time_today`                           |
+| `math`       | 始终安全      | `calc`（AST 白名单）、`stats`                                                        |
+| `text`       | 始终安全      | `count_text`、`regex_find`、`extract_urls`、`split_text`、`replace_text`             |
+| `data`       | 始终安全      | `parse_json`、`to_json`、`parse_csv`、`to_csv`、`json_path`                          |
+| `encoding`   | 始终安全      | `base64_encode/decode`、`hex_encode/decode`、`hash_text`、`url_encode/decode`、`uuid_generate` |
+| `collection` | 始终安全      | `unique`、`flatten`、`chunk`、`frequencies`、`group_by`、`sort_records`              |
+| `web`        | 需开启（联网）| `http_get`、`http_get_json`、`http_head`、`fetch_text`                               |
+| `fs`         | 沙箱限制      | `read_file`、`write_file`、`list_dir`、`file_info`、`delete_file`                    |
+| `memory`     | 绑定到某区    | `recall`、`remember`、`list_recent`、`pin_memory`                                    |
 
 ```python
 from autumn import time_terr, math_terr, register_safe_builtins, register_builtins
@@ -221,7 +223,7 @@ autumn.register_terr(time_terr())
 autumn.register_terr(math_terr())
 
 # 或一次性接入安全集
-register_safe_builtins(autumn)               # time + math + text + data
+register_safe_builtins(autumn)               # time + math + text + data + encoding + collection
 
 # 选择性接入 联网 + 文件系统 + 记忆
 register_builtins(
@@ -233,7 +235,29 @@ register_builtins(
 )
 ```
 
-`autumn.builtin.mcp_catalog` 为 agent 最常用的官方 MCP 服务器提供了工厂函数：`mcp_filesystem`、`mcp_fetch`、`mcp_git`、`mcp_sqlite`、`mcp_brave_search`、`mcp_github`、`mcp_puppeteer`、`mcp_memory`。每个都返回一个未连接的 `StdioMCPClient`；把它传入 `Terr(mcps=[...])` 再 `await autumn.add_terr(...)` 即可连接并注册。
+`autumn.builtin.mcp_catalog` 为 agent 最常用的官方 MCP 服务器提供了工厂函数：
+
+| 工厂函数                      | 服务器                                  | 所需凭据              |
+| ----------------------------- | --------------------------------------- | -------------------- |
+| `mcp_filesystem(root)`        | `@modelcontextprotocol/server-filesystem` | —                  |
+| `mcp_fetch()`                 | `mcp-server-fetch`                      | —                    |
+| `mcp_git(repo)`               | `mcp-server-git`                        | —                    |
+| `mcp_sqlite(db_path)`         | `mcp-server-sqlite`                     | —                    |
+| `mcp_brave_search(key)`       | `server-brave-search`                   | Brave Search API Key |
+| `mcp_github(token)`           | `server-github`                         | GitHub PAT           |
+| `mcp_puppeteer()`             | `server-puppeteer`                      | —                    |
+| `mcp_memory()`                | `server-memory`                         | —                    |
+| `mcp_postgres(conn_str)`      | `server-postgres`                       | 数据库连接字符串      |
+| `mcp_slack(token, team)`      | `server-slack`                          | Slack Bot Token + Team ID |
+| `mcp_gitlab(token)`           | `server-gitlab`                         | GitLab PAT           |
+| `mcp_google_maps(key)`        | `server-google-maps`                    | Google Maps API Key  |
+| `mcp_sequential_thinking()`   | `server-sequential-thinking`            | —                    |
+| `mcp_time()`                  | `mcp-server-time`                       | —                    |
+| `mcp_everything()`            | `server-everything`（参考/测试用）      | —                    |
+
+每个工厂函数都返回一个未连接的 `StdioMCPClient`；把它传入 `Terr(mcps=[...])` 再 `await autumn.add_terr(...)` 即可连接并注册。
+
+**服务端按需启用**：设置 `AUTUMN_BUILTIN_TERRS=safe` 可在服务器启动时自动注册所有始终安全的域（默认关闭）；设 `AUTUMN_BUILTIN_TERRS=all` 同时启用 `web` 域。
 
 ## 插件
 
@@ -244,7 +268,7 @@ from autumn import Tool, ToolParameter, Agent, StdioMCPClient
 tool = Tool("search", "Web search", search_fn, [ToolParameter("q", "string", "query")])
 autumn.register_tool(tool)
 
-# 带 ReAct 循环的 agent
+# 带 ReAct 循环的 agent —— 每轮工具调用通过 asyncio.gather 并发执行
 agent = Agent("researcher", api=autumn.a2, tools=[tool])
 result = await agent.run("Find recent papers on retrieval-augmented generation")
 
@@ -339,7 +363,16 @@ python -m pytest
 
 ## 开发历程
 
-当前版本：**0.2.0**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+当前版本：**0.2.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+
+### 0.2.1 —— 性能优化、新内置域与扩充 MCP 目录
+
+- **Agent 工具并发调度** —— ReAct 循环现在通过 `asyncio.gather` 并发执行同一轮的所有工具调用；独立工具不再串行等待，总延迟降为最慢单个工具的耗时。
+- **记忆模块性能提升** —— 向量搜索改用 `heapq.nlargest`（O(N log k)）；查询范数只计算一次；SQLite 后端每线程缓存一个连接 + `synchronous=NORMAL`；嵌入接口新增 512 条 LRU 缓存。
+- **新增始终安全 Terr 域** —— `encoding`（base64、hex、URL 编解码、哈希、UUID —— 8 个工具）和 `collection`（unique、flatten、chunk、frequencies、group_by、sort_records —— 6 个工具）；两者均加入 `SAFE_TERR_FACTORIES`。
+- **MCP 目录扩充** —— 新增 7 个工厂函数：`mcp_postgres`、`mcp_slack`、`mcp_gitlab`、`mcp_google_maps`、`mcp_sequential_thinking`、`mcp_time`、`mcp_everything`。
+- **服务端按需启用** —— `AUTUMN_BUILTIN_TERRS=safe|all` 可在启动及 `/config/apply` 时注册内置域（默认关闭）。
+- **桌面客户端优化** —— 服务端错误信息在设置页内联展示；追踪与检查器视图显示成本合计；`AutumnChip` 统一路由标签与状态芯片；`Autumn.format` / `Autumn.colors` 令牌消除了重复的格式化辅助函数。
 
 ### 0.2.0 —— 记忆系统与项目智能
 
