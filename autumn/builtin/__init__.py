@@ -25,7 +25,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .collection_terr import collection_terr
 from .data_terr import data_terr
+from .encoding_terr import encoding_terr
 from .fs_terr import fs_terr
 from .math_terr import math_terr
 from .memory_terr import memory_terr, project_memory_terr
@@ -35,13 +37,20 @@ from .web_terr import web_terr
 from .mcp_catalog import (
     KNOWN_MCPS,
     mcp_brave_search,
+    mcp_everything,
     mcp_fetch,
     mcp_filesystem,
     mcp_git,
     mcp_github,
+    mcp_gitlab,
+    mcp_google_maps,
     mcp_memory,
+    mcp_postgres,
     mcp_puppeteer,
+    mcp_sequential_thinking,
+    mcp_slack,
     mcp_sqlite,
+    mcp_time,
 )
 
 if TYPE_CHECKING:
@@ -51,7 +60,9 @@ if TYPE_CHECKING:
 # ── Terr factories grouped by safety / dependency profile ────────────────────
 
 #: Terrs that need no configuration, make no network calls, touch no files.
-SAFE_TERR_FACTORIES = (time_terr, math_terr, text_terr, data_terr)
+SAFE_TERR_FACTORIES = (
+    time_terr, math_terr, text_terr, data_terr, encoding_terr, collection_terr,
+)
 
 
 def register_safe_builtins(autumn: "Autumn") -> list[str]:
@@ -129,6 +140,8 @@ __all__ = [
     "math_terr",
     "text_terr",
     "data_terr",
+    "encoding_terr",
+    "collection_terr",
     "web_terr",
     "fs_terr",
     "memory_terr",
@@ -146,5 +159,12 @@ __all__ = [
     "mcp_github",
     "mcp_puppeteer",
     "mcp_memory",
+    "mcp_postgres",
+    "mcp_slack",
+    "mcp_gitlab",
+    "mcp_google_maps",
+    "mcp_sequential_thinking",
+    "mcp_time",
+    "mcp_everything",
     "KNOWN_MCPS",
 ]

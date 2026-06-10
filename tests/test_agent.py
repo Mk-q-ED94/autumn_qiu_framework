@@ -1,11 +1,12 @@
 """Tests for the Agent ReAct loop using a mock API interface."""
+import asyncio
 import json
 import pytest
 
 from autumn.core.components.agent import Agent
 from autumn.core.components.skill import Skill
 from autumn.core.components.tool import Tool, ToolParameter
-from autumn.core.types import Protocol, ToolCall
+from autumn.core.types import AgentStep, Protocol, ToolCall
 
 
 class MockAPI:
@@ -216,6 +217,68 @@ async def test_agent_skill_handler_receives_kwargs_not_dict():
     agent = Agent("tester", api, skills=[skill])
     await agent.run("...")
     assert received == {"text": "hi", "n": 3}
+
+
+async def test_agent_runs_parallel_tool_calls_concurrently():
+    """Multiple tool calls in one turn must run concurrently, not serially.
+
+    Two tools rendezvous: each signals its own event, then waits on the other's.
+    If the agent awaited them one after another, the first would block forever
+    waiting for the second to start — the wait_for timeout would fire. Passing
+    proves both were in flight at the same time.
+    """
+    ev_a = asyncio.Event()
+    ev_b = asyncio.Event()
+
+    async def tool_a() -> str:
+        ev_a.set()
+        await asyncio.wait_for(ev_b.wait(), timeout=1.0)
+        return "A"
+
+    async def tool_b() -> str:
+        ev_b.set()
+        await asyncio.wait_for(ev_a.wait(), timeout=1.0)
+        return "B"
+
+    api = MockAPI(Protocol.OPENAI, [
+        ("two at once", [
+            ToolCall(id="a", name="a", arguments={}),
+            ToolCall(id="b", name="b", arguments={}),
+        ]),
+        ("done", []),
+    ])
+    agent = Agent("tester", api, tools=[Tool("a", "", tool_a, []), Tool("b", "", tool_b, [])])
+    result = await asyncio.wait_for(agent.run("..."), timeout=2.0)
+    assert result == "done"
+
+
+async def test_agent_parallel_results_preserve_order():
+    """Concurrent execution must still feed results back in tool_call order."""
+    async def slow() -> str:
+        await asyncio.sleep(0.02)
+        return "slow"
+
+    async def fast() -> str:
+        return "fast"
+
+    api = MockAPI(Protocol.OPENAI, [
+        ("go", [
+            ToolCall(id="1", name="slow", arguments={}),
+            ToolCall(id="2", name="fast", arguments={}),
+        ]),
+        ("final", []),
+    ])
+    agent = Agent("tester", api, tools=[Tool("slow", "", slow, []), Tool("fast", "", fast, [])])
+    steps: list[AgentStep] = []
+    await agent.run("...", steps=steps)
+
+    # Result messages are zipped to tool_call ids: the slow tool's result must
+    # still occupy slot 0 even though it finished last.
+    tool_results = [m for m in api.message_log[1] if m.get("role") == "tool"]
+    assert [m["tool_call_id"] for m in tool_results] == ["1", "2"]
+    assert [m["content"] for m in tool_results] == ["slow", "fast"]
+    # Steps follow the same order, and the turn's tokens attach to the first only.
+    assert [s.name for s in steps] == ["slow", "fast"]
 
 
 async def test_agent_tool_exception_is_caught():

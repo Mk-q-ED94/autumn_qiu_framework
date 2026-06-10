@@ -1,3 +1,4 @@
+import asyncio
 import time
 import warnings
 
@@ -170,6 +171,30 @@ class Agent:
                 system = f"{system}\n\n{ctx}"
         return system
 
+    async def _invoke_call(self, tc) -> tuple[str, float, "Tool | Skill | None"]:
+        """Dispatch one tool/skill call, returning (result, duration_ms, callable).
+
+        Never raises: tool exceptions and unknown names are turned into a string
+        result that gets fed back to the model for ReAct recovery. Each call
+        times itself, so concurrent dispatch still records accurate per-step
+        durations.
+        """
+        started = time.perf_counter()
+        callable_obj: "Tool | Skill | None" = None
+        try:
+            if tc.name in self.tools:
+                callable_obj = self.tools[tc.name]
+                result = await callable_obj.call(**tc.arguments)
+            elif tc.name in self.skills:
+                callable_obj = self.skills[tc.name]
+                result = await callable_obj.execute(**tc.arguments)
+            else:
+                result = f"[error: unknown tool '{tc.name}']"
+        except Exception as e:  # noqa: BLE001 — feed error back to model for ReAct recovery
+            result = f"[tool error: {e}]"
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        return str(result), duration_ms, callable_obj
+
     async def run(self, task: str, memory=None, steps: list[AgentStep] | None = None) -> str:
         """Run the ReAct loop and return the final answer.
 
@@ -228,28 +253,20 @@ class Agent:
             if not tool_calls:
                 return text
 
-            # Execute every requested tool. When one LLM turn yields several
-            # tool calls, the (single) token cost is attributed to the first
-            # step only; subsequent steps in the same turn report None so the
-            # workflow total doesn't multiply.
-            results: list[str] = []
-            for i, tc in enumerate(tool_calls):
-                started = time.perf_counter()
-                callable_obj = None
-                try:
-                    if tc.name in self.tools:
-                        callable_obj = self.tools[tc.name]
-                        result = await callable_obj.call(**tc.arguments)
-                    elif tc.name in self.skills:
-                        callable_obj = self.skills[tc.name]
-                        result = await callable_obj.execute(**tc.arguments)
-                    else:
-                        result = f"[error: unknown tool '{tc.name}']"
-                except Exception as e:  # noqa: BLE001 — feed error back to model for ReAct recovery
-                    result = f"[tool error: {e}]"
-                duration_ms = round((time.perf_counter() - started) * 1000, 1)
-                results.append(str(result))
-                if steps is not None:
+            # Execute every requested tool. A single LLM turn that emits several
+            # tool calls has no data dependency between them — the model already
+            # committed to all of them before seeing any result — so they run
+            # concurrently and the turn waits only on the slowest, not the sum.
+            # Order is preserved for the result messages (the provider zips them
+            # back to tool_call ids), and the (single) token cost is attributed
+            # to the first step only so the workflow total doesn't multiply.
+            invoked = await asyncio.gather(*(self._invoke_call(tc) for tc in tool_calls))
+            results = [result for result, _, _ in invoked]
+
+            if steps is not None:
+                for i, (tc, (result, duration_ms, callable_obj)) in enumerate(
+                    zip(tool_calls, invoked)
+                ):
                     source_terr = (
                         getattr(callable_obj, "source_terr", None)
                         if callable_obj is not None else None
@@ -257,7 +274,7 @@ class Agent:
                     steps.append(AgentStep(
                         name=tc.name,
                         arguments=dict(tc.arguments),
-                        result=str(result),
+                        result=result,
                         duration_ms=duration_ms,
                         prompt_tokens=turn_prompt if i == 0 else None,
                         completion_tokens=turn_completion if i == 0 else None,

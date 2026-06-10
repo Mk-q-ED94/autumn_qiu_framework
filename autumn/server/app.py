@@ -197,6 +197,26 @@ class OllamaDeleteRequest(OllamaTarget):
     name: str
 
 
+def _register_builtin_terrs(autumn: Autumn) -> None:
+    """Register built-in capability domains based on ``AUTUMN_BUILTIN_TERRS``.
+
+    Unset/empty (default): WP2 stays tool-less, preserving the minimal pipeline
+    and existing behaviour. Opt in to surface the shipped domains in ``/terrs``
+    and give WP2's agent real capabilities:
+
+    - ``safe`` / ``1`` / ``true``: the always-safe domains — time, math, text,
+      data, encoding, collection (no network, no filesystem).
+    - ``all``: the above plus ``web`` (outbound HTTP).
+    """
+    mode = os.environ.get("AUTUMN_BUILTIN_TERRS", "").strip().lower()
+    if mode in ("", "0", "false", "off", "none"):
+        return
+    from ..builtin import register_safe_builtins, web_terr
+    register_safe_builtins(autumn)
+    if mode == "all":
+        autumn.register_terr(web_terr())
+
+
 def _try_build_from_env() -> Autumn | None:
     if os.environ.get("AUTUMN_SKIP_INIT") == "1":
         return None
@@ -206,7 +226,9 @@ def _try_build_from_env() -> Autumn | None:
     except (KeyError, ValueError) as exc:
         print(f"[autumn-server] startup config missing ({exc}); endpoints will return 503.")
         return None
-    return Autumn(config)
+    autumn = Autumn(config)
+    _register_builtin_terrs(autumn)
+    return autumn
 
 
 def _model_endpoint(base_url: str) -> str:
@@ -422,7 +444,9 @@ def create_app() -> FastAPI:
 
         async with request.app.state.apply_lock:
             old: Autumn | None = request.app.state.autumn
-            request.app.state.autumn = Autumn(config)
+            new_autumn = Autumn(config)
+            _register_builtin_terrs(new_autumn)
+            request.app.state.autumn = new_autumn
             request.app.state.last_error = None
             if old is not None:
                 await old.close()
