@@ -16,7 +16,9 @@ import pytest
 
 from autumn.builtin import (
     KNOWN_MCPS,
+    collection_terr,
     data_terr,
+    encoding_terr,
     fs_terr,
     math_terr,
     memory_terr,
@@ -273,6 +275,136 @@ async def test_data_json_path_dict_and_list():
     assert out2 == "bob"
 
 
+# ── encoding_terr ─────────────────────────────────────────────────────────────
+
+
+async def test_encoding_base64_roundtrip():
+    terr = encoding_terr()
+    encoded = await _tool(terr, "base64_encode").call(text="hello 秋")
+    decoded = await _tool(terr, "base64_decode").call(data=encoded)
+    assert decoded == "hello 秋"
+
+
+async def test_encoding_base64_urlsafe():
+    terr = encoding_terr()
+    encoded = await _tool(terr, "base64_encode").call(text="<<???>>", urlsafe=True)
+    assert "+" not in encoded and "/" not in encoded
+    decoded = await _tool(terr, "base64_decode").call(data=encoded, urlsafe=True)
+    assert decoded == "<<???>>"
+
+
+async def test_encoding_base64_decode_rejects_garbage():
+    with pytest.raises(ValueError, match="invalid base64"):
+        await _tool(encoding_terr(), "base64_decode").call(data="not base64!!!")
+
+
+async def test_encoding_hash_known_vectors():
+    h = _tool(encoding_terr(), "hash_text")
+    # Well-known digests of the empty string.
+    assert await h.call(text="", algorithm="md5") == "d41d8cd98f00b204e9800998ecf8427e"
+    assert await h.call(text="", algorithm="sha256") == (
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
+
+
+async def test_encoding_hash_rejects_unknown_algo():
+    with pytest.raises(ValueError, match="unsupported algorithm"):
+        await _tool(encoding_terr(), "hash_text").call(text="x", algorithm="sha3")
+
+
+async def test_encoding_hex_roundtrip():
+    terr = encoding_terr()
+    encoded = await _tool(terr, "hex_encode").call(text="ab")
+    assert encoded == "6162"
+    assert await _tool(terr, "hex_decode").call(data=encoded) == "ab"
+
+
+async def test_encoding_url_roundtrip():
+    terr = encoding_terr()
+    encoded = await _tool(terr, "url_encode").call(text="a b&c=d")
+    assert encoded == "a%20b%26c%3Dd"
+    assert await _tool(terr, "url_decode").call(text=encoded) == "a b&c=d"
+
+
+async def test_encoding_uuid_generate_count_and_shape():
+    out = await _tool(encoding_terr(), "uuid_generate").call(count=3)
+    assert len(out) == 3
+    assert len(set(out)) == 3
+    assert all(len(u) == 36 and u.count("-") == 4 for u in out)
+
+
+async def test_encoding_uuid_rejects_bad_count():
+    with pytest.raises(ValueError):
+        await _tool(encoding_terr(), "uuid_generate").call(count=0)
+
+
+# ── collection_terr ───────────────────────────────────────────────────────────
+
+
+async def test_collection_unique_preserves_order():
+    out = await _tool(collection_terr(), "unique").call(items=[3, 1, 3, 2, 1])
+    assert out == [3, 1, 2]
+
+
+async def test_collection_unique_handles_nested():
+    out = await _tool(collection_terr(), "unique").call(
+        items=[{"a": 1}, {"a": 1}, {"a": 2}],
+    )
+    assert out == [{"a": 1}, {"a": 2}]
+
+
+async def test_collection_flatten_one_level_default():
+    out = await _tool(collection_terr(), "flatten").call(items=[1, [2, 3], [4, [5]]])
+    assert out == [1, 2, 3, 4, [5]]
+
+
+async def test_collection_flatten_full_depth():
+    out = await _tool(collection_terr(), "flatten").call(items=[1, [2, [3, [4]]]], depth=-1)
+    assert out == [1, 2, 3, 4]
+
+
+async def test_collection_chunk():
+    out = await _tool(collection_terr(), "chunk").call(items=[1, 2, 3, 4, 5], size=2)
+    assert out == [[1, 2], [3, 4], [5]]
+
+
+async def test_collection_chunk_rejects_bad_size():
+    with pytest.raises(ValueError):
+        await _tool(collection_terr(), "chunk").call(items=[1], size=0)
+
+
+async def test_collection_frequencies():
+    out = await _tool(collection_terr(), "frequencies").call(items=["a", "b", "a", "a"])
+    assert out == {"a": 3, "b": 1}
+
+
+async def test_collection_group_by():
+    rows = [
+        {"team": "red", "n": 1},
+        {"team": "blue", "n": 2},
+        {"team": "red", "n": 3},
+    ]
+    out = await _tool(collection_terr(), "group_by").call(rows=rows, key="team")
+    assert out == {
+        "red": [{"team": "red", "n": 1}, {"team": "red", "n": 3}],
+        "blue": [{"team": "blue", "n": 2}],
+    }
+
+
+async def test_collection_sort_records():
+    rows = [{"n": 3}, {"n": 1}, {"n": 2}]
+    out = await _tool(collection_terr(), "sort_records").call(rows=rows, by="n")
+    assert [r["n"] for r in out] == [1, 2, 3]
+    out_desc = await _tool(collection_terr(), "sort_records").call(rows=rows, by="n", reverse=True)
+    assert [r["n"] for r in out_desc] == [3, 2, 1]
+
+
+async def test_collection_sort_records_missing_key_last():
+    rows = [{"n": 2}, {"x": 9}, {"n": 1}]
+    out = await _tool(collection_terr(), "sort_records").call(rows=rows, by="n")
+    assert out[-1] == {"x": 9}
+
+
 # ── web_terr ──────────────────────────────────────────────────────────────────
 
 
@@ -437,7 +569,7 @@ def test_register_safe_builtins_returns_expected_names():
         register_terr = Autumn.register_terr
 
     names = register_safe_builtins(_Stub())
-    assert names == ["time", "math", "text", "data"]
+    assert names == ["time", "math", "text", "data", "encoding", "collection"]
 
 
 # ── mcp catalog ───────────────────────────────────────────────────────────────
@@ -470,8 +602,33 @@ def test_mcp_github_uses_env_for_token():
     assert client.env == {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_abc"}
 
 
+def test_mcp_postgres_passes_connection_string():
+    client = mcp_catalog.mcp_postgres("postgresql://u:p@localhost/db")
+    assert "@modelcontextprotocol/server-postgres" in client.command
+    assert "postgresql://u:p@localhost/db" in client.command
+
+
+def test_mcp_slack_uses_env_for_credentials():
+    client = mcp_catalog.mcp_slack("xoxb-token", "T123")
+    assert client.env == {"SLACK_BOT_TOKEN": "xoxb-token", "SLACK_TEAM_ID": "T123"}
+
+
+def test_mcp_gitlab_optional_api_url():
+    default = mcp_catalog.mcp_gitlab("glpat-x")
+    assert default.env == {"GITLAB_PERSONAL_ACCESS_TOKEN": "glpat-x"}
+    custom = mcp_catalog.mcp_gitlab("glpat-x", api_url="https://gl.example.com/api/v4")
+    assert custom.env["GITLAB_API_URL"] == "https://gl.example.com/api/v4"
+
+
+def test_mcp_sequential_thinking_needs_no_credentials():
+    client = mcp_catalog.mcp_sequential_thinking()
+    assert "@modelcontextprotocol/server-sequential-thinking" in client.command
+
+
 def test_known_mcps_catalog_shape():
     assert len(KNOWN_MCPS) >= 6
+    ids = {entry["id"] for entry in KNOWN_MCPS}
+    assert {"postgres", "slack", "gitlab", "sequential_thinking"} <= ids
     for entry in KNOWN_MCPS:
         assert {"id", "name", "description", "factory", "required_args"} <= entry.keys()
         assert hasattr(mcp_catalog, entry["factory"])

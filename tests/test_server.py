@@ -1047,3 +1047,47 @@ def test_ollama_pull_http_error_emits_error_event(unconfigured_client, monkeypat
     datas = [line[6:] for line in r.text.splitlines() if line.startswith("data: ")]
     assert any("error" in d for d in datas)
     assert datas[-1] == "[DONE]"
+
+
+# ── builtin terr registration (AUTUMN_BUILTIN_TERRS) ──────────────────────────
+
+
+class _TerrStubAutumn:
+    """Minimal Autumn stand-in for exercising _register_builtin_terrs."""
+
+    def __init__(self):
+        from autumn.plugins.loader import PluginLoader
+        self.plugins = PluginLoader()
+
+    def register_tool(self, tool):
+        self.plugins.register(tool.name, tool)
+
+    def register_skill(self, skill):
+        self.plugins.register(skill.name, skill)
+
+    # Reuse the real registration logic — it only needs the methods above.
+    from autumn.core.framework import Autumn
+    register_terr = Autumn.register_terr
+
+
+def test_register_builtin_terrs_off_by_default(monkeypatch):
+    monkeypatch.delenv("AUTUMN_BUILTIN_TERRS", raising=False)
+    stub = _TerrStubAutumn()
+    server_app._register_builtin_terrs(stub)
+    assert stub.plugins.all_terrs() == {}
+
+
+def test_register_builtin_terrs_safe_mode(monkeypatch):
+    monkeypatch.setenv("AUTUMN_BUILTIN_TERRS", "safe")
+    stub = _TerrStubAutumn()
+    server_app._register_builtin_terrs(stub)
+    names = set(stub.plugins.all_terrs())
+    assert {"time", "math", "text", "data", "encoding", "collection"} <= names
+    assert "web" not in names
+
+
+def test_register_builtin_terrs_all_mode_adds_web(monkeypatch):
+    monkeypatch.setenv("AUTUMN_BUILTIN_TERRS", "all")
+    stub = _TerrStubAutumn()
+    server_app._register_builtin_terrs(stub)
+    assert "web" in stub.plugins.all_terrs()

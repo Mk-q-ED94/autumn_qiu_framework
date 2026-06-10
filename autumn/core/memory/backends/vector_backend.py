@@ -1,5 +1,6 @@
 import asyncio
 from array import array
+import heapq
 import json
 import math
 import sqlite3
@@ -73,15 +74,30 @@ class SQLiteVectorStore:
             return []
 
         query = [float(v) for v in query_vector]
-        if _norm(query) == 0.0:
+        query_norm = _norm(query)
+        if query_norm == 0.0:
             return []
+        dim = len(query)
 
-        ranked = sorted(
-            (
-                (_cosine_score(query, _vector_from_blob(blob)), row_id, text, meta)
-                for row_id, text, blob, meta in rows
-            ),
-            reverse=True,
+        # Score each row against the query, reusing the query norm computed once
+        # (was recomputed per row inside _cosine_score). Zero-norm / dimension
+        # mismatches score 0.0, exactly as before.
+        def _score(blob: bytes) -> float:
+            entry = _vector_from_blob(blob)
+            if len(entry) != dim:
+                return 0.0
+            entry_norm = _norm(entry)
+            if entry_norm == 0.0:
+                return 0.0
+            return sum(a * b for a, b in zip(query, entry)) / (query_norm * entry_norm)
+
+        # Bounded heap selects the top-k in O(N log k) instead of sorting the
+        # whole table O(N log N); metadata JSON is only parsed for the survivors.
+        # heapq.nlargest over the full tuple preserves the original tie-break
+        # order (score, then id, text, meta) of sorted(..., reverse=True)[:k].
+        top = heapq.nlargest(
+            k,
+            ((_score(blob), row_id, text, meta) for row_id, text, blob, meta in rows),
         )
         return [
             SearchResult(
@@ -90,7 +106,7 @@ class SQLiteVectorStore:
                 score=float(score),
                 metadata=json.loads(meta),
             )
-            for score, row_id, text, meta in ranked[:k]
+            for score, row_id, text, meta in top
         ]
 
     def _sync_delete(self, id: str) -> None:
