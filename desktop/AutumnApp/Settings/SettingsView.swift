@@ -11,6 +11,13 @@ struct SettingsView: View {
     @State private var refreshTasks: [ModelSlot: Task<Void, Never>] = [:]
     @State private var isApplying: Bool = false
     @State private var applyMessage: String? = nil
+    @State private var ollamaStatus: OllamaStatus?
+    @State private var ollamaModels: [OllamaModel] = []
+    @State private var ollamaRecommended: [OllamaRecommendedModel] = []
+    @State private var isLoadingOllama = false
+    @State private var pullingOllamaModel: String?
+    @State private var ollamaPullProgress: String?
+    @State private var ollamaError: String?
 
     enum ConnectionState {
         case unknown
@@ -53,6 +60,9 @@ struct SettingsView: View {
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
+            if settings.a4Enabled {
+                Task { await loadOllama() }
+            }
         }
         .onChange(of: settings.a1APIKey)   { _, _ in scheduleModelRefresh(.a1) }
         .onChange(of: settings.a1BaseURL)  { _, _ in scheduleModelRefresh(.a1) }
@@ -63,6 +73,15 @@ struct SettingsView: View {
         .onChange(of: settings.a3APIKey)   { _, _ in scheduleModelRefresh(.a3) }
         .onChange(of: settings.a3BaseURL)  { _, _ in scheduleModelRefresh(.a3) }
         .onChange(of: settings.a3Protocol) { _, _ in scheduleModelRefresh(.a3) }
+        .onChange(of: settings.a4Enabled) { _, enabled in
+            if enabled {
+                Task { await loadOllama() }
+            }
+        }
+        .onChange(of: settings.a4BaseURL) { _, _ in
+            guard settings.a4Enabled else { return }
+            Task { await loadOllama() }
+        }
     }
 
     // ── tab bar ───────────────────────────────────────────────────────────────
@@ -213,6 +232,20 @@ struct SettingsView: View {
                     TextField("模型名称", text: $settings.a4Model)
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
+
+                    OllamaPanel(
+                        status: ollamaStatus,
+                        installedModels: ollamaModels,
+                        recommendedModels: ollamaRecommended,
+                        selectedModel: settings.a4Model,
+                        isLoading: isLoadingOllama,
+                        pullingModel: pullingOllamaModel,
+                        pullProgress: ollamaPullProgress,
+                        errorMessage: ollamaError,
+                        refresh: { Task { await loadOllama() } },
+                        useModel: useOllamaModel,
+                        pullModel: { name in Task { await pullOllamaModel(name) } }
+                    )
                 }
             } header: {
                 Text("记忆模型 A4")
@@ -269,10 +302,10 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("版本", value: "0.1.0")
+                LabeledContent("版本", value: "0.2.0")
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
-                Text("A1/A2/A3 配置由本页应用到本地 Autumn 服务器。")
+                Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -484,6 +517,73 @@ struct SettingsView: View {
         }
         return true
     }
+
+    private func loadOllama() async {
+        guard let url = URL(string: settings.serverURL) else {
+            ollamaError = "服务器 URL 无效"
+            return
+        }
+        isLoadingOllama = true
+        ollamaError = nil
+        defer { isLoadingOllama = false }
+
+        do {
+            let client = AutumnClient(baseURL: url)
+            async let status = client.ollamaStatus(baseURL: settings.a4BaseURL)
+            async let recommended = client.ollamaRecommendedModels()
+            let resolvedStatus = try await status
+            ollamaStatus = resolvedStatus
+            ollamaRecommended = try await recommended
+            if resolvedStatus.running {
+                ollamaModels = try await client.ollamaModels(baseURL: settings.a4BaseURL)
+            } else {
+                ollamaModels = []
+                ollamaError = resolvedStatus.error
+            }
+        } catch {
+            ollamaModels = []
+            ollamaError = error.localizedDescription
+        }
+    }
+
+    private func useOllamaModel(_ name: String) {
+        settings.a4Enabled = true
+        settings.a4Protocol = "openai"
+        settings.a4APIKey = settings.a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "ollama"
+            : settings.a4APIKey
+        settings.a4Model = name
+    }
+
+    private func pullOllamaModel(_ name: String) async {
+        guard let url = URL(string: settings.serverURL) else {
+            ollamaError = "服务器 URL 无效"
+            return
+        }
+
+        pullingOllamaModel = name
+        ollamaPullProgress = "准备拉取"
+        ollamaError = nil
+        defer {
+            pullingOllamaModel = nil
+            ollamaPullProgress = nil
+        }
+
+        do {
+            let client = AutumnClient(baseURL: url)
+            for try await event in client.pullOllamaModel(name: name, baseURL: settings.a4BaseURL) {
+                if let fraction = event.progressFraction {
+                    ollamaPullProgress = "\(Int((fraction * 100).rounded()))%"
+                } else if let status = event.status {
+                    ollamaPullProgress = status
+                }
+            }
+            useOllamaModel(name)
+            await loadOllama()
+        } catch {
+            ollamaError = error.localizedDescription
+        }
+    }
 }
 
 // MARK: - Tab pill
@@ -542,6 +642,148 @@ private struct MemoryAreaCard: View {
             Spacer()
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct OllamaPanel: View {
+    let status: OllamaStatus?
+    let installedModels: [OllamaModel]
+    let recommendedModels: [OllamaRecommendedModel]
+    let selectedModel: String
+    let isLoading: Bool
+    let pullingModel: String?
+    let pullProgress: String?
+    let errorMessage: String?
+    let refresh: () -> Void
+    let useModel: (String) -> Void
+    let pullModel: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+            HStack {
+                Label("本地模型 · Ollama", systemImage: "externaldrive.connected.to.line.below")
+                    .font(Autumn.typography.captionStrong)
+                Spacer()
+                statusBadge
+                Button(action: refresh) {
+                    if isLoading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .help("刷新 Ollama 状态")
+            }
+
+            if !installedModels.isEmpty {
+                VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                    Text("已安装")
+                        .font(Autumn.typography.captionStrong)
+                    ForEach(installedModels) { model in
+                        HStack(spacing: Autumn.spacing.sm) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(model.name)
+                                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                                Text(modelDetail(model))
+                                    .font(Autumn.typography.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if model.name == selectedModel {
+                                AutumnBadge("A4", icon: "checkmark.circle.fill", tone: .success)
+                            } else {
+                                Button("用于 A4") { useModel(model.name) }
+                                    .controlSize(.small)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+
+            if !recommendedModels.isEmpty {
+                VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                    Text("推荐")
+                        .font(Autumn.typography.captionStrong)
+                    ForEach(recommendedModels) { model in
+                        HStack(spacing: Autumn.spacing.sm) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: Autumn.spacing.xs) {
+                                    Text(model.label)
+                                        .font(Autumn.typography.captionMedium)
+                                    if model.recommended {
+                                        AutumnBadge("推荐", tone: .accent)
+                                    }
+                                }
+                                Text("\(model.name) · \(model.size) · \(model.note)")
+                                    .font(Autumn.typography.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if pullingModel == model.name {
+                                Text(pullProgress ?? "拉取中")
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            } else if installedModels.contains(where: { $0.name == model.name }) {
+                                Button("用于 A4") { useModel(model.name) }
+                                    .controlSize(.small)
+                            } else {
+                                Button("拉取") { pullModel(model.name) }
+                                    .controlSize(.small)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+
+            if let errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(Autumn.colors.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, Autumn.spacing.xs)
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        if let status {
+            if status.running {
+                AutumnBadge(status.version.map { "运行中 · \($0)" } ?? "运行中",
+                            icon: "checkmark.circle.fill",
+                            tone: .success)
+            } else {
+                AutumnBadge("未运行", icon: "xmark.circle", tone: .warning)
+            }
+        } else {
+            AutumnBadge("未检测", tone: .neutral)
+        }
+    }
+
+    private func modelDetail(_ model: OllamaModel) -> String {
+        var parts: [String] = []
+        if let parameterSize = model.parameterSize {
+            parts.append(parameterSize)
+        }
+        if let family = model.family {
+            parts.append(family)
+        }
+        if let size = model.size {
+            parts.append(formatBytes(size))
+        }
+        return parts.isEmpty ? "本地模型" : parts.joined(separator: " · ")
+    }
+
+    private func formatBytes(_ bytes: Int) -> String {
+        let gb = Double(bytes) / 1_073_741_824
+        if gb >= 1 {
+            return String(format: "%.1f GB", gb)
+        }
+        let mb = Double(bytes) / 1_048_576
+        return String(format: "%.0f MB", mb)
     }
 }
 

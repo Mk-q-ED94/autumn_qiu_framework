@@ -4,6 +4,7 @@ enum MemoryArea: String, CaseIterable, Identifiable, Codable {
     case mom1
     case mom2
     case mom3
+    case shared
 
     var id: String { rawValue }
 
@@ -12,6 +13,7 @@ enum MemoryArea: String, CaseIterable, Identifiable, Codable {
         case .mom1: return "Mom1"
         case .mom2: return "Mom2"
         case .mom3: return "Mom3"
+        case .shared: return "Shared"
         }
     }
 
@@ -20,6 +22,7 @@ enum MemoryArea: String, CaseIterable, Identifiable, Codable {
         case .mom1: return "总控记忆"
         case .mom2: return "任务记忆"
         case .mom3: return "Mission 记忆"
+        case .shared: return "跨工作区共享区"
         }
     }
 }
@@ -34,7 +37,9 @@ struct MemoryEntry: Identifiable, Equatable {
     }
 
     var preview: String {
-        firstString(for: ["input", "mission", "task", "output", "content"]) ?? "暂无内容"
+        firstString(for: ["input", "mission", "task", "output", "content"])
+            ?? contentString(for: ["input", "mission", "task", "output", "content"])
+            ?? "暂无内容"
     }
 
     var sortedKeys: [String] {
@@ -48,6 +53,48 @@ struct MemoryEntry: Identifiable, Equatable {
         }
         return nil
     }
+
+    private func contentString(for keys: [String]) -> String? {
+        guard case .object(let content)? = values["content"] else { return nil }
+        for key in keys {
+            guard let value = content[key]?.summary, !value.isEmpty else { continue }
+            return value
+        }
+        return content.isEmpty ? nil : content.keys.sorted().joined(separator: ", ")
+    }
+}
+
+struct MemoryStats: Decodable, Equatable {
+    let area: String
+    let total: Int
+    let expired: Int
+    let pinned: Int
+    let tags: [String: Int]
+    let oldest: Double?
+    let newest: Double?
+    let avgImportance: Double
+    let historyLimit: Int
+    let decayHalfLife: Double?
+    let hasVector: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case area, total, expired, pinned, tags, oldest, newest
+        case avgImportance = "avg_importance"
+        case historyLimit = "history_limit"
+        case decayHalfLife = "decay_half_life"
+        case hasVector = "has_vector"
+    }
+}
+
+struct MemoryStatsOverview: Decodable, Equatable {
+    let zones: [String: MemoryStats]
+    let total: Int
+    let areas: [String]
+}
+
+struct ConsolidateResponse: Decodable, Equatable {
+    let status: String
+    let summary: [String: JSONValue]?
 }
 
 enum JSONValue: Codable, Equatable {

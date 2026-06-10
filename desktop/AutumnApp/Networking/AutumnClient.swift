@@ -249,6 +249,202 @@ final class AutumnClient {
         return payload.map { MemoryEntry(area: area, values: $0) }
     }
 
+    func memoryStats(area: MemoryArea) async throws -> MemoryStats {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/stats"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(MemoryStats.self, from: data)
+    }
+
+    func memoryStatsOverview() async throws -> MemoryStatsOverview {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/stats"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(MemoryStatsOverview.self, from: data)
+    }
+
+    func consolidateMemory(area: MemoryArea) async throws -> ConsolidateResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/consolidate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(["keep_recent": 10, "min_candidates": 3])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ConsolidateResponse.self, from: data)
+    }
+
+    func projectMetadata(projectID: String) async throws -> ProjectMetadata {
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("projects")
+                .appendingPathComponent(projectID)
+                .appendingPathComponent("metadata")
+        )
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ProjectMetadata.self, from: data)
+    }
+
+    func updateProjectMetadata(
+        projectID: String,
+        update: ProjectMetadataUpdate
+    ) async throws -> ProjectMetadata {
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("projects")
+                .appendingPathComponent(projectID)
+                .appendingPathComponent("metadata")
+        )
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
+        request.httpBody = try JSONEncoder().encode(update)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ProjectMetadata.self, from: data)
+    }
+
+    func draftProjectDescription(projectID: String, input: String) async throws -> String {
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("projects")
+                .appendingPathComponent(projectID)
+                .appendingPathComponent("describe")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(ProjectDraftInput(input: input))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ProjectDescriptionDraft.self, from: data).description
+    }
+
+    func draftProjectGoals(projectID: String, input: String) async throws -> ProjectGoalsConfig {
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("projects")
+                .appendingPathComponent(projectID)
+                .appendingPathComponent("goals")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(ProjectDraftInput(input: input))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ProjectGoalsConfig.self, from: data)
+    }
+
+    func inferProjectEnvironment(projectID: String) async throws -> ProjectMetadata {
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("projects")
+                .appendingPathComponent(projectID)
+                .appendingPathComponent("infer-environment")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(ProjectMetadata.self, from: data)
+    }
+
+    func ollamaStatus(baseURL targetBaseURL: String) async throws -> OllamaStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("ollama/status"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        request.httpBody = try JSONEncoder().encode(OllamaTargetRequest(baseURL: targetBaseURL))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(OllamaStatus.self, from: data)
+    }
+
+    func ollamaModels(baseURL targetBaseURL: String) async throws -> [OllamaModel] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("ollama/models"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(OllamaTargetRequest(baseURL: targetBaseURL))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(OllamaModelsResponse.self, from: data).models
+    }
+
+    func ollamaRecommendedModels() async throws -> [OllamaRecommendedModel] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("ollama/recommended"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response)
+        return try JSONDecoder().decode(OllamaRecommendedResponse.self, from: data).models
+    }
+
+    func pullOllamaModel(
+        name: String,
+        baseURL targetBaseURL: String
+    ) -> AsyncThrowingStream<OllamaPullEvent, Error> {
+        let serverBaseURL = self.baseURL
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var components = URLComponents(
+                        url: serverBaseURL.appendingPathComponent("ollama/pull"),
+                        resolvingAgainstBaseURL: false
+                    )!
+                    components.queryItems = [
+                        URLQueryItem(name: "name", value: name),
+                        URLQueryItem(name: "base_url", value: targetBaseURL),
+                    ]
+                    guard let url = components.url else {
+                        throw AutumnClientError.invalidURL
+                    }
+                    var request = URLRequest(url: url)
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.timeoutInterval = 600
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    try Self.requireOK(response)
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+                        guard line.hasPrefix("data: ") else { continue }
+                        let payload = String(line.dropFirst("data: ".count))
+                        if payload == "[DONE]" {
+                            continuation.finish()
+                            return
+                        }
+                        guard let data = payload.data(using: .utf8) else { continue }
+                        let event = try JSONDecoder().decode(OllamaPullEvent.self, from: data)
+                        if let error = event.error {
+                            throw AutumnClientError.serverError(error)
+                        }
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     private static func requireOK(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else {
             throw AutumnClientError.badStatus(-1)

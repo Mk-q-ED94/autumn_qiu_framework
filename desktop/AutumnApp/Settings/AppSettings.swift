@@ -96,9 +96,15 @@ final class AppSettings: ObservableObject {
     }
 
     func applyConfigRequest() -> ApplyConfigRequest {
-        let a4Config: ProviderConfigRequest? = (a4Enabled && !a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            ? ProviderConfigRequest(apiKey: a4APIKey, baseURL: a4BaseURL,
-                                    model: a4Model.isEmpty ? nil : a4Model, apiProtocol: a4Protocol)
+        let a4Key = a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a4ModelName = a4Model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a4Config: ProviderConfigRequest? = (a4Enabled && !a4ModelName.isEmpty)
+            ? ProviderConfigRequest(
+                apiKey: a4Key.isEmpty ? "ollama" : a4Key,
+                baseURL: a4BaseURL,
+                model: a4ModelName,
+                apiProtocol: a4Protocol
+            )
             : nil
         return ApplyConfigRequest(
             a1: providerConfig(for: .a1),
