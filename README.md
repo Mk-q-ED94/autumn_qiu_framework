@@ -203,15 +203,17 @@ ends up needing — telling time, doing math, parsing JSON, fetching URLs,
 reading sandbox files. They register through the same enable/disable toggle
 the desktop UI uses for every other Terr.
 
-| Terr     | Safety       | Tools / skills                                                |
-| -------- | ------------ | ------------------------------------------------------------- |
-| `time`   | always safe  | `now`, `parse_time`, `time_diff`, `time_add`, `time_today`    |
-| `math`   | always safe  | `calc` (AST-whitelisted), `stats`                             |
-| `text`   | always safe  | `count_text`, `regex_find`, `extract_urls`, `split`, `replace`|
-| `data`   | always safe  | `parse_json`, `to_json`, `parse_csv`, `to_csv`, `json_path`   |
-| `web`    | opt-in (net) | `http_get`, `http_get_json`, `http_head`, `fetch_text`        |
-| `fs`     | sandboxed    | `read_file`, `write_file`, `list_dir`, `file_info`, `delete_file` |
-| `memory` | bound to area | `recall`, `remember` (re-export of memory skills)           |
+| Terr         | Safety        | Tools / skills                                                          |
+| ------------ | ------------- | ----------------------------------------------------------------------- |
+| `time`       | always safe   | `now`, `parse_time`, `time_diff`, `time_add`, `time_today`              |
+| `math`       | always safe   | `calc` (AST-whitelisted), `stats`                                       |
+| `text`       | always safe   | `count_text`, `regex_find`, `extract_urls`, `split_text`, `replace_text`|
+| `data`       | always safe   | `parse_json`, `to_json`, `parse_csv`, `to_csv`, `json_path`             |
+| `encoding`   | always safe   | `base64_encode/decode`, `hex_encode/decode`, `hash_text`, `url_encode/decode`, `uuid_generate` |
+| `collection` | always safe   | `unique`, `flatten`, `chunk`, `frequencies`, `group_by`, `sort_records` |
+| `web`        | opt-in (net)  | `http_get`, `http_get_json`, `http_head`, `fetch_text`                  |
+| `fs`         | sandboxed     | `read_file`, `write_file`, `list_dir`, `file_info`, `delete_file`       |
+| `memory`     | bound to area | `recall`, `remember`, `list_recent`, `pin_memory`                       |
 
 ```python
 from autumn import time_terr, math_terr, register_safe_builtins, register_builtins
@@ -221,7 +223,7 @@ autumn.register_terr(time_terr())
 autumn.register_terr(math_terr())
 
 # Or wire up the safe set in one call
-register_safe_builtins(autumn)               # time + math + text + data
+register_safe_builtins(autumn)               # time + math + text + data + encoding + collection
 
 # Opt into network + filesystem + memory
 register_builtins(
@@ -234,10 +236,32 @@ register_builtins(
 ```
 
 `autumn.builtin.mcp_catalog` exposes factory functions for the official MCP
-servers most commonly used by agents: `mcp_filesystem`, `mcp_fetch`,
-`mcp_git`, `mcp_sqlite`, `mcp_brave_search`, `mcp_github`, `mcp_puppeteer`,
-`mcp_memory`. Each returns an unconnected `StdioMCPClient`; pass it into a
+servers most commonly used by agents:
+
+| Factory                   | Server                                  | Credentials needed       |
+| ------------------------- | --------------------------------------- | ------------------------ |
+| `mcp_filesystem(root)`    | `@modelcontextprotocol/server-filesystem` | —                      |
+| `mcp_fetch()`             | `mcp-server-fetch`                      | —                        |
+| `mcp_git(repo)`           | `mcp-server-git`                        | —                        |
+| `mcp_sqlite(db_path)`     | `mcp-server-sqlite`                     | —                        |
+| `mcp_brave_search(key)`   | `server-brave-search`                   | Brave Search API key     |
+| `mcp_github(token)`       | `server-github`                         | GitHub PAT               |
+| `mcp_puppeteer()`         | `server-puppeteer`                      | —                        |
+| `mcp_memory()`            | `server-memory`                         | —                        |
+| `mcp_postgres(conn_str)`  | `server-postgres`                       | connection string        |
+| `mcp_slack(token, team)`  | `server-slack`                          | Slack bot token + team   |
+| `mcp_gitlab(token)`       | `server-gitlab`                         | GitLab PAT               |
+| `mcp_google_maps(key)`    | `server-google-maps`                    | Google Maps API key      |
+| `mcp_sequential_thinking()` | `server-sequential-thinking`          | —                        |
+| `mcp_time()`              | `mcp-server-time`                       | —                        |
+| `mcp_everything()`        | `server-everything` (reference/test)    | —                        |
+
+Each factory returns an unconnected `StdioMCPClient`; pass it into a
 `Terr(mcps=[...])` and `await autumn.add_terr(...)` to connect and register.
+
+**Server-side opt-in**: set `AUTUMN_BUILTIN_TERRS=safe` to automatically
+register the always-safe domains on server startup (default off). Use
+`AUTUMN_BUILTIN_TERRS=all` to also include `web`.
 
 ## Plugins
 
@@ -248,7 +272,7 @@ from autumn import Tool, ToolParameter, Agent, StdioMCPClient
 tool = Tool("search", "Web search", search_fn, [ToolParameter("q", "string", "query")])
 autumn.register_tool(tool)
 
-# Agent with ReAct loop
+# Agent with ReAct loop — tool calls in each turn run concurrently via asyncio.gather
 agent = Agent("researcher", api=autumn.a2, tools=[tool])
 result = await agent.run("Find recent papers on retrieval-augmented generation")
 
@@ -351,8 +375,29 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.2.0**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.2.1**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### 0.2.1 — Performance, new built-in domains & expanded MCP catalog
+
+- **Concurrent agent tool dispatch** — the ReAct loop now runs all tool calls
+  in a turn concurrently via `asyncio.gather`; independent tools no longer pay
+  the sum of their latencies.
+- **Memory performance** — vector search uses `heapq.nlargest` (O(N log k));
+  query norm computed once per search; SQLite backend caches one connection per
+  thread + `synchronous=NORMAL`; embedding API adds a 512-entry LRU cache.
+- **New always-safe Terrs** — `encoding` (base64, hex, URL codecs, hashing,
+  UUID — 8 tools) and `collection` (unique, flatten, chunk, frequencies,
+  group_by, sort_records — 6 tools); both added to `SAFE_TERR_FACTORIES`.
+- **Expanded MCP catalog** — 7 new factories: `mcp_postgres`, `mcp_slack`,
+  `mcp_gitlab`, `mcp_google_maps`, `mcp_sequential_thinking`, `mcp_time`,
+  `mcp_everything`.
+- **Server opt-in** — `AUTUMN_BUILTIN_TERRS=safe|all` registers shipped domains
+  on startup and via `/config/apply` (default off).
+- **Desktop client** — error messages from the server surface inline in
+  Settings; cost totals show in trace and inspector views; `AutumnChip`
+  component unifies route pills and status chips; `Autumn.format` / `Autumn.colors`
+  tokens eliminate duplicated formatting helpers.
 
 ### 0.2.0 — Memory system & project intelligence
 
