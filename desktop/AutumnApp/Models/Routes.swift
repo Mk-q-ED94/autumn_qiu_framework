@@ -8,15 +8,15 @@ enum WorkflowInputKind: String, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
-        case .task: return "任务"
-        case .mission: return "使命"
+        case .task: return NSLocalizedString("input.task.title", comment: "")
+        case .mission: return NSLocalizedString("input.mission.title", comment: "")
         }
     }
 
     var badgeTitle: String {
         switch self {
-        case .task: return "结构任务"
-        case .mission: return "宏观使命"
+        case .task: return NSLocalizedString("input.task.badge", comment: "")
+        case .mission: return NSLocalizedString("input.mission.badge", comment: "")
         }
     }
 
@@ -39,21 +39,21 @@ enum WorkflowTaskKind: String, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
-        case .code: return "代码"
-        case .search: return "检索"
-        case .write: return "写作"
-        case .data: return "数据"
-        case .general: return "通用"
+        case .code: return NSLocalizedString("task.code.title", comment: "")
+        case .search: return NSLocalizedString("task.search.title", comment: "")
+        case .write: return NSLocalizedString("task.write.title", comment: "")
+        case .data: return NSLocalizedString("task.data.title", comment: "")
+        case .general: return NSLocalizedString("task.general.title", comment: "")
         }
     }
 
     var badgeTitle: String {
         switch self {
-        case .code: return "代码任务"
-        case .search: return "检索任务"
-        case .write: return "写作任务"
-        case .data: return "数据任务"
-        case .general: return "通用任务"
+        case .code: return NSLocalizedString("task.code.badge", comment: "")
+        case .search: return NSLocalizedString("task.search.badge", comment: "")
+        case .write: return NSLocalizedString("task.write.badge", comment: "")
+        case .data: return NSLocalizedString("task.data.badge", comment: "")
+        case .general: return NSLocalizedString("task.general.badge", comment: "")
         }
     }
 }
@@ -67,9 +67,9 @@ enum MissionRouteMode: String, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
-        case .auto: return "自动"
-        case .direct: return "直接回答"
-        case .convert: return "转为任务"
+        case .auto: return NSLocalizedString("route.auto.title", comment: "")
+        case .direct: return NSLocalizedString("route.direct.title", comment: "")
+        case .convert: return NSLocalizedString("route.convert.title", comment: "")
         }
     }
 
@@ -83,9 +83,9 @@ enum MissionRouteMode: String, CaseIterable, Identifiable, Codable {
 
     var detail: String {
         switch self {
-        case .auto: return "每条 mission 由 A3 决定路径。"
-        case .direct: return "A3 生成回答，A1 做最终检查。"
-        case .convert: return "A3 转换任务，A2 执行，A1 检查。"
+        case .auto: return NSLocalizedString("route.auto.detail", comment: "")
+        case .direct: return NSLocalizedString("route.direct.detail", comment: "")
+        case .convert: return NSLocalizedString("route.convert.detail", comment: "")
         }
     }
 }

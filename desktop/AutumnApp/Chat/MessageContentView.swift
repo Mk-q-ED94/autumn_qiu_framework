@@ -110,7 +110,7 @@ private struct CodeBlockView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            RoundedRectangle(cornerRadius: Autumn.radius.xs, style: .continuous)
                                 .fill(Color.secondary.opacity(0.15))
                         )
                         .opacity(isHovering || copied ? 1 : 0.6)

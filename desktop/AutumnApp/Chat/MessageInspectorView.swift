@@ -54,7 +54,7 @@ struct MessageInspectorView: View {
                 routePill(trace)
                 Spacer()
                 if let total = trace.totalDurationMS {
-                    Text(formatDuration(total))
+                    Text(Autumn.format.duration(total))
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -68,38 +68,27 @@ struct MessageInspectorView: View {
                     tokenStat(label: "合计", value: totalPrompt + totalCompletion, icon: "sum")
                 }
             }
+
+            if let cost = trace.totalCostUsd, cost > 0 {
+                Text(Autumn.format.cost(cost))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private func routePill(_ trace: WorkflowTrace) -> some View {
-        let color: Color = {
-            switch trace.inputKind {
-            case .task: return Autumn.colors.warning
-            case .mission: return Autumn.colors.info
-            }
-        }()
+        let color: Color = trace.inputKind == .task ? Autumn.colors.warning : Autumn.colors.info
         let text: String = {
             switch trace.inputKind {
             case .task:
-                if let kind = trace.taskKind, kind != .general {
-                    return "Task · \(kind.title)"
-                }
+                if let kind = trace.taskKind, kind != .general { return "Task · \(kind.title)" }
                 return "Task"
             case .mission:
                 return "Mission · \((trace.routeMode ?? .auto).title)"
             }
         }()
-        return HStack(spacing: 4) {
-            Image(systemName: trace.inputKind.icon)
-                .font(.system(size: 9, weight: .bold))
-            Text(text)
-                .font(Autumn.typography.captionStrong)
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .background(Capsule().fill(color.opacity(0.14)))
-        .overlay(Capsule().strokeBorder(color.opacity(0.30), lineWidth: 0.5))
+        return AutumnChip(text, icon: trace.inputKind.icon, color: color)
     }
 
     private func tokenStat(label: String, value: Int, icon: String) -> some View {
@@ -111,7 +100,7 @@ struct MessageInspectorView: View {
                 Text(label)
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
-                Text(formatTokens(value))
+                Text(Autumn.format.tokens(value))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.primary)
             }
@@ -186,7 +175,7 @@ struct MessageInspectorView: View {
                         }
                         Spacer()
                         if let ms = agent.durationMS {
-                            Text(formatDuration(ms))
+                            Text(Autumn.format.duration(ms))
                                 .font(.system(.caption2, design: .monospaced))
                                 .foregroundStyle(.tertiary)
                         }
@@ -259,7 +248,7 @@ struct MessageInspectorView: View {
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
                     if let ms = tool.durationMS {
-                        Text(formatDuration(ms))
+                        Text(Autumn.format.duration(ms))
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
@@ -329,12 +318,12 @@ private struct WorkspaceTokenRow: View {
             Spacer()
 
             if bucket.promptTokens > 0 || bucket.completionTokens > 0 {
-                Text("↑\(formatTokens(bucket.promptTokens)) ↓\(formatTokens(bucket.completionTokens))")
+                Text("↑\(Autumn.format.tokens(bucket.promptTokens)) ↓\(Autumn.format.tokens(bucket.completionTokens))")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
             if bucket.durationMS > 0 {
-                Text(formatDuration(bucket.durationMS))
+                Text(Autumn.format.duration(bucket.durationMS))
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
@@ -347,14 +336,7 @@ private struct WorkspaceTokenRow: View {
         )
     }
 
-    private var workspaceColor: Color {
-        switch bucket.workspace {
-        case "WP1": return Autumn.colors.accent
-        case "WP2": return Autumn.colors.warning
-        case "WP3": return Autumn.colors.info
-        default:    return Autumn.colors.muted
-        }
-    }
+    private var workspaceColor: Color { Autumn.colors.workspace(bucket.workspace) }
 }
 
 private struct InspectorStageRow: View {
@@ -393,12 +375,12 @@ private struct InspectorStageRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: Autumn.spacing.xs) {
                     if let d = stage.durationMS {
-                        Text(formatDuration(d))
+                        Text(Autumn.format.duration(d))
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
                     if let p = stage.promptTokens, let c = stage.completionTokens {
-                        Text("↑\(formatTokens(p)) ↓\(formatTokens(c))")
+                        Text("↑\(Autumn.format.tokens(p)) ↓\(Autumn.format.tokens(c))")
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
@@ -408,24 +390,5 @@ private struct InspectorStageRow: View {
         }
     }
 
-    private var workspaceColor: Color {
-        switch stage.workspace {
-        case "WP1": return Autumn.colors.accent
-        case "WP2": return Autumn.colors.warning
-        case "WP3": return Autumn.colors.info
-        default:    return Autumn.colors.muted
-        }
-    }
-}
-
-private func formatDuration(_ ms: Double) -> String {
-    if ms >= 1000 { return String(format: "%.1fs", ms / 1000) }
-    return "\(Int(ms.rounded()))ms"
-}
-
-private func formatTokens(_ count: Int) -> String {
-    if count >= 1000 {
-        return String(format: "%.1fk", Double(count) / 1000)
-    }
-    return "\(count)"
+    private var workspaceColor: Color { Autumn.colors.workspace(stage.workspace) }
 }

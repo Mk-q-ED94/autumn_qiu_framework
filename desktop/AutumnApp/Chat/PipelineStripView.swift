@@ -70,10 +70,10 @@ struct PipelineStripView: View {
     private func tooltipText(for stage: WorkflowStage) -> String {
         var parts = ["\(stage.workspace) · \(stage.title)"]
         if let ms = stage.durationMS {
-            parts.append(formatDuration(ms))
+            parts.append(Autumn.format.duration(ms))
         }
         if let prompt = stage.promptTokens, let completion = stage.completionTokens {
-            parts.append("↑\(formatTokens(prompt)) ↓\(formatTokens(completion))")
+            parts.append("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
         }
         if let sourceTerr = stage.sourceTerr {
             parts.append("Terr: \(sourceTerr)")
@@ -126,66 +126,20 @@ private struct StageCapsule: View {
         return 16
     }
 
-    private var workspaceColor: Color {
-        switch stage.workspace {
-        case "WP1": return Autumn.colors.accent
-        case "WP2": return Autumn.colors.warning
-        case "WP3": return Autumn.colors.info
-        default:    return Autumn.colors.muted
-        }
-    }
+    private var workspaceColor: Color { Autumn.colors.workspace(stage.workspace) }
 }
 
 private struct ToolCountChip: View {
     let count: Int
 
     var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "wrench.and.screwdriver.fill")
-                .font(.system(size: 7, weight: .bold))
-            Text("\(count)")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        }
-        .foregroundStyle(Autumn.colors.accent)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(
-            Capsule().fill(Autumn.colors.accent.opacity(0.12))
-        )
-        .overlay(
-            Capsule().strokeBorder(Autumn.colors.accent.opacity(0.25), lineWidth: 0.5)
-        )
+        AutumnChip("\(count)", icon: "wrench.and.screwdriver.fill", color: Autumn.colors.accent, size: .compact)
     }
 }
 
 private struct AgentStatusChip: View {
     var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "cpu")
-                .font(.system(size: 7, weight: .bold))
-            Text("Agent")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        }
-        .foregroundStyle(Autumn.colors.warning)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(
-            Capsule().fill(Autumn.colors.warning.opacity(0.12))
-        )
-        .overlay(
-            Capsule().strokeBorder(Autumn.colors.warning.opacity(0.25), lineWidth: 0.5)
-        )
+        AutumnChip("Agent", icon: "cpu", color: Autumn.colors.warning, size: .compact)
     }
 }
 
-private func formatDuration(_ ms: Double) -> String {
-    if ms >= 1000 { return String(format: "%.1fs", ms / 1000) }
-    return "\(Int(ms.rounded()))ms"
-}
-
-private func formatTokens(_ count: Int) -> String {
-    if count >= 1000 {
-        return String(format: "%.1fk", Double(count) / 1000)
-    }
-    return "\(count)"
-}

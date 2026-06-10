@@ -19,10 +19,10 @@ enum MemoryArea: String, CaseIterable, Identifiable, Codable {
 
     var subtitle: String {
         switch self {
-        case .mom1: return "总控记忆"
-        case .mom2: return "任务记忆"
-        case .mom3: return "Mission 记忆"
-        case .shared: return "跨工作区共享区"
+        case .mom1: return NSLocalizedString("memory.mom1.subtitle", comment: "")
+        case .mom2: return NSLocalizedString("memory.mom2.subtitle", comment: "")
+        case .mom3: return NSLocalizedString("memory.mom3.subtitle", comment: "")
+        case .shared: return NSLocalizedString("memory.shared.subtitle", comment: "")
         }
     }
 }
