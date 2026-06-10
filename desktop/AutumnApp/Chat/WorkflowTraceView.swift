@@ -71,21 +71,7 @@ struct WorkflowTraceView: View {
     }
 
     private var routePill: some View {
-        HStack(spacing: 4) {
-            Image(systemName: routeIcon)
-                .font(.system(size: 9, weight: .bold))
-            Text(routeText)
-                .font(Autumn.typography.captionStrong)
-        }
-        .foregroundStyle(routeColor)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 2)
-        .background(
-            Capsule().fill(routeColor.opacity(0.12))
-        )
-        .overlay(
-            Capsule().strokeBorder(routeColor.opacity(0.28), lineWidth: 0.5)
-        )
+        AutumnChip(routeText, icon: routeIcon, color: routeColor)
     }
 
     private var routeText: String {
@@ -128,10 +114,13 @@ struct WorkflowTraceView: View {
             parts.append("Terr · \(trace.sourceTerrNames.count)")
         }
         if let totalPrompt = trace.totalPromptTokens, let totalCompletion = trace.totalCompletionTokens {
-            parts.append("↑\(formatTokens(totalPrompt)) ↓\(formatTokens(totalCompletion))")
+            parts.append("↑\(Autumn.format.tokens(totalPrompt)) ↓\(Autumn.format.tokens(totalCompletion))")
         }
         if let total = trace.totalDurationMS {
-            parts.append(formatDuration(total))
+            parts.append(Autumn.format.duration(total))
+        }
+        if let cost = trace.totalCostUsd, cost > 0 {
+            parts.append(Autumn.format.cost(cost))
         }
         if parts.isEmpty {
             parts.append("\(trace.completedStageCount)/\(trace.stages.count) 阶段")
@@ -177,12 +166,12 @@ private struct WorkflowStageRow: View {
 
                 HStack(spacing: Autumn.spacing.xs) {
                     if let duration = stage.durationMS {
-                        Text(formatDuration(duration))
+                        Text(Autumn.format.duration(duration))
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
                     if let prompt = stage.promptTokens, let completion = stage.completionTokens {
-                        Text("↑\(formatTokens(prompt)) ↓\(formatTokens(completion))")
+                        Text("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
@@ -197,14 +186,7 @@ private struct WorkflowStageRow: View {
         }
     }
 
-    private var workspaceColor: Color {
-        switch stage.workspace {
-        case "WP1": return Autumn.colors.accent
-        case "WP2": return Autumn.colors.warning
-        case "WP3": return Autumn.colors.info
-        default:    return Autumn.colors.muted
-        }
-    }
+    private var workspaceColor: Color { Autumn.colors.workspace(stage.workspace) }
 
     private var indicator: some View {
         VStack(spacing: 2) {
@@ -267,18 +249,3 @@ private struct WorkflowStageRow: View {
     }
 }
 
-private func formatDuration(_ ms: Double) -> String {
-    if ms >= 1000 {
-        return String(format: "%.1fs", ms / 1000)
-    }
-    return "\(Int(ms.rounded()))ms"
-}
-
-/// Compact token formatter: 1240 → "1.2k", 980 → "980".
-private func formatTokens(_ count: Int) -> String {
-    if count >= 1000 {
-        let k = Double(count) / 1000
-        return String(format: "%.1fk", k)
-    }
-    return "\(count)"
-}

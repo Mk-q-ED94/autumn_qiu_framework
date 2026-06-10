@@ -30,6 +30,15 @@ enum Autumn {
         static let danger = Color.red
         static let info = Color.blue
         static let muted = Color.secondary
+
+        static func workspace(_ name: String) -> Color {
+            switch name {
+            case "WP1": return accent
+            case "WP2": return warning
+            case "WP3": return info
+            default:    return muted
+            }
+        }
     }
 
     enum typography {
@@ -46,6 +55,7 @@ enum Autumn {
     }
 
     enum spacing {
+        static let micro: CGFloat = 2
         static let xs: CGFloat = 4
         static let sm: CGFloat = 8
         static let md: CGFloat = 12
@@ -55,6 +65,7 @@ enum Autumn {
     }
 
     enum radius {
+        static let xs: CGFloat = 4
         static let sm: CGFloat = 6
         static let md: CGFloat = 10
         static let lg: CGFloat = 14
@@ -86,6 +97,20 @@ enum Autumn {
         static let inspectorWidth: CGFloat = 296
         static let sidebarWidth: CGFloat = 232
         static let composerMinHeight: CGFloat = 44
+    }
+
+    enum format {
+        static func duration(_ ms: Double) -> String {
+            ms >= 1000 ? String(format: "%.1fs", ms / 1000) : "\(Int(ms.rounded()))ms"
+        }
+
+        static func tokens(_ count: Int) -> String {
+            count >= 1000 ? String(format: "%.1fk", Double(count) / 1000) : "\(count)"
+        }
+
+        static func cost(_ usd: Double) -> String {
+            String(format: "$%.4f", usd)
+        }
     }
 }
 

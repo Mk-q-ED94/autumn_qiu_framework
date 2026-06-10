@@ -30,6 +30,7 @@ final class AppSettings: ObservableObject {
     @Published private(set) var a1ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a2ModelState: ModelConnectionState = .unconfigured
     @Published private(set) var a3ModelState: ModelConnectionState = .unconfigured
+    @Published private(set) var a4ModelState: ModelConnectionState = .unconfigured
     @Published var activeRouteOverride: String? = nil
 
     private static let serverURLKey  = "AutumnDesktop.serverURL"
@@ -158,6 +159,11 @@ final class AppSettings: ObservableObject {
                 && !(cfg.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             setModelState(configured ? .ready : .unconfigured, for: slot)
         }
+        let a4Configured = a4Enabled
+            && !a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !a4BaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !a4Model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        a4ModelState = a4Configured ? .ready : .unconfigured
     }
 
     // ── debounced persistence ─────────────────────────────────────────────────
