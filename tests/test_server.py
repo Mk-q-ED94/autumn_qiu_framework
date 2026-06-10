@@ -896,6 +896,29 @@ def test_terrs_toggle_unknown_domain_404(configured_client):
     assert r.status_code == 404
 
 
+# ── /mcps/catalog ─────────────────────────────────────────────────────────────
+
+
+def test_mcps_catalog_is_static_and_available_unconfigured(unconfigured_client):
+    # The catalog is static metadata, so it works even with no model wired up.
+    r = unconfigured_client.get("/mcps/catalog")
+    assert r.status_code == 200
+    payload = r.json()
+    assert len(payload) >= 6
+    ids = {entry["id"] for entry in payload}
+    # A few representatives from the expanded catalog.
+    assert {"filesystem", "github", "postgres", "slack", "sequential_thinking"} <= ids
+    for entry in payload:
+        assert {"id", "name", "description", "factory", "required_args"} <= entry.keys()
+
+
+def test_mcps_catalog_marks_credentialed_servers(unconfigured_client):
+    r = unconfigured_client.get("/mcps/catalog")
+    by_id = {entry["id"]: entry for entry in r.json()}
+    assert by_id["postgres"]["required_args"] == ["connection_string"]
+    assert by_id["sequential_thinking"]["required_args"] == []
+
+
 # ── /ollama (local model management) ────────────────────────────────────────────
 
 

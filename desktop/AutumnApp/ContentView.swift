@@ -51,6 +51,8 @@ struct ContentView: View {
             WorkspaceView()
         case .memory:
             MemoryView(settings: settings)
+        case .terrs:
+            TerrsView(settings: settings)
         case .settings:
             SettingsView()
         }

@@ -232,6 +232,15 @@ final class AutumnClient {
         return try JSONDecoder().decode(TerrSummary.self, from: data)
     }
 
+    func mcpCatalog() async throws -> [KnownMCP] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("mcps/catalog"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([KnownMCP].self, from: data)
+    }
+
     func endSession() async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("session/end"))
         request.httpMethod = "POST"
