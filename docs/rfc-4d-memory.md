@@ -240,34 +240,31 @@ utility = log1p(count) * (1 + clamp(reward, -0.5, +1.0))
 ### 5.4 激活循环（落在 WP4）
 
 WP4（`workspace/wp4.py`）是激活引擎的自然归宿：它已持有全部 zone 且掌管 A4，并有
-审计日志。新增一个方法（示意）：
+审计日志。
 
-```python
-async def activate(self, ctx: ActivationContext, area: str, k: int = 5) -> list[Activation]:
-    """评估某 zone 内的记忆，返回应当激活的 top-k 及其施加方式。"""
-    entries = await self._resolve(area).get_history()       # 候选
-    scored = []
-    for e in entries:
-        w = e.trigger.weight(e.timestamp, ctx.now, ctx, e.use.stats.last_used)
-        if w <= 0:                          # time 维不触发
-            continue
-        a = e.aim.align(ctx)
-        if a <= 0:                          # aim 维否决
-            continue
-        score = w * a * (1 + e.use.utility())
-        scored.append((score, e))
-    top = heapq.nlargest(k, scored, key=lambda x: x[0])
-    # 施加 use.mode，并回写 use.touch()
-    result = [self._apply(e, ctx) for _, e in top]
-    await self._log("activate", area, {"ctx": ..., "fired": [e.id for _, e in top]})
-    return result
-```
+- **pull（P3 已实现）**：`WP4.activate(query, area, tags, k, reward, reinforce)`
+  调 zone 的 `recall`（开关开时即 §6 的四因子排序），命中后通过
+  `MemoryArea.reinforce(ids, reward)` **回写 `use.touch()`**，闭合正反馈环。返回的
+  每个 entry 自带 `use.mode`，告诉调用方如何施加。`recall` 保持纯读，强化收敛到
+  `reinforce` 这一个加锁写回原语；KV/向量合成 id 不匹配历史项，自然被忽略，可安全
+  传整批 recall 结果。
 
-- **pull**：`recall` 内部改为构造 `ActivationContext(query=...)` 调 `activate`，
-  即「四因子排序」版的检索（§6）。
-- **push**：在 WP1 每轮开始（`wp1.py:130` `process_with_trace` 入口）插一个
-  `activate(ctx=turn)`，把 CONSTRAIN/REMIND 类记忆注入到当轮 prompt。**默认关闭**，
+  ```python
+  entries = await zone.recall(query, k=k, tags=tags)      # 4D 排序（开关开时）
+  if reinforce and entries:
+      await zone.reinforce([e.id for e in entries], reward=reward)  # use.touch 回写
+  await self._log("activate", area, {"query": query, "hits": len(entries)})
+  return entries
+  ```
+
+- **push（P4 待做）**：在 WP1 每轮开始（`wp1.py:130` `process_with_trace` 入口）插一个
+  无查询的 history 扫描版 activate（`trigger.weight` 闸门 + `aim.align` 否决 +
+  `use.utility` 增益），把 CONSTRAIN/REMIND 类记忆注入到当轮 prompt。**默认关闭**，
   由配置开关启用，避免给现有流程加成本。
+
+> **reward 来源**：P3 先把 `reward` 作为参数（默认 0.0，仅记一次使用）。后续可由
+> Checker 通过/失败信号自动驱动——通过则 +reward、失败则 -reward，形成「有用的记忆
+> 自动上浮、误导的记忆自动下沉」的闭环。
 
 ### 5.5 use.mode 的施加语义
 
@@ -293,7 +290,9 @@ async def activate(self, ctx: ActivationContext, area: str, k: int = 5) -> list[
     cue 加权、aim 关联门（0 否决并沉底）、use 效用增益都生效。
   - KV/向量命中是**空维度合成项** → 退化为各自的 importance，故 KV 仍最高优先、
     向量项行为不变；只有带注解的真实历史项会重排。
-  - `use.touch()` 正反馈**不在本阶段**（留待 P3 闭环），避免在读路径写回。
+  - `recall` 保持**纯读**：`use.touch()` 正反馈（P3 已实现）收敛到独立的加锁写回
+    原语 `MemoryArea.reinforce(ids, reward)`，由 `WP4.activate` 在命中后调用（见 §5.4），
+    避免在每次读路径都强制写回。
 - **_evict**（`MemoryEntry.retention_score`）：开关开时保留键从 `effective_importance`
   改为 `retention_score = effective_importance × (1 + utility)`——**上下文无关**，
   刻意**不**用 `align`/`trigger`：那两维管「何时相关」，不该决定「是否值得留存」
@@ -341,7 +340,7 @@ use_reward_decay:    float = 0.0       # reward 随时间衰减的半衰期，0=
 | **P0** | 本 RFC + `dimensions.py` 纯数据/纯函数 + 单元测试（不接 recall） | 极低 | ✅ 已完成 |
 | **P1** | `MemoryEntry` 扩展 + 序列化版本化 + 默认值兼容；现有测试全绿 | 低 | ✅ 已完成 |
 | **P2** | recall/evict 切到四因子打分（开关后）；新增打分测试 | 中 | ✅ 已完成 |
-| **P3** | WP4 `activate()` + pull 接入；use.touch 正反馈闭环 | 中 | ⏳ 待做 |
+| **P3** | WP4 `activate()` + pull 接入；use.touch 正反馈闭环 | 中 | ✅ 已完成 |
 | **P4** | push（每轮触发，CONSTRAIN/REMIND 注入）+ trace 可视化 + 客户端 UI | 中高 | ⏳ 待做 |
 
 每阶段独立可合并、可回滚；P0/P1 不改变任何运行时行为，P2 起的行为变化全部由

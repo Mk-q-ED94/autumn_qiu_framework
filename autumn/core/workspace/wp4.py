@@ -150,6 +150,36 @@ class WP4Mem(WorkspaceBase):
             await zone.index(key, f"{key}: {value}")
         await self._log("remember", area, {"key": key})
 
+    # ── activate (pull) ─────────────────────────────────────────────────────────
+
+    async def activate(
+        self,
+        query: str,
+        area: str = "shared",
+        k: int = 5,
+        tags: "list[str] | None" = None,
+        reward: float = 0.0,
+        reinforce: bool = True,
+    ) -> list["MemoryEntry"]:
+        """Pull-activate a zone's memories for *query*, closing the feedback loop.
+
+        Ranks via the zone's :meth:`MemoryArea.recall` (4D activation when the
+        zone has it enabled), then — unless ``reinforce`` is False — records the
+        hits in their ``use`` ledger (with ``reward``) so repeated usefulness
+        raises their future activation and slows their eviction. Each returned
+        entry carries its ``use.mode``, telling the caller *how* to apply it
+        (context / remind / constrain / summarize). Needs no A4 model.
+
+        This is the pull side of the activation engine; the push side (firing
+        memories on a turn/event) builds on the same reinforcement primitive.
+        """
+        zone = self._resolve(area)
+        entries = await zone.recall(query, k=k, tags=tags)
+        if reinforce and entries:
+            await zone.reinforce([e.id for e in entries], reward=reward)
+        await self._log("activate", area, {"query": query, "tags": tags, "hits": len(entries)})
+        return entries
+
     # ── consolidate ─────────────────────────────────────────────────────────────
 
     async def consolidate(

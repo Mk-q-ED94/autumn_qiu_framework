@@ -531,6 +531,33 @@ class MemoryArea:
         """Reset an entry's importance to 1.0. Returns True if found."""
         return await self._reweight(entry_id, 1.0)
 
+    # ── use-dimension feedback ──────────────────────────────────────────────────
+
+    async def reinforce(self, ids: list[str], reward: float = 0.0) -> int:
+        """Record that the given history entries were used, persisting the update.
+
+        Touches each matching entry's ``use`` ledger (count + last_used, and
+        accumulates ``reward``), closing the 4D positive-feedback loop: entries
+        that keep proving useful gain utility and so rank higher in future recall
+        / survive eviction longer. Ids that don't match a history entry (e.g. the
+        synthetic ``kv:``/vector ids recall returns) are silently ignored, so it
+        is safe to pass a whole recall result. Returns the number updated.
+        """
+        id_set = {i for i in ids if i}
+        if not id_set:
+            return 0
+        now = time.time()
+        async with self._history_lock:
+            history = _decode(await self.get(_HISTORY_KEY))
+            updated = 0
+            for e in history:
+                if e.id in id_set:
+                    e.use.touch(now, reward)
+                    updated += 1
+            if updated:
+                await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
+        return updated
+
     # ── lifecycle: forget / consolidate / stats ────────────────────────────────
 
     async def forget(
