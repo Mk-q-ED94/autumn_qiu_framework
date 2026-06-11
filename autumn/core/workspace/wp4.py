@@ -30,11 +30,46 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from .base import WorkspaceBase
+from ..memory.dimensions import ActivationContext, UseMode
 
 if TYPE_CHECKING:
     from ..components.skill import Skill
     from ..memory.base import MemoryArea, MemoryEntry
     from ..memory.project import ProjectGoals, ProjectMeta, ProjectMemory
+
+# Modes that surface proactively at turn start (push). CONTEXT is pull-only,
+# SUMMARIZE feeds consolidation — neither is injected by the push engine.
+_PUSH_MODES = (UseMode.CONSTRAIN, UseMode.REMIND)
+
+
+def _render_one(entry: "MemoryEntry") -> str:
+    """One activated memory as a line, applying its use.template when present."""
+    template = entry.use.template
+    if template:
+        try:
+            return template.format(content=entry.text)
+        except (KeyError, IndexError, ValueError):
+            pass
+    return entry.text
+
+
+def render_push_context(entries: "list[MemoryEntry]") -> str:
+    """Render push-activated memories into an injectable prompt fragment.
+
+    CONSTRAIN entries become a "must follow" rules block; REMIND entries become
+    a reminders block. Returns "" when there is nothing to inject, so callers can
+    unconditionally prepend the result.
+    """
+    constraints = [e for e in entries if e.use.mode == UseMode.CONSTRAIN]
+    reminders = [e for e in entries if e.use.mode == UseMode.REMIND]
+    blocks: list[str] = []
+    if constraints:
+        lines = "\n".join(f"- {_render_one(e)}" for e in constraints)
+        blocks.append(f"Active constraints (must follow):\n{lines}")
+    if reminders:
+        lines = "\n".join(f"- {_render_one(e)}" for e in reminders)
+        blocks.append(f"Active reminders:\n{lines}")
+    return "\n\n".join(blocks)
 
 
 class WP4Mem(WorkspaceBase):
@@ -179,6 +214,41 @@ class WP4Mem(WorkspaceBase):
             await zone.reinforce([e.id for e in entries], reward=reward)
         await self._log("activate", area, {"query": query, "tags": tags, "hits": len(entries)})
         return entries
+
+    async def activate_push(
+        self,
+        area: str = "shared",
+        ctx: "ActivationContext | None" = None,
+        k: int = 5,
+        reinforce: bool = False,
+    ) -> list["MemoryEntry"]:
+        """Push side of the engine: scan a zone and fire turn-relevant memories.
+
+        Query-less. Only ``CONSTRAIN``/``REMIND`` entries are candidates (those
+        are the proactively-surfaced modes); among them, an entry fires when its
+        ``trigger`` and ``aim`` gates open against *ctx* (empty gates = always
+        fire). Results are ranked by 4D activation, newest breaking ties. Unlike
+        pull, reinforcement defaults **off** — a memory auto-surfaced by the turn
+        wasn't deliberately used, so it shouldn't inflate its own utility.
+
+        Returns the firing entries (each carrying its ``use.mode``); pair with
+        :func:`render_push_context` to get an injectable prompt fragment.
+        """
+        ctx = ctx or ActivationContext()
+        zone = self._resolve(area)
+        scored: list[tuple[float, "MemoryEntry"]] = []
+        for e in await zone.get_history():
+            if e.use.mode not in _PUSH_MODES:
+                continue
+            score = e.activation(ctx)
+            if score > 0:
+                scored.append((score, e))
+        scored.sort(key=lambda pair: (-pair[0], -pair[1].timestamp))
+        fired = [e for _, e in scored[:k]]
+        if reinforce and fired:
+            await zone.reinforce([e.id for e in fired], reward=0.0)
+        await self._log("activate_push", area, {"fired": [e.id for e in fired]})
+        return fired
 
     # ── consolidate ─────────────────────────────────────────────────────────────
 

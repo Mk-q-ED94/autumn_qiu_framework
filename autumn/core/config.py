@@ -121,6 +121,7 @@ class BehaviorConfig:
     history_limit: int = 50        # Per-area memory history entries retained
     memory_decay_half_life: float = 0.0  # Seconds; importance halves each interval. 0 = off
     fourd_memory_enabled: bool = False  # Rank recall/evict by 4D activation score (off = today's importance×timestamp)
+    fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -137,6 +138,9 @@ class BehaviorConfig:
             ),
             fourd_memory_enabled=_to_bool(
                 env("FOURD_MEMORY_ENABLED"), cls.fourd_memory_enabled
+            ),
+            fourd_push_on_turn=_to_bool(
+                env("FOURD_PUSH_ON_TURN"), cls.fourd_push_on_turn
             ),
         )
 

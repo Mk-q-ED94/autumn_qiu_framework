@@ -257,10 +257,16 @@ WP4（`workspace/wp4.py`）是激活引擎的自然归宿：它已持有全部 z
   return entries
   ```
 
-- **push（P4 待做）**：在 WP1 每轮开始（`wp1.py:130` `process_with_trace` 入口）插一个
-  无查询的 history 扫描版 activate（`trigger.weight` 闸门 + `aim.align` 否决 +
-  `use.utility` 增益），把 CONSTRAIN/REMIND 类记忆注入到当轮 prompt。**默认关闭**，
-  由配置开关启用，避免给现有流程加成本。
+- **push 引擎（P4a 已实现）**：`WP4.activate_push(area, ctx, k, reinforce)` 无查询扫描
+  zone 的 history，**只取 `use.mode ∈ {CONSTRAIN, REMIND}`** 的项作候选（CONTEXT 是
+  pull-only、SUMMARIZE 喂整合，都不 push），用 `trigger.weight` 闸门 + `aim.align` 否决
+  + `use.utility` 增益排序触发；空闸门 = 常驻触发。`render_push_context(entries)` 把命中
+  项渲成「constraints + reminders」prompt 片段。框架公开 `Autumn.active_context(text,
+  cues, goal, area)`：开 `fourd_push_on_turn` 时返回可注入片段，否则 ""。push 默认**不**
+  reinforce（自动浮出 ≠ 主动使用，不该自抬 utility）。
+- **turn 自动注入（P4b 待做）**：把 `active_context` 接到 WP1 每轮入口
+  （`wp1.py:130`）/ WP2·WP3 的 system prompt 前缀。这步动核心 prompt 流，blast radius
+  最大，故单独成阶段评审；当前核心 workflow **不**自动调用 `active_context`。
 
 > **reward 来源**：P3 先把 `reward` 作为参数（默认 0.0，仅记一次使用）。后续可由
 > Checker 通过/失败信号自动驱动——通过则 +reward、失败则 -reward，形成「有用的记忆
@@ -341,7 +347,8 @@ use_reward_decay:    float = 0.0       # reward 随时间衰减的半衰期，0=
 | **P1** | `MemoryEntry` 扩展 + 序列化版本化 + 默认值兼容；现有测试全绿 | 低 | ✅ 已完成 |
 | **P2** | recall/evict 切到四因子打分（开关后）；新增打分测试 | 中 | ✅ 已完成 |
 | **P3** | WP4 `activate()` + pull 接入；use.touch 正反馈闭环 | 中 | ✅ 已完成 |
-| **P4** | push（每轮触发，CONSTRAIN/REMIND 注入）+ trace 可视化 + 客户端 UI | 中高 | ⏳ 待做 |
+| **P4a** | push 引擎 `activate_push` + `render_push_context` + `Autumn.active_context`（不接主流程） | 中 | ✅ 已完成 |
+| **P4b** | turn 自动注入（WP1/WP2/WP3 prompt 前缀）+ trace 可视化 + 客户端 UI | 中高 | ⏳ 待做 |
 
 每阶段独立可合并、可回滚；P0/P1 不改变任何运行时行为，P2 起的行为变化全部由
 `fourd_memory_enabled` 开关守护（默认关）。

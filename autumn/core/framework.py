@@ -1,3 +1,4 @@
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Literal
@@ -8,6 +9,7 @@ from .api.interfaces import A1, A2, A3, A4
 from .api.embedding import EmbeddingInterface
 from .memory.backends import SQLiteBackend, HybridBackend, SQLiteVectorStore
 from .memory.base import MemoryArea
+from .memory.dimensions import ActivationContext
 from .memory.shared import SharedZone
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
@@ -312,6 +314,39 @@ class Autumn:
                 ],
             })
         return summaries
+
+    async def active_context(
+        self,
+        text: str = "",
+        cues: list[str] | None = None,
+        goal: str | None = None,
+        area: str = "mom1",
+        k: int = 5,
+        reinforce: bool = False,
+    ) -> str:
+        """Push-activate a zone for the current turn → an injectable prompt fragment.
+
+        Scans *area* for CONSTRAIN/REMIND memories whose ``trigger``/``aim`` gates
+        open against the turn context (``cues``/``goal``, plus naive tokens from
+        ``text``), and renders them as a constraints+reminders block ready to
+        prepend to a system prompt. Returns "" when push is disabled or nothing
+        fires, so callers can use it unconditionally.
+
+        Opt-in: gated by ``behavior.fourd_push_on_turn`` (default off). This is
+        the public seam for wiring push into a turn; the core workflow does not
+        call it automatically yet.
+        """
+        if not self.config.behavior.fourd_push_on_turn:
+            return ""
+        from .workspace.wp4 import render_push_context
+
+        turn_cues = list(cues or [])
+        turn_cues += [t for t in text.split() if t]  # naive; explicit cues preferred
+        ctx = ActivationContext(
+            now=time.time(), query=text or None, goal=goal, cues=turn_cues
+        )
+        fired = await self.wp4.activate_push(area=area, ctx=ctx, k=k, reinforce=reinforce)
+        return render_push_context(fired)
 
     # ── plugin & extension api ────────────────────────────────────────────────
 
