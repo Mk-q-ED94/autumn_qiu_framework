@@ -94,6 +94,56 @@ all-zone overview, and `shared` joins `mom1/2/3` as an addressable area for
 `/memory/{area}/history|stats|consolidate`. Consolidation uses WP4's A4 slot, so
 it 400s cleanly when no A4 model is configured.
 
+**4D memory (active memory)** — beyond its content, every entry can optionally
+carry three more orthogonal dimensions, turning a passive record into a unit
+with its own activation policy (full design:
+[`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md)):
+
+| Dimension | Question it answers | Role |
+| --------- | ------------------- | ---- |
+| `aim`     | *why* does this memory exist | relevance gate — vetoes activation when misaligned with the turn's goal/cues |
+| content   | *what* is it                 | the payload (the existing entry body) |
+| `use`     | *how* to apply it — and how it has been used | processing mode (`CONTEXT`/`REMIND`/`CONSTRAIN`/`SUMMARIZE`) + usage ledger |
+| `trigger` | *when* should it fire        | scheduler — half-life, not-before/expiry, cooldown, cue matching |
+
+```python
+from autumn.core.memory import Aim, Use, UseMode, Trigger
+
+await autumn.mom1.append_history(
+    "never write to the prod database directly",
+    use=Use(mode=UseMode.CONSTRAIN),                    # how: inject as a hard rule
+    aim=Aim(intent="deploy safety", scope=["deploy"]),  # why: gate on alignment
+    trigger=Trigger(cues=["deploy", "release"]),        # when: boost on matching cues
+)
+```
+
+Recall ranks by `activation = trigger.weight × (importance × decay) × aim.align
+× (1 + use.utility)`. Eviction deliberately ignores `aim`/`trigger` and keeps
+what has proven useful (`retention = effective_importance × (1 + utility)`), so
+a high-value but currently-dormant memory is not evicted just because it is out
+of context.
+
+Two switches, both **off by default** — when off, behaviour is identical to the
+classic importance×recency model, and v1 records load unchanged (serialization
+is versioned, `_v=2`):
+
+- `FOURD_MEMORY_ENABLED` (`BehaviorConfig.fourd_memory_enabled`) — recall and
+  eviction switch to 4D activation scoring.
+- `FOURD_PUSH_ON_TURN` (`BehaviorConfig.fourd_push_on_turn`) — **push
+  activation**: at the start of every `process`/`stream` turn,
+  `CONSTRAIN`/`REMIND` memories whose trigger/aim gates open against the turn
+  fire automatically and are appended to the WP2/WP3 system prompts as an
+  "active constraints / reminders" block. The workflow trace gains a `wp4.push`
+  stage (WP4 purple in the desktop client) showing what fired.
+
+```python
+# pull: recall + use-ledger write-back, so useful memories rank higher over time
+hits = await autumn.wp4.activate("deploy target", area="shared")
+
+# push, manual seam (returns "" when the flag is off or nothing fires)
+frag = await autumn.active_context(text="deploying v2 now")
+```
+
 ## Quick start
 
 ```bash
@@ -325,7 +375,7 @@ AutumnConfig(
 autumn/
 ├── core/
 │   ├── api/          # ModelAPIInterface, A1/A2/A3/A4
-│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, backends (Dict/SQLite/Hybrid)
+│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, dimensions (4D), backends (Dict/SQLite/Hybrid)
 │   ├── workspace/    # WP1Tot, WP2Tas, WP3Mis, WP4Mem
 │   ├── components/   # Agent, Skill, Tool, Selector, Checker, MCP*
 │   ├── config.py     # AutumnConfig, ModelConfig, WorkspacePrompts
@@ -377,6 +427,30 @@ python -m pytest
 
 Current version: **0.2.1**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### Unreleased — 4D memory (active memory)
+
+- **Four orthogonal dimensions** — `MemoryEntry` gains `aim` (why — relevance
+  gate), `use` (how — processing mode + usage ledger), and `trigger` (when —
+  weighted time-axis scheduler) alongside its content. Serialization is
+  versioned (`_v=2`) and fully backward-compatible; v1 records load unchanged.
+- **Activation scoring** — recall/eviction can rank by
+  `trigger.weight × decayed importance × aim.align × (1 + use.utility)` behind
+  the `FOURD_MEMORY_ENABLED` flag (default off → behaviour identical to before).
+- **Pull engine** — `WP4.activate(query)` closes the feedback loop: recall hits
+  are written back to their `use` ledger, so repeatedly useful memories rank
+  higher and survive eviction longer.
+- **Push engine & turn auto-injection** — behind `FOURD_PUSH_ON_TURN`,
+  `CONSTRAIN`/`REMIND` memories fire query-lessly at the start of every turn
+  and are appended to the WP2/WP3 system prompts as an "active constraints /
+  reminders" block; `Autumn.active_context()` exposes the same seam manually.
+  Push does not reinforce by default — auto-surfacing is not deliberate use.
+- **Trace & desktop client** — fired pushes surface as a `wp4.push` stage (WP4
+  purple) in the workflow trace and pipeline strip; the macOS Memory view shows
+  a use-mode badge per entry and a dedicated 4D card (aim / use / trigger
+  fields) when expanded.
+- Full design rationale and phasing in
+  [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md).
 
 ### 0.2.1 — Performance, new built-in domains & expanded MCP catalog
 

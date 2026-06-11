@@ -105,6 +105,41 @@ await autumn.wp4.stats()                                # 所有区的快照
 
 通过 HTTP，记忆相关端点都经由 WP4：`GET /memory/stats` 返回所有区的总览；`shared` 与 `mom1/2/3` 一样成为 `/memory/{area}/history|stats|consolidate` 可寻址的区。归并使用 WP4 的 A4 槽位，因此在未配置 A4 模型时会干净地返回 400。
 
+**四维记忆（活性记忆）**——每条记忆在内容之外，还可选地携带另外三个正交维度，从被动记录升级为带有自身激活策略的单元（完整设计见 [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md)）：
+
+| 维度 | 回答的问题 | 角色 |
+| ---- | ---------- | ---- |
+| `aim`     | 这条记忆**为什么**存在 | 关联门——与当前轮的目标/线索不对齐时直接否决激活 |
+| content   | 这条记忆**是什么**     | 载荷（即原有的条目正文） |
+| `use`     | 该**怎么用**、用得如何 | 处理模式（`CONTEXT`/`REMIND`/`CONSTRAIN`/`SUMMARIZE`）+ 使用账本 |
+| `trigger` | **何时**该触发         | 调度器——半衰期、生效/失效时间、冷却间隔、线索匹配 |
+
+```python
+from autumn.core.memory import Aim, Use, UseMode, Trigger
+
+await autumn.mom1.append_history(
+    "永远不要直接写生产数据库",
+    use=Use(mode=UseMode.CONSTRAIN),                    # 怎么用：作为硬性规则注入
+    aim=Aim(intent="部署安全", scope=["deploy"]),        # 为什么：按目标对齐做门禁
+    trigger=Trigger(cues=["deploy", "release"]),        # 何时：线索命中时加权触发
+)
+```
+
+回忆按 `activation = trigger.weight ×（importance × 衰减）× aim.align × (1 + use.utility)` 排序。淘汰则**刻意**不看 `aim`/`trigger`，只保留被证明有用的条目（`retention = 有效重要度 × (1 + utility)`）——高价值但暂时休眠的记忆不会仅仅因为不在当前上下文就被淘汰。
+
+两个开关，**默认全关**——关闭时行为与经典的重要度×新近度模型完全一致，v1 旧记录也能原样加载（序列化带版本号 `_v=2`）：
+
+- `FOURD_MEMORY_ENABLED`（`BehaviorConfig.fourd_memory_enabled`）——回忆与淘汰切换到四维激活打分。
+- `FOURD_PUSH_ON_TURN`（`BehaviorConfig.fourd_push_on_turn`）——**push 激活**：每个 `process`/`stream` 轮次开始时，trigger/aim 闸门对当前轮打开的 `CONSTRAIN`/`REMIND` 记忆自动触发，以「活跃约束 / 提醒」块的形式追加到 WP2/WP3 的 system prompt；工作流追踪新增一个 `wp4.push` 阶段（桌面客户端中显示为 WP4 紫色），展示本轮触发了哪些记忆。
+
+```python
+# pull：检索 + use 账本回写，反复有用的记忆排名越来越靠前
+hits = await autumn.wp4.activate("部署目标", area="shared")
+
+# push 的手动接缝（开关关闭或无命中时返回 ""）
+frag = await autumn.active_context(text="现在部署 v2")
+```
+
 ## 快速开始
 
 ```bash
@@ -321,7 +356,7 @@ AutumnConfig(
 autumn/
 ├── core/
 │   ├── api/          # ModelAPIInterface, A1/A2/A3/A4
-│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, 后端 (Dict/SQLite/Hybrid)
+│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, dimensions（四维）, 后端 (Dict/SQLite/Hybrid)
 │   ├── workspace/    # WP1Tot, WP2Tas, WP3Mis, WP4Mem
 │   ├── components/   # Agent, Skill, Tool, Selector, Checker, MCP*
 │   ├── config.py     # AutumnConfig, ModelConfig, WorkspacePrompts
@@ -364,6 +399,15 @@ python -m pytest
 ## 开发历程
 
 当前版本：**0.2.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+
+### 未发布 —— 四维记忆（活性记忆）
+
+- **四个正交维度** —— `MemoryEntry` 在内容之外新增 `aim`（为什么——关联门）、`use`（怎么用——处理模式 + 使用账本）、`trigger`（何时——带权时间轴调度器）。序列化带版本号（`_v=2`）且完全向后兼容；v1 旧记录原样加载。
+- **激活打分** —— 回忆/淘汰可按 `trigger.weight × 衰减后重要度 × aim.align × (1 + use.utility)` 排序，由 `FOURD_MEMORY_ENABLED` 开关守护（默认关闭 → 行为与之前完全一致）。
+- **pull 引擎** —— `WP4.activate(query)` 闭合反馈环：检索命中会回写各自的 `use` 账本，反复有用的记忆排名更靠前、更晚被淘汰。
+- **push 引擎与每轮自动注入** —— 在 `FOURD_PUSH_ON_TURN` 开关下，`CONSTRAIN`/`REMIND` 记忆在每轮开始时无查询地自动触发，以「活跃约束 / 提醒」块追加到 WP2/WP3 的 system prompt；`Autumn.active_context()` 暴露同一接缝供手动调用。push 默认不回写账本——被自动浮出 ≠ 被主动使用。
+- **追踪与桌面客户端** —— 触发的 push 在工作流追踪与管线条中显示为 `wp4.push` 阶段（WP4 紫色）；macOS 记忆视图为每条记忆显示使用模式徽章，展开时显示专属的四维卡片（aim / use / trigger 字段）。
+- 完整设计依据与分阶段计划见 [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md)。
 
 ### 0.2.1 —— 性能优化、新内置域与扩充 MCP 目录
 
