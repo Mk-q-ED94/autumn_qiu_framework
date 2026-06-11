@@ -202,11 +202,13 @@ class ProjectZone(MemoryArea):
         backend: MemoryBackend,
         history_limit: int = 50,
         decay_half_life: float | None = None,
+        fourd_enabled: bool = False,
     ):
         super().__init__(
             f"project:{_sanitize(project_id)}", backend,
             history_limit=history_limit,
             decay_half_life=decay_half_life,
+            fourd_enabled=fourd_enabled,
         )
         self.project_id = project_id
 
@@ -277,10 +279,12 @@ class ProjectMemory:
         history_limit: int = 50,
         default_id: str = _DEFAULT_ID,
         decay_half_life: float | None = None,
+        fourd_enabled: bool = False,
     ):
         self._backend = backend
         self._history_limit = history_limit
         self._decay_half_life = decay_half_life or None
+        self._fourd_enabled = fourd_enabled
         self._default_id = default_id
         self._zones: dict[str, ProjectZone] = {}
         # Persistent index of original ids so list_projects can report the ids
@@ -296,6 +300,7 @@ class ProjectMemory:
                 pid, self._backend,
                 history_limit=self._history_limit,
                 decay_half_life=self._decay_half_life,
+                fourd_enabled=self._fourd_enabled,
             )
         return self._zones[safe]
 

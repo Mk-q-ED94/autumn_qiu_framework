@@ -18,9 +18,11 @@ class Mom1(MemoryArea):
         mom3: Mom3,
         history_limit: int = 50,
         decay_half_life: float | None = None,
+        fourd_enabled: bool = False,
     ):
         super().__init__(
-            "mom1", backend, history_limit=history_limit, decay_half_life=decay_half_life
+            "mom1", backend, history_limit=history_limit,
+            decay_half_life=decay_half_life, fourd_enabled=fourd_enabled,
         )
         self.mom2 = mom2
         self.mom3 = mom3

@@ -280,17 +280,29 @@ async def activate(self, ctx: ActivationContext, area: str, k: int = 5) -> list[
 
 ---
 
-## 6. 对 recall / evict 的改造
+## 6. 对 recall / evict 的改造（P2 已实现）
 
-- **recall**（`base.py:362`）：从 `(-importance, -timestamp)` 改为 `activate` 的
-  四因子分。KV 精确命中仍最高优先（保持现有语义）；其余项用 `w_time×align×utility`
-  排序。命中后调用 `use.touch()` 形成正反馈。
-- **_evict**（`base.py:125`）：保留项从「effective_importance 最高」改为「**激活分**
-  最高」——既考虑重要度/衰减（time），也考虑历史效用（use）。`is_pinned` 仍无条件
-  保留。效果：常被有效使用的记忆即使 importance 普通也更难被淘汰。
+两处改造统一由 `BehaviorConfig.fourd_memory_enabled` 开关控制，经各 zone 构造参数
+`fourd_enabled` 透传到 `MemoryArea`（与 `decay_half_life` 同一套路径）。**开关关 =
+与今天逐字节一致。**
 
-两处都保证：**不设任何四维字段时，打分退化为今天的结果**（aim=1、utility=0、
-w_time=importance×decay），所以现有 600+ 测试不受影响。
+- **recall**（`MemoryEntry.activation`）：开关开时排序键从 `(-importance, -timestamp)`
+  改为 `(-activation, -timestamp)`，其中
+  `activation = trigger.weight × (importance×decay) × align × (1 + utility)`。
+  - **有查询上下文**：用 `ActivationContext(query, cues=tags)` 评估；trigger 闸门 +
+    cue 加权、aim 关联门（0 否决并沉底）、use 效用增益都生效。
+  - KV/向量命中是**空维度合成项** → 退化为各自的 importance，故 KV 仍最高优先、
+    向量项行为不变；只有带注解的真实历史项会重排。
+  - `use.touch()` 正反馈**不在本阶段**（留待 P3 闭环），避免在读路径写回。
+- **_evict**（`MemoryEntry.retention_score`）：开关开时保留键从 `effective_importance`
+  改为 `retention_score = effective_importance × (1 + utility)`——**上下文无关**，
+  刻意**不**用 `align`/`trigger`：那两维管「何时相关」，不该决定「是否值得留存」
+  （否则一条暂不匹配当前上下文的高价值记忆会被误删）。`is_pinned` 仍无条件保留。
+  效果：常被有效使用的记忆即使 importance 普通也更难被淘汰。
+
+两处都保证：**不设任何四维字段时，打分退化为今天的结果**（align=1、utility=0、
+trigger.weight=1 → recall 退化为 importance×decay、evict 退化为 effective_importance），
+现有测试在开关关/开（且数据未注解）两种情形下都不受影响。
 
 ---
 
@@ -311,26 +323,29 @@ use_reward_decay:    float = 0.0       # reward 随时间衰减的半衰期，0=
 
 ## 8. 向后兼容与迁移
 
-1. **数据**：`MemoryEntry.from_dict` 增加版本位 `_v`。旧记录（无 aim/use/time）按默认
-   值补齐；`expires_at` 迁入 `Trigger`。序列化体量增加可控（三个小 dataclass）。
+1. **数据**：`MemoryEntry.to_dict/from_dict` 增加版本位 `_v=2`（P1 已实现）。旧记录
+   （无 aim/use/trigger）与无 `_m` 的 legacy 记录都按默认值补齐。`expires_at` 暂仍留在
+   `MemoryEntry` 上（`is_expired` 不变）；`Trigger.expires_at` 独立存在，待触发引擎接入
+   时再统一，避免本阶段动 TTL 语义。
 2. **行为**：四维总开关默认 `False`。开关关闭时 recall/evict 走原路径，激活引擎不挂载。
 3. **API**：`append_history` 增加可选参数 `aim=/use=/trigger=`，不传则用默认——现有
    调用点（`wp1.py:170`、`wp4.py` 等）零改动。
-4. **测试**：现有 600+ 测试在开关关闭下应全绿；四维行为另起测试文件覆盖。
+4. **测试**：现有测试在开关关闭下全绿（P0–P2 实测 666 通过）；四维行为另起测试文件覆盖。
 
 ---
 
 ## 9. 分阶段落地
 
-| 阶段 | 内容 | 风险 |
-|------|------|------|
-| **P0** | 本 RFC + `dimensions.py` 纯数据/纯函数 + 单元测试（不接 recall） | 极低 |
-| **P1** | `MemoryEntry` 扩展 + 序列化版本化 + 默认值兼容；现有测试全绿 | 低 |
-| **P2** | recall/evict 切到四因子打分（开关后）；新增打分测试 | 中 |
-| **P3** | WP4 `activate()` + pull 接入；use.touch 正反馈闭环 | 中 |
-| **P4** | push（每轮触发，CONSTRAIN/REMIND 注入）+ trace 可视化 + 客户端 UI | 中高 |
+| 阶段 | 内容 | 风险 | 状态 |
+|------|------|------|------|
+| **P0** | 本 RFC + `dimensions.py` 纯数据/纯函数 + 单元测试（不接 recall） | 极低 | ✅ 已完成 |
+| **P1** | `MemoryEntry` 扩展 + 序列化版本化 + 默认值兼容；现有测试全绿 | 低 | ✅ 已完成 |
+| **P2** | recall/evict 切到四因子打分（开关后）；新增打分测试 | 中 | ✅ 已完成 |
+| **P3** | WP4 `activate()` + pull 接入；use.touch 正反馈闭环 | 中 | ⏳ 待做 |
+| **P4** | push（每轮触发，CONSTRAIN/REMIND 注入）+ trace 可视化 + 客户端 UI | 中高 | ⏳ 待做 |
 
-每阶段独立可合并、可回滚；P0/P1 不改变任何运行时行为。
+每阶段独立可合并、可回滚；P0/P1 不改变任何运行时行为，P2 起的行为变化全部由
+`fourd_memory_enabled` 开关守护（默认关）。
 
 ---
 

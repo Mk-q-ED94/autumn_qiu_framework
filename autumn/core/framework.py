@@ -108,24 +108,25 @@ class Autumn:
         b = config.behavior
         hist = b.history_limit
         decay = b.memory_decay_half_life or None
+        fourd = b.fourd_memory_enabled
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
         self.shared = SharedZone(
             HybridBackend(SQLiteBackend(db + ".shared")),
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         self.mom2 = Mom2(
             HybridBackend(SQLiteBackend(db + ".mom2")), self.shared,
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom3 = Mom3(
             HybridBackend(SQLiteBackend(db + ".mom3")), self.shared,
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom1 = Mom1(
             HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3,
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         # Per-project shared memory: each project id gets its own isolated zone,
@@ -133,7 +134,7 @@ class Autumn:
         # Resolved per-request via project_scope()/the active-project contextvar.
         self.projects = ProjectMemory(
             HybridBackend(SQLiteBackend(db + ".projects")),
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         # WP4 (A4) — the dedicated memory-management workspace. It owns the A4
@@ -144,7 +145,7 @@ class Autumn:
             self.a4,
             MemoryArea(
                 "wp4", HybridBackend(SQLiteBackend(db + ".wp4")),
-                history_limit=hist, decay_half_life=decay,
+                history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
             ),
             zones={
                 "mom1": self.mom1,
