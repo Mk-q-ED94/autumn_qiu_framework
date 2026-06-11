@@ -133,8 +133,21 @@ class WP1Tot(WorkspaceBase):
         mission_route: MissionRoute | Literal["auto"] | None = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        push_context: str = "",
+        push_count: int = 0,
+        push_ms: float | None = None,
     ) -> WorkflowRun:
         stages: list[WorkflowStage] = []
+
+        if push_context:
+            stages.append(WorkflowStage(
+                id="wp4.push",
+                title="4D 记忆推入",
+                detail=f"推入 {push_count} 条激活记忆",
+                workspace="WP4",
+                kind="push",
+                duration_ms=push_ms,
+            ))
 
         t = time.perf_counter()
         sel = await self._select_intent(user_input, input_type=input_type, task_type=task_type)
@@ -147,7 +160,9 @@ class WP1Tot(WorkspaceBase):
         if input_type == InputType.TASK:
             t = time.perf_counter()
             result, tool_stages, wp2_prompt, wp2_completion = (
-                await self.wp2.process_with_trace(user_input, task_type=task_type)
+                await self.wp2.process_with_trace(
+                    user_input, task_type=task_type, turn_context=push_context
+                )
             )
             stages.extend(tool_stages)
             stages.append(WorkflowStage(
@@ -164,7 +179,7 @@ class WP1Tot(WorkspaceBase):
         else:
             task_type = None  # task_type is not applicable for missions
             final, chosen_route = await self._route_mission_with_trace(
-                user_input, stages, mission_route=mission_route,
+                user_input, stages, mission_route=mission_route, push_context=push_context,
             )
 
         await self.memory.append_history({
@@ -187,6 +202,7 @@ class WP1Tot(WorkspaceBase):
         mission_input: str,
         stages: list[WorkflowStage],
         mission_route: MissionRoute | Literal["auto"] | None = None,
+        push_context: str = "",
     ) -> tuple[str, MissionRoute]:
         t = time.perf_counter()
         if self.interaction:
@@ -205,7 +221,7 @@ class WP1Tot(WorkspaceBase):
 
         if route == MissionRoute.DIRECT:
             t = time.perf_counter()
-            result = await self.wp3.answer_directly(mission_input)
+            result = await self.wp3.answer_directly(mission_input, turn_context=push_context)
             stages.append(_make_stage(
                 "wp3.direct", "A3 直接回答", "WP3 已生成 mission 回答", "WP3", t, self.wp3.api,
             ))
@@ -217,7 +233,7 @@ class WP1Tot(WorkspaceBase):
             return final, route
 
         t = time.perf_counter()
-        task_form = await self.wp3.convert_to_task(mission_input)
+        task_form = await self.wp3.convert_to_task(mission_input, turn_context=push_context)
         stages.append(_make_stage(
             "wp3.convert", "A3 转换任务", "WP3 已将 mission 转为可执行任务", "WP3", t, self.wp3.api,
         ))
@@ -236,7 +252,9 @@ class WP1Tot(WorkspaceBase):
             ))
 
         t = time.perf_counter()
-        result, tool_stages, wp2_prompt, wp2_completion = await self.wp2.process_with_trace(task_form)
+        result, tool_stages, wp2_prompt, wp2_completion = await self.wp2.process_with_trace(
+            task_form, turn_context=push_context
+        )
         stages.extend(tool_stages)
         stages.append(WorkflowStage(
             id="wp2.task", title="A2 执行任务", detail="WP2 已完成转换任务执行",
@@ -334,6 +352,9 @@ class WP1Tot(WorkspaceBase):
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
         chunk_size: int = 48,
+        push_context: str = "",
+        push_count: int = 0,
+        push_ms: float | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the ``WorkflowRun`` for the same turn.
 
@@ -350,6 +371,9 @@ class WP1Tot(WorkspaceBase):
                 mission_route=mission_route,
                 input_type=input_type,
                 task_type=task_type,
+                push_context=push_context,
+                push_count=push_count,
+                push_ms=push_ms,
             )
             for i in range(0, len(run.output), chunk_size):
                 yield run.output[i:i + chunk_size]
@@ -359,6 +383,16 @@ class WP1Tot(WorkspaceBase):
 
         stages: list[WorkflowStage] = []
         tool_stages: list[WorkflowStage] = []
+
+        if push_context:
+            stages.append(WorkflowStage(
+                id="wp4.push",
+                title="4D 记忆推入",
+                detail=f"推入 {push_count} 条激活记忆",
+                workspace="WP4",
+                kind="push",
+                duration_ms=push_ms,
+            ))
 
         t = time.perf_counter()
         sel = await self._select_intent(user_input, input_type=input_type, task_type=task_type)
@@ -370,7 +404,9 @@ class WP1Tot(WorkspaceBase):
 
         if input_type == InputType.TASK:
             task_started = time.perf_counter()
-            gen = self.wp2.stream_with_trace(user_input, task_type=task_type, chunk_size=chunk_size)
+            gen = self.wp2.stream_with_trace(
+                user_input, task_type=task_type, chunk_size=chunk_size, turn_context=push_context
+            )
             chosen_route: MissionRoute | None = None
         else:
             task_type = None  # task_type is not applicable for missions
@@ -382,10 +418,10 @@ class WP1Tot(WorkspaceBase):
             ))
             if route == MissionRoute.DIRECT:
                 direct_started = time.perf_counter()
-                gen = self.wp3.stream_direct(user_input)
+                gen = self.wp3.stream_direct(user_input, turn_context=push_context)
             else:
                 t = time.perf_counter()
-                task_form = await self.wp3.convert_to_task(user_input)
+                task_form = await self.wp3.convert_to_task(user_input, turn_context=push_context)
                 stages.append(_make_stage(
                     "wp3.convert", "A3 转换任务",
                     "WP3 已将 mission 转为可执行任务", "WP3", t, self.wp3.api,
@@ -405,7 +441,9 @@ class WP1Tot(WorkspaceBase):
                         "A1 已检查 mission 到 task 的交接内容", "WP1", t, self.api,
                     ))
                 task_started = time.perf_counter()
-                gen = self.wp2.stream_with_trace(task_form, chunk_size=chunk_size)
+                gen = self.wp2.stream_with_trace(
+                    task_form, chunk_size=chunk_size, turn_context=push_context
+                )
 
         buf: list[str] = []
         async for event in gen:

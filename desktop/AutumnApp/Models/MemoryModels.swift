@@ -46,6 +46,50 @@ struct MemoryEntry: Identifiable, Equatable {
         values.keys.sorted()
     }
 
+    // ── 4D dimension accessors ──────────────────────────────────────────────
+
+    var useMode: String? {
+        guard case .object(let use)? = values["use"],
+              case .string(let mode)? = use["mode"] else { return nil }
+        return mode
+    }
+
+    var useModeLabel: String {
+        switch useMode {
+        case "constrain": return "约束"
+        case "remind":    return "提醒"
+        case "summarize": return "摘要"
+        case "context":   return "上下文"
+        default:          return useMode ?? "—"
+        }
+    }
+
+    var useCount: Int? {
+        guard case .object(let use)? = values["use"],
+              case .object(let stats)? = use["stats"],
+              case .number(let count)? = stats["count"] else { return nil }
+        return Int(count)
+    }
+
+    var aimIntent: String? {
+        guard case .object(let aim)? = values["aim"],
+              case .string(let intent)? = aim["intent"],
+              !intent.isEmpty else { return nil }
+        return intent
+    }
+
+    var triggerCues: [String] {
+        guard case .object(let trigger)? = values["trigger"],
+              case .array(let cues)? = trigger["cues"] else { return [] }
+        return cues.compactMap {
+            if case .string(let s) = $0 { return s } else { return nil }
+        }
+    }
+
+    var has4DData: Bool {
+        useMode != nil || aimIntent != nil || !triggerCues.isEmpty
+    }
+
     private func firstString(for keys: [String]) -> String? {
         for key in keys {
             guard let value = values[key]?.summary, !value.isEmpty else { continue }

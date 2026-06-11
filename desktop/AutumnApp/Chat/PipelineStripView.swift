@@ -118,6 +118,10 @@ private struct StageCapsule: View {
     }
 
     private var width: CGFloat {
+        // Push stage is pre-pipeline; keep it compact so it doesn't dominate.
+        if stage.kind == "push" {
+            return 10
+        }
         // The first/last WP1 segments anchor the strip; route/convert mid-stages
         // get slightly shorter capsules so the visual rhythm reads end-to-end.
         if stage.id.hasSuffix(".select") || stage.id.hasSuffix(".final_check") {

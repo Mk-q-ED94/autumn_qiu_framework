@@ -192,6 +192,25 @@ class Autumn:
 
     # ── public api ────────────────────────────────────────────────────────────
 
+    async def _compute_push(self, user_input: str) -> tuple[str, int, float]:
+        """Run the 4D push engine for the current turn.
+
+        Returns ``(fragment, fired_count, elapsed_ms)``. When push is disabled
+        or nothing fires, returns ``("", 0, 0.0)`` — callers can test the
+        fragment truthiness to skip the push stage entirely.
+        """
+        if not self.config.behavior.fourd_push_on_turn:
+            return "", 0, 0.0
+        from .workspace.wp4 import render_push_context
+
+        t = time.perf_counter()
+        turn_cues = [tok for tok in user_input.split() if tok]
+        ctx = ActivationContext(now=time.time(), query=user_input or None, cues=turn_cues)
+        fired = await self.wp4.activate_push(area="mom1", ctx=ctx)
+        fragment = render_push_context(fired)
+        ms = round((time.perf_counter() - t) * 1000, 1)
+        return fragment, len(fired), ms
+
     async def process(
         self,
         user_input: str,
@@ -200,12 +219,17 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> str:
         """Run the full pipeline and return the validated final output."""
-        return await self.wp1.process(
+        fragment, push_count, push_ms = await self._compute_push(user_input)
+        run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         )
+        return run.output
 
     async def process_with_trace(
         self,
@@ -215,11 +239,15 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
+        fragment, push_count, push_ms = await self._compute_push(user_input)
         run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         )
         return _annotate_costs(run, self.config)
 
@@ -254,13 +282,18 @@ class Autumn:
         convert path remains buffered because conversion is a non-streamed
         model call.
         """
-        async for chunk in self.wp1.stream(
+        fragment, push_count, push_ms = await self._compute_push(user_input)
+        async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         ):
-            yield chunk
+            if isinstance(event, str):
+                yield event
 
     async def stream_with_trace(
         self,
@@ -270,11 +303,15 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the WorkflowRun produced by the same turn."""
+        fragment, push_count, push_ms = await self._compute_push(user_input)
         async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         ):
             if isinstance(event, WorkflowRun):
                 yield _annotate_costs(event, self.config)

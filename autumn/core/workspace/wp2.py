@@ -93,6 +93,11 @@ def _apply_hint(base_system: str, task_type: TaskType | None) -> str:
     return f"{base_system}\n\n{hint}" if hint else base_system
 
 
+def _apply_turn_context(system: str, turn_context: str) -> str:
+    """Append push-activated constraints/reminders after the base system prompt."""
+    return f"{system}\n\n---\n\n{turn_context}" if turn_context else system
+
+
 class WP2Tas(WorkspaceBase):
     """Task workspace. Executes structured, directly-actionable tasks.
 
@@ -127,19 +132,26 @@ class WP2Tas(WorkspaceBase):
         self,
         task_input: str,
         task_type: TaskType | None = None,
+        turn_context: str = "",
     ) -> tuple[str, list[WorkflowStage], int | None, int | None]:
         """Execute the task and return (output, tool_stages, prompt_tokens, completion_tokens).
 
         The token totals sum every A2 LLM call made during this turn — the agent
         loop (or single plain completion) plus the checker validation pass — so
         WP1 can attribute the full cost to its ``wp2.task`` stage.
+
+        ``turn_context``: push-activated constraints/reminders fragment (from 4D memory
+        push engine). When non-empty it is appended to the system prompt for this turn
+        only, so active CONSTRAIN/REMIND memories gate A2 behaviour without altering the
+        base configuration.
         """
-        return await self._execute(task_input, task_type)
+        return await self._execute(task_input, task_type, turn_context=turn_context)
 
     async def _execute(
         self,
         task_input: str,
         task_type: TaskType | None = None,
+        turn_context: str = "",
     ) -> tuple[str, list[WorkflowStage], int | None, int | None]:
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
         tool_stages: list[WorkflowStage] = []
@@ -151,7 +163,7 @@ class WP2Tas(WorkspaceBase):
             steps: list[AgentStep] = []
             agent_started = time.perf_counter()
             result, agent_prompt, agent_completion = await self._run_with_agent(
-                task_input, tools, skills, steps, task_type
+                task_input, tools, skills, steps, task_type, turn_context=turn_context
             )
             agent_stage = _agent_to_stage(
                 round((time.perf_counter() - agent_started) * 1000, 1),
@@ -165,7 +177,7 @@ class WP2Tas(WorkspaceBase):
                 completion_total += agent_completion
                 any_usage = True
         else:
-            result = await self._run_plain(task_input, task_type)
+            result = await self._run_plain(task_input, task_type, turn_context=turn_context)
             usage = getattr(self.api, "last_usage", None)
             if usage:
                 prompt_total += usage.get("prompt_tokens") or 0
@@ -191,10 +203,16 @@ class WP2Tas(WorkspaceBase):
             return result, tool_stages, None, None
         return result, tool_stages, prompt_total, completion_total
 
-    async def _run_plain(self, task_input: str, task_type: TaskType | None = None) -> str:
+    async def _run_plain(
+        self,
+        task_input: str,
+        task_type: TaskType | None = None,
+        turn_context: str = "",
+    ) -> str:
         """Single completion — the original WP2 behavior, used when no tools exist."""
+        system = _apply_turn_context(_apply_hint(self._system, task_type), turn_context)
         messages = [
-            Message(role=Role.SYSTEM, content=_apply_hint(self._system, task_type)),
+            Message(role=Role.SYSTEM, content=system),
             Message(role=Role.USER, content=task_input),
         ]
         return await self.api.complete(messages)
@@ -206,6 +224,7 @@ class WP2Tas(WorkspaceBase):
         skills: list[Skill],
         steps: list[AgentStep] | None = None,
         task_type: TaskType | None = None,
+        turn_context: str = "",
     ) -> tuple[str, int, int]:
         """ReAct loop with tool access; carries WP2's persona + Mom2 history.
 
@@ -213,12 +232,13 @@ class WP2Tas(WorkspaceBase):
         totals are the agent loop's aggregate (0 when the provider doesn't return
         usage stats).
         """
+        instructions = _apply_turn_context(_apply_hint(self._system, task_type), turn_context)
         agent = Agent(
             name="WP2-Tas",
             api=self.api,
             tools=tools,
             skills=skills,
-            instructions=_apply_hint(self._system, task_type),
+            instructions=instructions,
             max_steps=self._agent_max_steps,
         )
         result = await agent.run(task_input, memory=self.memory, steps=steps)
@@ -239,6 +259,7 @@ class WP2Tas(WorkspaceBase):
         task_input: str,
         task_type: TaskType | None = None,
         chunk_size: int = 64,
+        turn_context: str = "",
     ) -> AsyncIterator[str | list[WorkflowStage]]:
         """Token-level streaming. Bypasses the checker — caller is responsible
         for post-hoc validation.
@@ -258,7 +279,7 @@ class WP2Tas(WorkspaceBase):
             try:
                 agent_started = time.perf_counter()
                 result, _, _ = await self._run_with_agent(
-                    task_input, tools, skills, steps, task_type
+                    task_input, tools, skills, steps, task_type, turn_context=turn_context
                 )
                 agent_stage = _agent_to_stage(
                     round((time.perf_counter() - agent_started) * 1000, 1),
@@ -281,8 +302,9 @@ class WP2Tas(WorkspaceBase):
             yield stages
             return
 
+        system = _apply_turn_context(_apply_hint(self._system, task_type), turn_context)
         messages = [
-            Message(role=Role.SYSTEM, content=_apply_hint(self._system, task_type)),
+            Message(role=Role.SYSTEM, content=system),
             Message(role=Role.USER, content=task_input),
         ]
         buf: list[str] = []

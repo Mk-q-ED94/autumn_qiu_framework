@@ -1,6 +1,6 @@
 # RFC: 四维记忆（4D Memory）
 
-> 状态：草案（Draft） · 范围：`autumn/core/memory` · 不改核心代码，仅定义设计
+> 状态：已实现（Implemented）P0–P4b · 范围：`autumn/core/memory`, `autumn/core/workspace`, `autumn/core/framework`, `desktop/AutumnApp`
 >
 > 本文提出把 Autumn 的记忆从「被压扁成单一权重的被动存储」重构为**四个正交维度
 > 的活性记忆单元**：aim（为什么）、content（是什么）、use（怎么用）、time（何时
@@ -264,9 +264,19 @@ WP4（`workspace/wp4.py`）是激活引擎的自然归宿：它已持有全部 z
   项渲成「constraints + reminders」prompt 片段。框架公开 `Autumn.active_context(text,
   cues, goal, area)`：开 `fourd_push_on_turn` 时返回可注入片段，否则 ""。push 默认**不**
   reinforce（自动浮出 ≠ 主动使用，不该自抬 utility）。
-- **turn 自动注入（P4b 待做）**：把 `active_context` 接到 WP1 每轮入口
-  （`wp1.py:130`）/ WP2·WP3 的 system prompt 前缀。这步动核心 prompt 流，blast radius
-  最大，故单独成阶段评审；当前核心 workflow **不**自动调用 `active_context`。
+- **turn 自动注入（P4b 已实现）**：`Autumn._compute_push(user_input)` 在每个公开入口
+  （`process`、`process_with_trace`、`stream`、`stream_with_trace`）的首步调用 push
+  引擎，把结果 `(fragment, fired_count, ms)` 透传给 `WP1Tot.process_with_trace`。WP1
+  接受 `push_context/push_count/push_ms` 三参数：
+  - 非空时在 `stages` 头部插入 `WorkflowStage(id="wp4.push", kind="push", workspace="WP4")`
+    供 trace/macOS 客户端可视化；
+  - 透传 `turn_context` 到 WP2 的 `_run_plain`/`_run_with_agent`/`stream_with_trace`
+    和 WP3 的 `answer_directly`/`convert_to_task`/`stream_direct`，追加到 system
+    prompt 末（`"\n\n---\n\n{fragment}"`）——约束/提醒跟在主 system 后成为最后指令。
+  - macOS `WorkflowTraceView`：push stage 用 `brain` 图标（WP4 紫色）；
+    `PipelineStripView` 以 10 pt 短胶囊区分于普通 stage；`MemoryView` 展开时显示
+    专属「四维」卡片（use.mode badge、aim.intent、trigger.cues、use.count）。
+  - 所有参数默认空值 / 0，关闭 `fourd_push_on_turn` 时行为与原版完全相同。
 
 > **reward 来源**：P3 先把 `reward` 作为参数（默认 0.0，仅记一次使用）。后续可由
 > Checker 通过/失败信号自动驱动——通过则 +reward、失败则 -reward，形成「有用的记忆
@@ -348,7 +358,7 @@ use_reward_decay:    float = 0.0       # reward 随时间衰减的半衰期，0=
 | **P2** | recall/evict 切到四因子打分（开关后）；新增打分测试 | 中 | ✅ 已完成 |
 | **P3** | WP4 `activate()` + pull 接入；use.touch 正反馈闭环 | 中 | ✅ 已完成 |
 | **P4a** | push 引擎 `activate_push` + `render_push_context` + `Autumn.active_context`（不接主流程） | 中 | ✅ 已完成 |
-| **P4b** | turn 自动注入（WP1/WP2/WP3 prompt 前缀）+ trace 可视化 + 客户端 UI | 中高 | ⏳ 待做 |
+| **P4b** | turn 自动注入（WP1/WP2/WP3 prompt 前缀）+ trace 可视化 + 客户端 UI | 中高 | ✅ 已完成 |
 
 每阶段独立可合并、可回滚；P0/P1 不改变任何运行时行为，P2 起的行为变化全部由
 `fourd_memory_enabled` 开关守护（默认关）。

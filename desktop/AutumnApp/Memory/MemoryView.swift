@@ -165,6 +165,9 @@ private struct MemoryEntryRow: View {
                     Text(entry.title)
                         .font(Autumn.typography.headline)
                     Spacer()
+                    if let mode = entry.useMode {
+                        AutumnBadge(entry.useModeLabel, icon: useModeIcon(mode), tone: useModeTone(mode))
+                    }
                     AutumnBadge(entry.area.title, tone: .neutral)
                 }
 
@@ -177,6 +180,10 @@ private struct MemoryEntryRow: View {
 
                 if isExpanded {
                     Divider()
+                    if entry.has4DData {
+                        fourdSection
+                        Divider()
+                    }
                     Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 4) {
                         ForEach(entry.sortedKeys, id: \.self) { key in
                             GridRow {
@@ -204,6 +211,76 @@ private struct MemoryEntryRow: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var fourdSection: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            Text("四维")
+                .font(Autumn.typography.captionStrong)
+                .foregroundStyle(Color.purple)
+
+            Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 3) {
+                if let mode = entry.useMode {
+                    GridRow {
+                        Text("use.mode")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                        AutumnBadge(entry.useModeLabel, tone: useModeTone(mode))
+                    }
+                }
+                if let count = entry.useCount {
+                    GridRow {
+                        Text("use.count")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(count)")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                if let intent = entry.aimIntent {
+                    GridRow {
+                        Text("aim.intent")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                        Text(intent)
+                            .font(Autumn.typography.caption)
+                            .textSelection(.enabled)
+                    }
+                }
+                if !entry.triggerCues.isEmpty {
+                    GridRow {
+                        Text("trigger.cues")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                        Text(entry.triggerCues.joined(separator: ", "))
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+        .padding(Autumn.spacing.sm)
+        .background(Color.purple.opacity(0.06), in: RoundedRectangle(cornerRadius: Autumn.radius.sm))
+        .transition(.opacity)
+    }
+
+    private func useModeIcon(_ mode: String) -> String {
+        switch mode {
+        case "constrain": return "lock.fill"
+        case "remind":    return "bell.fill"
+        case "summarize": return "doc.text.fill"
+        default:          return "circle.fill"
+        }
+    }
+
+    private func useModeTone(_ mode: String) -> AutumnBadge.Tone {
+        switch mode {
+        case "constrain": return .danger
+        case "remind":    return .warning
+        case "summarize": return .info
+        default:          return .neutral
         }
     }
 }
