@@ -104,6 +104,17 @@ class Aim:
             return _jaccard(self.scope, ctx.cues)
         return 0.0
 
+    def to_dict(self) -> dict:
+        return {"intent": self.intent, "goal_ref": self.goal_ref, "scope": list(self.scope)}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Aim":
+        return cls(
+            intent=d.get("intent", ""),
+            goal_ref=d.get("goal_ref"),
+            scope=list(d.get("scope") or []),
+        )
+
 
 # ── use 维: how to apply it, and how it has been used ─────────────────────────
 
@@ -133,6 +144,17 @@ class UseStats:
         self.count += 1
         self.last_used = now
         self.reward += reward
+
+    def to_dict(self) -> dict:
+        return {"count": self.count, "last_used": self.last_used, "reward": self.reward}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "UseStats":
+        return cls(
+            count=int(d.get("count", 0)),
+            last_used=d.get("last_used"),
+            reward=float(d.get("reward", 0.0)),
+        )
 
 
 @dataclass
@@ -164,6 +186,28 @@ class Use:
             return 0.0
         reward_factor = 1.0 + _clamp(self.stats.reward, -0.5, 1.0)
         return math.log1p(self.stats.count) * reward_factor
+
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode.value,
+            "weight": self.weight,
+            "template": self.template,
+            "stats": self.stats.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Use":
+        raw_mode = d.get("mode", UseMode.CONTEXT.value)
+        try:
+            mode = UseMode(raw_mode)
+        except ValueError:
+            mode = UseMode.CONTEXT  # forward-compatible: unknown mode → default
+        return cls(
+            mode=mode,
+            weight=float(d.get("weight", 1.0)),
+            template=d.get("template"),
+            stats=UseStats.from_dict(d.get("stats") or {}),
+        )
 
 
 # ── time 维: when / under what conditions to trigger ──────────────────────────
@@ -217,6 +261,27 @@ class Trigger:
         if self.cues and ctx.cues:
             w *= 1.0 + _jaccard(self.cues, ctx.cues)
         return max(0.0, w)
+
+    def to_dict(self) -> dict:
+        return {
+            "half_life": self.half_life,
+            "not_before": self.not_before,
+            "expires_at": self.expires_at,
+            "every": self.every,
+            "cues": list(self.cues),
+            "base_weight": self.base_weight,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Trigger":
+        return cls(
+            half_life=d.get("half_life"),
+            not_before=d.get("not_before"),
+            expires_at=d.get("expires_at"),
+            every=d.get("every"),
+            cues=list(d.get("cues") or []),
+            base_weight=float(d.get("base_weight", 1.0)),
+        )
 
 
 # ── activation: combine the three scored factors ──────────────────────────────

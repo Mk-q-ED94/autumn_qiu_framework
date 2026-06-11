@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..types import SearchResult
+from .dimensions import Aim, Trigger, Use
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -43,6 +44,12 @@ class MemoryEntry:
     tags: list[str] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
     expires_at: float | None = None
+    # 4D memory dimensions (see autumn/core/memory/dimensions.py). All default to
+    # empty, so an entry carrying none of them behaves exactly as before. ``trigger``
+    # is the time 维 (named ``trigger`` to avoid shadowing the stdlib ``time`` module).
+    aim: Aim = field(default_factory=Aim)
+    use: Use = field(default_factory=Use)
+    trigger: Trigger = field(default_factory=Trigger)
 
     PIN_THRESHOLD: ClassVar[float] = _PIN_THRESHOLD
 
@@ -82,6 +89,7 @@ class MemoryEntry:
     def to_dict(self) -> dict:
         return {
             "_m": True,
+            "_v": 2,  # schema version: 2 adds the aim/use/trigger dimensions
             "id": self.id,
             "content": self.content,
             "timestamp": self.timestamp,
@@ -89,11 +97,18 @@ class MemoryEntry:
             "tags": self.tags,
             "meta": self.meta,
             "expires_at": self.expires_at,
+            "aim": self.aim.to_dict(),
+            "use": self.use.to_dict(),
+            "trigger": self.trigger.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, raw: dict) -> "MemoryEntry":
-        """Load from serialized form, or transparently upgrade a legacy raw dict."""
+        """Load from serialized form, or transparently upgrade a legacy raw dict.
+
+        v1 records (no ``_v``) simply lack the ``aim``/``use``/``trigger`` keys,
+        so each falls back to its empty default and the entry behaves as before.
+        """
         if raw.get("_m"):
             return cls(
                 id=raw["id"],
@@ -103,6 +118,9 @@ class MemoryEntry:
                 tags=raw.get("tags", []),
                 meta=raw.get("meta", {}),
                 expires_at=raw.get("expires_at"),
+                aim=Aim.from_dict(raw["aim"]) if raw.get("aim") else Aim(),
+                use=Use.from_dict(raw["use"]) if raw.get("use") else Use(),
+                trigger=Trigger.from_dict(raw["trigger"]) if raw.get("trigger") else Trigger(),
             )
         # Legacy workspace dict ({"ts": ..., "input": ..., "output": ...})
         return cls(
@@ -289,6 +307,9 @@ class MemoryArea:
         tags: list[str] | None = None,
         max_entries: int | None = None,
         ttl: float | None = None,
+        aim: "Aim | None" = None,
+        use: "Use | None" = None,
+        trigger: "Trigger | None" = None,
     ) -> "MemoryEntry":
         """Append a turn record. Returns the stored MemoryEntry.
 
@@ -297,6 +318,11 @@ class MemoryArea:
         filtered from reads and purged here on the next append. When capacity is
         exceeded, lowest effective-importance non-pinned entries are removed
         first. Pinned entries (importance >= PIN_THRESHOLD) are never evicted.
+
+        ``aim`` / ``use`` / ``trigger`` attach the 4D-memory dimensions; when
+        omitted the entry keeps its existing (empty) defaults, so the call is
+        identical to before. They are purely stored here — no activation logic
+        runs yet (that arrives in a later phase).
         """
         limit = max_entries if max_entries is not None else self._history_limit
         now = time.time()
@@ -310,6 +336,13 @@ class MemoryArea:
                 importance=importance,
                 tags=tags or [],
             )
+        # Apply any explicitly-provided dimensions (override the entry's defaults).
+        if aim is not None:
+            entry.aim = aim
+        if use is not None:
+            entry.use = use
+        if trigger is not None:
+            entry.trigger = trigger
         if ttl is not None and entry.expires_at is None:
             entry.expires_at = now + ttl
 
