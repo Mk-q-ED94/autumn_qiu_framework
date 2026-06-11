@@ -13,6 +13,15 @@ from .project import (
 )
 from .backends import DictBackend
 from .skills import make_memory_skills, make_project_memory_skills
+from .dimensions import (
+    Aim,
+    Use,
+    UseStats,
+    UseMode,
+    Trigger,
+    ActivationContext,
+    activation_score,
+)
 
 __all__ = [
     "MemoryBackend", "MemoryArea", "MemoryEntry", "SharedZone",
@@ -22,4 +31,6 @@ __all__ = [
     "get_current_project", "reset_current_project",
     "DictBackend",
     "make_memory_skills", "make_project_memory_skills",
+    "Aim", "Use", "UseStats", "UseMode", "Trigger",
+    "ActivationContext", "activation_score",
 ]
