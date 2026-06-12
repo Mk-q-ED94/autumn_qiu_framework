@@ -311,6 +311,24 @@ struct TerrMCP: Decodable, Identifiable, Equatable {
     var id: String { name }
 }
 
+/// An entry from the server's built-in MCP catalog (`GET /mcps/catalog`) — an
+/// official MCP server the framework knows how to launch, with the arguments it
+/// needs. Browsing aid; not the same as a registered TerrMCP.
+struct KnownMCP: Decodable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let description: String
+    let factory: String
+    let requiredArgs: [String]
+
+    var needsCredentials: Bool { !requiredArgs.isEmpty }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, factory
+        case requiredArgs = "required_args"
+    }
+}
+
 struct StreamPayload: Decodable {
     let chunk: String?
     let trace: WorkflowTrace?

@@ -150,6 +150,15 @@ class TerrToggleRequest(BaseModel):
     enabled: bool
 
 
+class KnownMCPResponse(BaseModel):
+    """A browsable entry from the built-in MCP catalog (autumn.builtin.KNOWN_MCPS)."""
+    id: str
+    name: str
+    description: str
+    factory: str
+    required_args: list[str] = []
+
+
 class ProviderConfigRequest(BaseModel):
     api_key: str
     base_url: str
@@ -639,6 +648,14 @@ def create_app() -> FastAPI:
             return autumn.set_terr_enabled(terr_name, req.enabled)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown Terr: {terr_name}") from exc
+
+    @app.get("/mcps/catalog", response_model=list[KnownMCPResponse])
+    async def mcps_catalog():
+        """Browse the built-in MCP catalog — the official servers the framework
+        knows how to launch. Static (no configured Autumn needed) so clients can
+        show what's available before any model is wired up."""
+        from ..builtin import KNOWN_MCPS
+        return KNOWN_MCPS
 
     @app.get("/memory/{area}/history")
     async def get_history(
