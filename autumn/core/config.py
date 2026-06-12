@@ -126,6 +126,7 @@ class BehaviorConfig:
     memory_decay_half_life: float = 0.0  # Seconds; importance halves each interval. 0 = off
     fourd_memory_enabled: bool = False  # Rank recall/evict by 4D activation score (off = today's importance×timestamp)
     fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
+    mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -145,6 +146,9 @@ class BehaviorConfig:
             ),
             fourd_push_on_turn=_to_bool(
                 env("FOURD_PUSH_ON_TURN"), cls.fourd_push_on_turn,
+            ),
+            mom1_access_enabled=_to_bool(
+                env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled
             ),
         )
 

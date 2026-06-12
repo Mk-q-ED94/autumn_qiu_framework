@@ -22,6 +22,13 @@ from .project import (
 )
 from .shared import SharedZone
 from .skills import make_memory_skills, make_project_memory_skills
+from .access import (
+    Mom1AccessBroker,
+    Mom1Requester,
+    AccessRequest,
+    AccessDecision,
+    AccessGrant,
+)
 
 __all__ = [
     "MemoryBackend", "MemoryArea", "MemoryEntry", "SharedZone",
@@ -33,4 +40,6 @@ __all__ = [
     "make_memory_skills", "make_project_memory_skills",
     "Aim", "Use", "UseStats", "UseMode", "Trigger",
     "ActivationContext", "activation_score",
+    "Mom1AccessBroker", "Mom1Requester",
+    "AccessRequest", "AccessDecision", "AccessGrant",
 ]

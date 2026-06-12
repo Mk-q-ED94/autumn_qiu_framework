@@ -23,6 +23,7 @@ from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
 from .memory.mom3 import Mom3
 from .memory.project import ProjectMemory, ProjectZone, project_context
+from .memory.access import Mom1AccessBroker
 from .memory.shared import SharedZone
 from .types import InputType, MissionRoute, TaskType, WorkflowRun
 from .workspace.wp1 import WP1Tot
@@ -158,6 +159,19 @@ class Autumn:
             },
             projects=self.projects,
         )
+
+        # Governed upward channel: Mom2/Mom3 may *request* a Mom1 read, A1
+        # adjudicates, A4 mediates a restricted answer, WP4's log audits it. The
+        # asymmetric default isolation is preserved — this only adds a gated path.
+        self.mom1_access = Mom1AccessBroker(
+            mom1=self.mom1,
+            adjudicator=self.a1,
+            mediator=self.a4,
+            audit=self.wp4.memory,
+            enabled=b.mom1_access_enabled,
+        )
+        self.mom2.attach_mom1_broker(self.mom1_access)
+        self.mom3.attach_mom1_broker(self.mom1_access)
 
         self._embedding: EmbeddingInterface | None = None
         if config.embedding is not None:

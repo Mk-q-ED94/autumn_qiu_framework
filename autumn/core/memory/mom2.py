@@ -1,12 +1,14 @@
+from .access import Mom1Requester
 from .base import MemoryArea, MemoryBackend
 from .shared import SharedZone
 
 
-class Mom2(MemoryArea):
+class Mom2(Mom1Requester, MemoryArea):
     """Task workspace memory (WP2).
 
-    Access: private area + shared zone with Mom3.
-    Cannot access Mom1.
+    Access: private area + shared zone with Mom3. Cannot read Mom1 directly, but
+    may *request* read access via :meth:`request_mom1` — A1 adjudicates and A4
+    mediates a restricted answer (see :mod:`autumn.core.memory.access`).
     """
 
     def __init__(
