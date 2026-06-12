@@ -19,7 +19,8 @@ time, so one registration transparently serves every project.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from ..components.skill import Skill
 from ..components.tool import ToolParameter
@@ -31,8 +32,8 @@ if TYPE_CHECKING:
 
 
 def make_memory_skills(
-    memory: "MemoryArea",
-    api: "ModelAPIInterface | None" = None,
+    memory: MemoryArea,
+    api: ModelAPIInterface | None = None,
 ) -> list[Skill]:
     """Return [recall, remember, list_recent, pin_memory] skills bound to *memory*.
 
@@ -43,13 +44,14 @@ def make_memory_skills(
     api:
         Optional inference model (A4) used to synthesise vector-search results
         into a concise answer.  When None, raw snippets are returned.
+
     """
     return _build_memory_skills(lambda: memory, api)
 
 
 def make_project_memory_skills(
-    projects: "ProjectMemory",
-    api: "ModelAPIInterface | None" = None,
+    projects: ProjectMemory,
+    api: ModelAPIInterface | None = None,
 ) -> list[Skill]:
     """Return memory skills bound to the *context-active project's* shared zone.
 
@@ -62,8 +64,8 @@ def make_project_memory_skills(
 
 
 def _build_memory_skills(
-    resolve: "Callable[[], MemoryArea]",
-    api: "ModelAPIInterface | None",
+    resolve: Callable[[], MemoryArea],
+    api: ModelAPIInterface | None,
 ) -> list[Skill]:
     """Construct the four memory skills, resolving the target area via *resolve*.
 

@@ -31,11 +31,16 @@ enum Autumn {
         static let info = Color.blue
         static let muted = Color.secondary
 
+        // 4D memory / WP4 identity. One token so the brain icon, push stage,
+        // mode badges and the 四维 detail card all read as the same system.
+        static let memory = Color.purple
+
         static func workspace(_ name: String) -> Color {
             switch name {
             case "WP1": return accent
             case "WP2": return warning
             case "WP3": return info
+            case "WP4": return memory
             default:    return muted
             }
         }

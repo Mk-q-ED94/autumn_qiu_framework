@@ -1,6 +1,7 @@
 import json
 import re
-from ..types import InputType, TaskType, Message, Role, SelectorResult
+
+from ..types import InputType, Message, Role, SelectorResult, TaskType
 
 _DEFAULT_SYSTEM = """\
 You are the input classifier for the Autumn framework. Your job: decide whether \
@@ -142,14 +143,14 @@ def _heuristic_classify(user_input: str) -> SelectorResult | None:
     # Greeting / small-talk → MISSION
     if _GREETING.match(text):
         return SelectorResult(
-            InputType.MISSION, 0.98, reasoning="greeting / small talk"
+            InputType.MISSION, 0.98, reasoning="greeting / small talk",
         )
 
     # Markdown task list → TASK (with code-fence presence boosting toward CODE)
     if _TODO_LIST.search(text):
         task_type = TaskType.CODE if _CODE_FENCE.search(text) else TaskType.GENERAL
         return SelectorResult(
-            InputType.TASK, 0.92, task_type, reasoning="markdown todo list"
+            InputType.TASK, 0.92, task_type, reasoning="markdown todo list",
         )
 
     # Fenced code block + imperative verb → TASK/CODE
@@ -192,11 +193,11 @@ def _heuristic_classify(user_input: str) -> SelectorResult | None:
         or re.search(
             r"写|创建|构建|实现|生成|起草|修复|重构|调试|添加|删除|更新",
             text,
-        )
+        ),
     )
     if is_short and is_question and not has_imperative:
         return SelectorResult(
-            InputType.MISSION, 0.88, reasoning="short open question"
+            InputType.MISSION, 0.88, reasoning="short open question",
         )
 
     # Otherwise let the LLM decide

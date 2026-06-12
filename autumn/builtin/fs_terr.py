@@ -16,7 +16,6 @@ from typing import Any
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
-
 _MAX_READ_BYTES = 2_000_000  # 2MB per read
 _MAX_WRITE_BYTES = 2_000_000  # 2MB per write
 
@@ -42,7 +41,7 @@ def _stat_summary(p: Path) -> dict[str, Any]:
         "is_dir": p.is_dir(),
         "is_file": p.is_file(),
         "size": st.st_size,
-        "modified": datetime.datetime.fromtimestamp(st.st_mtime, tz=datetime.timezone.utc).isoformat(),
+        "modified": datetime.datetime.fromtimestamp(st.st_mtime, tz=datetime.UTC).isoformat(),
     }
 
 

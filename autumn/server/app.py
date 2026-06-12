@@ -3,7 +3,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -13,9 +13,8 @@ from pydantic import BaseModel, Field
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
-from ..core.memory.project import project_context, set_current_project, reset_current_project
+from ..core.memory.project import project_context, reset_current_project, set_current_project
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
-
 
 # How long an SSE stream can sit idle before we emit an `: ping` comment.
 # Most corporate proxies kill idle SSE connections at 30–60s; 15s is safe.
@@ -185,12 +184,14 @@ class ModelsResponse(BaseModel):
 
 class ConsolidateRequest(BaseModel):
     """Tuning for a memory consolidation pass (all optional)."""
+
     keep_recent: int = 10
     min_candidates: int = 3
 
 
 class ProjectMetaUpdateRequest(BaseModel):
     """Partial update for project metadata. Omitted fields are unchanged."""
+
     project_type: str | None = None
     description: str | None = None
     goals: dict | None = None
@@ -200,16 +201,19 @@ class ProjectMetaUpdateRequest(BaseModel):
 
 class ProjectDescribeRequest(BaseModel):
     """Free-text input for AI-guided description generation."""
+
     input: str
 
 
 class ProjectGoalsRequest(BaseModel):
     """Free-text input for AI-guided goals structuring."""
+
     input: str
 
 
 class AddFileRequest(BaseModel):
     """A file path to append to the project's file list."""
+
     path: str
 
 
@@ -352,7 +356,7 @@ def _projects_or_501(autumn: Autumn):
     projects = getattr(autumn, "projects", None)
     if projects is None:
         raise HTTPException(
-            status_code=501, detail="Per-project memory is not available on this server."
+            status_code=501, detail="Per-project memory is not available on this server.",
         )
     return projects
 
@@ -381,7 +385,8 @@ def _curator_with_model_or_400(autumn: Autumn):
 
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
     """Stash a short failure summary on app.state so /health can report it,
-    then return a 502 the caller can `raise from exc`."""
+    then return a 502 the caller can `raise from exc`.
+    """
     message = str(exc) or exc.__class__.__name__
     request.app.state.last_error = message
     return HTTPException(status_code=502, detail=message)
@@ -404,11 +409,11 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
 
 
 def _trace_payload(run: WorkflowRun) -> dict:
-    return json.loads(_trace_response(run).json())
+    return json.loads(_trace_response(run).model_dump_json())
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.1", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -575,7 +580,7 @@ def create_app() -> FastAPI:
                     # call still gives us a chance to ping the proxy and to
                     # re-check the client connection.
                     done, _ = await asyncio.wait(
-                        [next_task], timeout=_SSE_HEARTBEAT_SECONDS
+                        [next_task], timeout=_SSE_HEARTBEAT_SECONDS,
                     )
                     if next_task not in done:
                         yield ": ping\n\n"
@@ -589,7 +594,7 @@ def create_app() -> FastAPI:
                         return
                     if isinstance(event, WorkflowRun):
                         payload = json.dumps(
-                            {"trace": _trace_payload(event)}, ensure_ascii=False
+                            {"trace": _trace_payload(event)}, ensure_ascii=False,
                         )
                     else:
                         payload = json.dumps({"chunk": event}, ensure_ascii=False)
@@ -639,8 +644,8 @@ def create_app() -> FastAPI:
     async def get_history(
         area: MemoryArea,
         request: Request,
-        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
-        offset: int = Query(0, ge=0),
+        limit: Annotated[int, Query(ge=1, le=_HISTORY_PAGE_MAX)] = _HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
     ):
         autumn = _autumn_or_503(request)
         mom = _memory_curator(autumn)._resolve(area)
@@ -660,13 +665,13 @@ def create_app() -> FastAPI:
 
     @app.post("/memory/{area}/consolidate")
     async def memory_consolidate(
-        area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest()
+        area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest(),
     ):
         autumn = _autumn_or_503(request)
         wp4 = _curator_with_model_or_400(autumn)
         try:
             summary = await wp4.consolidate(
-                area, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+                area, keep_recent=req.keep_recent, min_candidates=req.min_candidates,
             )
         except Exception as exc:
             raise _record_failure(request, exc) from exc
@@ -690,8 +695,8 @@ def create_app() -> FastAPI:
     async def project_memory(
         project_id: str,
         request: Request,
-        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
-        offset: int = Query(0, ge=0),
+        limit: Annotated[int, Query(ge=1, le=_HISTORY_PAGE_MAX)] = _HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
     ):
         autumn = _autumn_or_503(request)
         projects = _projects_or_501(autumn)
@@ -715,7 +720,7 @@ def create_app() -> FastAPI:
         wp4 = _curator_with_model_or_400(autumn)
         try:
             summary = await projects.zone(project_id).consolidate(
-                wp4.api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+                wp4.api, keep_recent=req.keep_recent, min_candidates=req.min_candidates,
             )
         except Exception as exc:
             raise _record_failure(request, exc) from exc
@@ -752,7 +757,7 @@ def create_app() -> FastAPI:
         """Partially update a project's metadata. Omitted fields are unchanged."""
         autumn = _autumn_or_503(request)
         projects = _projects_or_501(autumn)
-        updates = {k: v for k, v in body.dict().items() if v is not None}
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
         meta = await projects.update_metadata(project_id, **updates)
         return meta.to_dict()
 
@@ -889,7 +894,7 @@ def create_app() -> FastAPI:
                     "parameter_size": details.get("parameter_size"),
                     "family": details.get("family"),
                     "modified_at": item.get("modified_at"),
-                }
+                },
             )
         return {"models": models}
 

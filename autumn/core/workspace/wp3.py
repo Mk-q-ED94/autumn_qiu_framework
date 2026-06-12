@@ -1,7 +1,8 @@
 import time
-from typing import AsyncIterator
-from .base import WorkspaceBase
+from collections.abc import AsyncIterator
+
 from ..types import Message, MissionRoute, Role
+from .base import WorkspaceBase
 
 _DEFAULT_DIRECT = (
     "You are a helpful assistant in the Autumn framework. "
@@ -34,9 +35,19 @@ class WP3Mis(WorkspaceBase):
         self._direct_system = direct_prompt or _DEFAULT_DIRECT
         self._convert_system = convert_prompt or _DEFAULT_CONVERT
 
-    async def answer_directly(self, mission_input: str) -> str:
+    def _direct_system_for_turn(self, turn_context: str) -> str:
+        if not turn_context:
+            return self._direct_system
+        return f"{self._direct_system}\n\n---\n\n{turn_context}"
+
+    def _convert_system_for_turn(self, turn_context: str) -> str:
+        if not turn_context:
+            return self._convert_system
+        return f"{self._convert_system}\n\n---\n\n{turn_context}"
+
+    async def answer_directly(self, mission_input: str, turn_context: str = "") -> str:
         messages = [
-            Message(role=Role.SYSTEM, content=self._direct_system),
+            Message(role=Role.SYSTEM, content=self._direct_system_for_turn(turn_context)),
             Message(role=Role.USER, content=mission_input),
         ]
         result = await self.api.complete(messages)
@@ -48,9 +59,9 @@ class WP3Mis(WorkspaceBase):
         })
         return result
 
-    async def convert_to_task(self, mission_input: str) -> str:
+    async def convert_to_task(self, mission_input: str, turn_context: str = "") -> str:
         messages = [
-            Message(role=Role.SYSTEM, content=self._convert_system),
+            Message(role=Role.SYSTEM, content=self._convert_system_for_turn(turn_context)),
             Message(role=Role.USER, content=mission_input),
         ]
         result = await self.api.complete(messages)
@@ -72,12 +83,13 @@ class WP3Mis(WorkspaceBase):
         """Interface compliance. Actual routing is handled by WP1."""
         return await self.answer_directly(mission_input)
 
-    async def stream_direct(self, mission_input: str) -> AsyncIterator[str]:
+    async def stream_direct(self, mission_input: str, turn_context: str = "") -> AsyncIterator[str]:
         """Token-level streaming for the direct path. Bypasses the checker —
         caller handles post-hoc validation. Mom3 history is written even if the
-        stream is interrupted mid-flight, so a partial answer is recoverable."""
+        stream is interrupted mid-flight, so a partial answer is recoverable.
+        """
         messages = [
-            Message(role=Role.SYSTEM, content=self._direct_system),
+            Message(role=Role.SYSTEM, content=self._direct_system_for_turn(turn_context)),
             Message(role=Role.USER, content=mission_input),
         ]
         buf: list[str] = []

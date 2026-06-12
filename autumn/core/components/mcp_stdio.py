@@ -28,6 +28,7 @@ class StdioMCPClient(MCPClient):
         Per-request timeout in seconds. ``initialize`` and ``tools/call`` are
         both bounded by this; raises :class:`asyncio.TimeoutError` on expiry,
         with the recent stderr tail included in the message.
+
     """
 
     _PROTOCOL_VERSION = "2024-11-05"
@@ -82,7 +83,7 @@ class StdioMCPClient(MCPClient):
                 self._proc.stdin.close()
             try:
                 await asyncio.wait_for(self._proc.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._proc.kill()
                 await self._proc.wait()
             self._proc = None
@@ -128,10 +129,10 @@ class StdioMCPClient(MCPClient):
         await self._send({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
         try:
             return await asyncio.wait_for(self._recv(req_id), timeout=self.timeout)
-        except asyncio.TimeoutError as exc:
-            raise asyncio.TimeoutError(
+        except TimeoutError as exc:
+            raise TimeoutError(
                 f"MCP request '{method}' timed out after {self.timeout}s. "
-                f"Recent stderr:\n{self._stderr_snapshot()}"
+                f"Recent stderr:\n{self._stderr_snapshot()}",
             ) from exc
 
     async def _notify(self, method: str, params: dict) -> None:
@@ -149,7 +150,7 @@ class StdioMCPClient(MCPClient):
             if not raw:
                 raise RuntimeError(
                     "MCP server closed connection unexpectedly. "
-                    f"Recent stderr:\n{self._stderr_snapshot()}"
+                    f"Recent stderr:\n{self._stderr_snapshot()}",
                 )
             msg = json.loads(raw.decode().strip())
             if msg.get("id") == expected_id:

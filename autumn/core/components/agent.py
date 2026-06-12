@@ -2,11 +2,11 @@ import asyncio
 import time
 import warnings
 
-from .tool import Tool
+from ..api.base import ModelAPIInterface
+from ..types import AgentStep, Protocol
 from .skill import Skill
 from .terr import Terr
-from ..api.base import ModelAPIInterface
-from ..types import Protocol, AgentStep
+from .tool import Tool
 
 _DEFAULT_MAX_STEPS = 10
 _MAX_HISTORY_CONTEXT = 5
@@ -77,6 +77,7 @@ class Agent:
     max_steps : int
         Maximum ReAct iterations before giving up. Long agentic tasks (search
         + synthesize, multi-file refactor) may need a higher ceiling.
+
     """
 
     def __init__(
@@ -137,7 +138,7 @@ class Agent:
             raise ValueError(
                 f"Agent {name!r}: tool/skill name collision {sorted(clash)!r}. "
                 "Function-calling exposes both as schemas under the same name, "
-                "which would silently shadow one. Rename one before constructing."
+                "which would silently shadow one. Rename one before constructing.",
             )
 
         # Domain descriptions are surfaced in the system prompt so the model
@@ -180,7 +181,7 @@ class Agent:
         durations.
         """
         started = time.perf_counter()
-        callable_obj: "Tool | Skill | None" = None
+        callable_obj: Tool | Skill | None = None
         try:
             if tc.name in self.tools:
                 callable_obj = self.tools[tc.name]
@@ -236,7 +237,7 @@ class Agent:
 
         for _ in range(self.max_steps):
             text, tool_calls = await self.api.complete_with_tools_raw(
-                msgs, tool_schemas, system=api_system
+                msgs, tool_schemas, system=api_system,
             )
 
             # Capture LLM usage from this turn; attribute it to any tool-call steps
@@ -265,7 +266,7 @@ class Agent:
 
             if steps is not None:
                 for i, (tc, (result, duration_ms, callable_obj)) in enumerate(
-                    zip(tool_calls, invoked)
+                    zip(tool_calls, invoked, strict=True),
                 ):
                     source_terr = (
                         getattr(callable_obj, "source_terr", None)

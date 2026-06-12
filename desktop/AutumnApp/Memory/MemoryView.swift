@@ -22,6 +22,7 @@ struct MemoryView: View {
         .navigationTitle("记忆")
         .task { await vm.load() }
         .onChange(of: vm.selectedArea) { _, _ in
+            vm.selectedMode = nil
             Task { await vm.load() }
         }
     }
@@ -76,6 +77,10 @@ struct MemoryView: View {
                 MemoryStat(label: "置顶", value: "\(stats.pinned)", icon: "pin.fill")
                 MemoryStat(label: "过期", value: "\(stats.expired)", icon: "timer")
                 MemoryStat(label: "均值", value: String(format: "%.2f", stats.avgImportance), icon: "waveform.path.ecg")
+                if vm.annotatedCount > 0 {
+                    MemoryStat(label: "四维", value: "\(vm.annotatedCount)", icon: "brain",
+                               color: Autumn.colors.memory)
+                }
                 AutumnBadge(stats.hasVector ? "Vector" : "No Vector",
                             icon: stats.hasVector ? "point.3.connected.trianglepath.dotted" : "circle.dashed",
                             tone: stats.hasVector ? .info : .neutral)
@@ -86,7 +91,7 @@ struct MemoryView: View {
             }
             Spacer()
             if let overview = vm.overview {
-                AutumnBadge("WP4 · \(overview.total)", icon: "brain", tone: .accent)
+                AutumnBadge("WP4 · \(overview.total)", icon: "brain", tone: .memory)
             }
             if let message = vm.actionMessage {
                 Text(message)
@@ -98,6 +103,42 @@ struct MemoryView: View {
         .padding(.horizontal, Autumn.spacing.lg)
         .padding(.vertical, Autumn.spacing.sm)
         .background(.regularMaterial)
+    }
+
+    /// Use-mode filter chips — shown only when the area has 4D-mode entries,
+    /// so plain conversation areas keep the original uncluttered layout.
+    @ViewBuilder
+    private var modeFilterBar: some View {
+        let counts = vm.modeCounts
+        if !counts.isEmpty {
+            HStack(spacing: Autumn.spacing.xs) {
+                ModeFilterChip(
+                    label: "全部",
+                    icon: "square.grid.2x2",
+                    count: vm.entries.count,
+                    color: Autumn.colors.muted,
+                    isSelected: vm.selectedMode == nil
+                ) {
+                    vm.selectedMode = nil
+                }
+                ForEach(FourDUseMode.allCases) { mode in
+                    if let count = counts[mode] {
+                        ModeFilterChip(
+                            label: mode.label,
+                            icon: mode.icon,
+                            count: count,
+                            color: mode.tone.foreground,
+                            isSelected: vm.selectedMode == mode
+                        ) {
+                            vm.selectedMode = vm.selectedMode == mode ? nil : mode
+                        }
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, Autumn.spacing.lg)
+            .padding(.vertical, Autumn.spacing.sm)
+        }
     }
 
     @ViewBuilder
@@ -120,14 +161,28 @@ struct MemoryView: View {
                 message: vm.selectedArea.subtitle
             )
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: Autumn.spacing.sm) {
-                    ForEach(vm.entries) { entry in
-                        MemoryEntryRow(entry: entry)
+            VStack(spacing: 0) {
+                modeFilterBar
+
+                if vm.filteredEntries.isEmpty {
+                    EmptyStateView(
+                        icon: "line.3.horizontal.decrease.circle",
+                        title: "无匹配记忆",
+                        message: "当前筛选下没有条目",
+                        actionTitle: "清除筛选",
+                        action: { vm.selectedMode = nil }
+                    )
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                            ForEach(vm.filteredEntries) { entry in
+                                MemoryEntryRow(entry: entry)
+                            }
+                        }
+                        .padding(Autumn.spacing.lg)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(Autumn.spacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -137,12 +192,13 @@ private struct MemoryStat: View {
     let label: String
     let value: String
     let icon: String
+    var color: Color = .secondary
 
     var body: some View {
         HStack(spacing: Autumn.spacing.xs) {
             Image(systemName: icon)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(color)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
                     .font(.system(size: 9))
@@ -154,6 +210,48 @@ private struct MemoryStat: View {
     }
 }
 
+private struct ModeFilterChip: View {
+    let label: String
+    let icon: String
+    let count: Int
+    let color: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Autumn.spacing.xs) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .bold))
+                Text(label)
+                    .font(Autumn.typography.captionStrong)
+                Text("\(count)")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isSelected ? color : .secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(.background.opacity(0.6)))
+            }
+            .foregroundStyle(isSelected ? color : .secondary)
+            .padding(.horizontal, Autumn.spacing.sm)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isSelected ? color.opacity(0.14) : Autumn.colors.surfaceElevated)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        isSelected ? color.opacity(0.4) : Color.secondary.opacity(0.14),
+                        lineWidth: Autumn.stroke.thin
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .animation(Autumn.motion.soft, value: isSelected)
+    }
+}
+
 private struct MemoryEntryRow: View {
     let entry: MemoryEntry
     @State private var isExpanded: Bool = false
@@ -161,10 +259,24 @@ private struct MemoryEntryRow: View {
     var body: some View {
         AutumnCard(padding: Autumn.spacing.md) {
             VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.xs) {
+                    if entry.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Autumn.colors.warning)
+                            .help("置顶 — 不会被淘汰")
+                    }
                     Text(entry.title)
                         .font(Autumn.typography.headline)
+                    if let time = entry.relativeTime {
+                        Text(time)
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer()
+                    if entry.has4DData, let mode = entry.fourdMode {
+                        AutumnBadge(mode.label, icon: mode.icon, tone: mode.tone)
+                    }
                     AutumnBadge(entry.area.title, tone: .neutral)
                 }
 
@@ -175,8 +287,20 @@ private struct MemoryEntryRow: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if !entry.tags.isEmpty {
+                    FlowLayout(spacing: Autumn.spacing.xs) {
+                        ForEach(entry.tags, id: \.self) { tag in
+                            AutumnChip(tag, icon: "tag.fill", color: Autumn.colors.muted, size: .compact)
+                        }
+                    }
+                }
+
                 if isExpanded {
                     Divider()
+                    if entry.has4DData {
+                        fourdSection
+                        Divider()
+                    }
                     Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 4) {
                         ForEach(entry.sortedKeys, id: \.self) { key in
                             GridRow {
@@ -193,6 +317,14 @@ private struct MemoryEntryRow: View {
                 }
 
                 HStack {
+                    if let importance = entry.importance, importance != 1.0 {
+                        AutumnChip(
+                            String(format: "重要度 %.1f", importance),
+                            icon: "waveform.path.ecg",
+                            color: entry.isPinned ? Autumn.colors.warning : Autumn.colors.muted,
+                            size: .compact
+                        )
+                    }
                     Spacer()
                     AutumnGhostButton(action: {
                         withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
@@ -202,6 +334,75 @@ private struct MemoryEntryRow: View {
                             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var fourdSection: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            HStack(spacing: Autumn.spacing.xs) {
+                Image(systemName: "brain")
+                    .font(.system(size: 9, weight: .bold))
+                Text("四维")
+                    .font(Autumn.typography.captionStrong)
+            }
+            .foregroundStyle(Autumn.colors.memory)
+
+            Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 3) {
+                if let mode = entry.fourdMode {
+                    GridRow {
+                        dimensionLabel("use.mode")
+                        AutumnBadge(mode.label, icon: mode.icon, tone: mode.tone)
+                    }
+                }
+                if let count = entry.useCount, count > 0 {
+                    GridRow {
+                        dimensionLabel("use.count")
+                        Text("\(count) 次激活")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                }
+                if let intent = entry.aimIntent {
+                    GridRow {
+                        dimensionLabel("aim.intent")
+                        Text(intent)
+                            .font(Autumn.typography.caption)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            // Chip collections live outside the Grid: a wrapping layout inside
+            // a grid cell is measured at unlimited width and can overflow.
+            if !entry.aimScope.isEmpty {
+                chipRow(label: "aim.scope", items: entry.aimScope, color: Autumn.colors.info)
+            }
+            if !entry.triggerCues.isEmpty {
+                chipRow(label: "trigger.cues", items: entry.triggerCues, color: Autumn.colors.memory)
+            }
+        }
+        .padding(Autumn.spacing.sm)
+        .background(
+            Autumn.colors.memory.opacity(0.06),
+            in: RoundedRectangle(cornerRadius: Autumn.radius.sm)
+        )
+        .transition(.opacity)
+    }
+
+    private func dimensionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+    }
+
+    private func chipRow(label: String, items: [String], color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            dimensionLabel(label)
+            FlowLayout(spacing: Autumn.spacing.xs) {
+                ForEach(items, id: \.self) { item in
+                    AutumnChip(item, color: color, size: .compact)
                 }
             }
         }

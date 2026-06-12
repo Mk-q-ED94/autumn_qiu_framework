@@ -1,9 +1,10 @@
 import asyncio
 import json
-from typing import AsyncIterator
-import httpx
-from ..types import Message, Protocol, Role, ToolCall
+from collections.abc import AsyncIterator
 
+import httpx
+
+from ..types import Message, Protocol, Role, ToolCall
 
 _RETRY_DELAYS = [1, 2, 4]  # delays between attempts; total = 1 + len(_RETRY_DELAYS) tries
 
@@ -106,7 +107,7 @@ class ModelAPIInterface:
     async def _post_with_retry(self, endpoint: str, payload: dict) -> dict:
         client = self._get_client()
         last_error: Exception | None = None
-        for delay in [0] + _RETRY_DELAYS:
+        for delay in [0, *_RETRY_DELAYS]:
             if delay:
                 await asyncio.sleep(delay)
             try:
@@ -258,27 +259,29 @@ class ModelAPIInterface:
         content: list[dict] = []
         if text:
             content.append({"type": "text", "text": text})
-        for tc in tool_calls:
-            content.append({"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments})
+        content.extend(
+            {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
+            for tc in tool_calls
+        )
         return {"role": "assistant", "content": content}
 
     def build_tool_result_messages(
-        self, tool_calls: list[ToolCall], results: list[str]
+        self, tool_calls: list[ToolCall], results: list[str],
     ) -> list[dict]:
         """Build the tool-result follow-up messages (in provider format)."""
         if self.protocol == Protocol.OPENAI:
             return [
                 {"role": "tool", "tool_call_id": tc.id, "content": result}
-                for tc, result in zip(tool_calls, results)
+                for tc, result in zip(tool_calls, results, strict=True)
             ]
         return [
             {
                 "role": "user",
                 "content": [
                     {"type": "tool_result", "tool_use_id": tc.id, "content": result}
-                    for tc, result in zip(tool_calls, results)
+                    for tc, result in zip(tool_calls, results, strict=True)
                 ],
-            }
+            },
         ]
 
     # ── lifecycle ─────────────────────────────────────────────────────────────

@@ -1,7 +1,8 @@
 import os
 from dataclasses import dataclass, field
 from typing import Literal
-from .types import Protocol, MissionRoute
+
+from .types import MissionRoute, Protocol
 
 
 def _to_float(value: str | None, default: float = 0.0) -> float:
@@ -24,9 +25,17 @@ def _to_int(value: str | None, default: int) -> int:
         return default
 
 
+def _to_bool(value: str | None, default: bool) -> bool:
+    """Parse a bool from an env string; fall back to ``default`` on junk/empty."""
+    if value is None or not str(value).strip():
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass
 class EmbeddingConfig:
     """Configuration for a separate embedding model (OpenAI-compatible /v1/embeddings)."""
+
     api_key: str
     base_url: str
     model: str
@@ -87,6 +96,7 @@ class ModelConfig:
 @dataclass
 class WorkspacePrompts:
     """Override default system prompts for each workspace operation."""
+
     wp2_task: str | None = None       # A2: task execution
     wp3_direct: str | None = None     # A3: direct mission answer
     wp3_convert: str | None = None    # A3: mission → task conversion
@@ -108,11 +118,14 @@ class BehaviorConfig:
     Defaults reproduce the framework's original behavior, so leaving this
     untouched changes nothing.
     """
+
     agent_max_steps: int = 10      # WP2 Agent ReAct iteration ceiling
     checker_retries: int = 3       # Checker validate/correct attempts before giving up
     confirm_threshold: float = 0.75  # Selector confidence below which the user is asked
     history_limit: int = 50        # Per-area memory history entries retained
     memory_decay_half_life: float = 0.0  # Seconds; importance halves each interval. 0 = off
+    fourd_memory_enabled: bool = False  # Rank recall/evict by 4D activation score (off = today's importance×timestamp)
+    fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -125,7 +138,13 @@ class BehaviorConfig:
             confirm_threshold=_to_float(env("CONFIRM_THRESHOLD"), cls.confirm_threshold),
             history_limit=_to_int(env("HISTORY_LIMIT"), cls.history_limit),
             memory_decay_half_life=_to_float(
-                env("MEMORY_DECAY_HALF_LIFE"), cls.memory_decay_half_life
+                env("MEMORY_DECAY_HALF_LIFE"), cls.memory_decay_half_life,
+            ),
+            fourd_memory_enabled=_to_bool(
+                env("FOURD_MEMORY_ENABLED"), cls.fourd_memory_enabled,
+            ),
+            fourd_push_on_turn=_to_bool(
+                env("FOURD_PUSH_ON_TURN"), cls.fourd_push_on_turn,
             ),
         )
 

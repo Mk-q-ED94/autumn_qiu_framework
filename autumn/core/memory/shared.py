@@ -1,4 +1,4 @@
-from .base import MemoryArea, MemoryBackend, _MAX_HISTORY
+from .base import _MAX_HISTORY, MemoryArea, MemoryBackend
 
 
 class SharedZone(MemoryArea):
@@ -9,9 +9,11 @@ class SharedZone(MemoryArea):
         backend: MemoryBackend,
         history_limit: int = _MAX_HISTORY,
         decay_half_life: float | None = None,
+        fourd_enabled: bool = False,
     ):
         super().__init__(
             "shared", backend,
             history_limit=history_limit,
             decay_half_life=decay_half_life,
+            fourd_enabled=fourd_enabled,
         )

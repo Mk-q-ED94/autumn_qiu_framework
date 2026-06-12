@@ -118,6 +118,11 @@ struct WorkflowTrace: Decodable, Equatable {
         agentStageCount > 0 || toolStageCount > 0
     }
 
+    /// The wp4.push stage when the 4D push engine fired this turn.
+    var pushStage: WorkflowStage? {
+        stages.first { $0.kind == "push" }
+    }
+
     var sourceTerrNames: [String] {
         Array(Set(stages.compactMap(\.sourceTerr))).sorted()
     }

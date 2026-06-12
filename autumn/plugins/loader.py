@@ -3,7 +3,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from ..core.components import Agent, Skill, Tool, MCPClient, Terr
+from ..core.components import Agent, MCPClient, Skill, Terr, Tool
 
 _PLUGIN_TYPES = (Agent, Skill, Tool, MCPClient)
 
@@ -35,7 +35,8 @@ class PluginLoader:
 
     def register_terr(self, terr: Terr) -> None:
         """Record a Terr domain by name. Individual tools/skills it contains must
-        be registered separately (Autumn.add_terr handles this automatically)."""
+        be registered separately (Autumn.add_terr handles this automatically).
+        """
         self._terrs[terr.name] = terr
         self._terr_enabled.setdefault(terr.name, True)
 

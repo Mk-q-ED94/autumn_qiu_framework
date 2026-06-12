@@ -1,6 +1,7 @@
 from collections import OrderedDict
 
 import httpx
+
 from ..config import EmbeddingConfig
 
 _DEFAULT_CACHE_SIZE = 512
