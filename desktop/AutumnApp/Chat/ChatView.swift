@@ -234,24 +234,25 @@ struct ChatView: View {
 
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: Autumn.spacing.sm) {
-            ZStack(alignment: .bottomLeading) {
-                TextField("输入消息…", text: $vm.input, axis: .vertical)
-                    .lineLimit(1...8)
-                    .textFieldStyle(.plain)
-                    .font(Autumn.typography.body)
-                    .autumnInputSurface(isFocused: composerFocused)
-                    .focused($composerFocused)
-                    .disabled(vm.isRunning)
-                    .onSubmit { vm.submitOrStop() }
-                    .onChange(of: vm.input) { _, _ in vm.inputDidChange() }
-
-                if !vm.input.isEmpty {
-                    tokenCounterLabel
-                        .padding(.bottom, 7)
-                        .padding(.leading, 10)
-                        .allowsHitTesting(false)
+            TextField("输入消息…", text: $vm.input, axis: .vertical)
+                .lineLimit(1...8)
+                .textFieldStyle(.plain)
+                .font(Autumn.typography.body)
+                .padding(.trailing, vm.input.isEmpty ? 0 : 108)
+                .padding(.bottom, vm.input.isEmpty ? 0 : 12)
+                .autumnInputSurface(isFocused: composerFocused)
+                .focused($composerFocused)
+                .disabled(vm.isRunning)
+                .onSubmit { vm.submitOrStop() }
+                .onChange(of: vm.input) { _, _ in vm.inputDidChange() }
+                .overlay(alignment: .bottomTrailing) {
+                    if !vm.input.isEmpty {
+                        tokenCounterLabel
+                            .padding(.bottom, 7)
+                            .padding(.trailing, 10)
+                            .allowsHitTesting(false)
+                    }
                 }
-            }
 
             runButton
         }
@@ -278,7 +279,9 @@ struct ChatView: View {
                 .frame(width: 38, height: 34)
                 .background(
                     RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                        .fill(vm.isRunning ? Autumn.colors.danger : Color.accentColor)
+                        .fill(vm.isRunning
+                              ? AnyShapeStyle(Autumn.colors.danger)
+                              : AnyShapeStyle(Autumn.colors.brandGradient))
                 )
         }
         .buttonStyle(.plain)

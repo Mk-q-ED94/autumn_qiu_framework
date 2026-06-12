@@ -1009,6 +1009,7 @@ def test_ollama_status_down_is_graceful(unconfigured_client, monkeypatch):
     r = unconfigured_client.post("/ollama/status", json={"base_url": "http://x:1"})
     assert r.status_code == 200
     assert r.json()["running"] is False
+    assert "服务器能访问" in r.json()["error"]
 
 
 def test_ollama_models_strips_v1_suffix(unconfigured_client, monkeypatch):
@@ -1027,6 +1028,7 @@ def test_ollama_models_error_returns_502(unconfigured_client, monkeypatch):
     monkeypatch.setattr(server_app.httpx, "AsyncClient", _DownOllamaClient)
     r = unconfigured_client.post("/ollama/models", json={})
     assert r.status_code == 502
+    assert "localhost 指的是服务器环境" in r.json()["detail"]
 
 
 def test_ollama_recommended_has_a_default(unconfigured_client):

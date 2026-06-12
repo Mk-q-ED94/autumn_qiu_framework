@@ -61,11 +61,7 @@ struct AutumnPrimaryButton<Label: View>: View {
             .padding(.horizontal, size.horizontalPadding)
             .padding(.vertical, size.verticalPadding)
             .background(
-                LinearGradient(
-                    colors: [Color.accentColor, Color.accentColor.opacity(0.86)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
+                Autumn.colors.brandGradient,
                 in: RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
             )
             .autumnShadow(Autumn.shadow.subtle)

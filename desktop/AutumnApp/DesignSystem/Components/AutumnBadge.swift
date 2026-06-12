@@ -8,7 +8,7 @@ struct AutumnBadge: View {
         var foreground: Color {
             switch self {
             case .neutral: return .secondary
-            case .accent: return .accentColor
+            case .accent: return Autumn.colors.accent
             case .success: return Autumn.colors.success
             case .warning: return Autumn.colors.warning
             case .danger: return Autumn.colors.danger
