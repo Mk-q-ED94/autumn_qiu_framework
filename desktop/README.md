@@ -86,7 +86,7 @@ open AutumnDesktop.xcodeproj
 - 可选打开 **A4（记忆模型）**：用于驱动 `recall` / `remember` 记忆 skill。常配本地廉价模型（Ollama / llama3.1）；本地协议留空 API Key 也可工作。
 - 点 **应用配置**，看到「已应用」即可。
 - 切回 **协作** 发送消息；每次回复下方会显示 WP1/WP2/WP3 的协作路径。
-- 打开 **记忆** 查看 Mom1-3 历史。
+- 打开 **记忆** 浏览 Mom1-3 / Shared 历史（最新优先）：统计条显示总数 / 置顶 / 过期 / 四维注解数；当记忆区存在四维条目时会出现「约束 / 提醒 / 上下文 / 摘要」筛选芯片；展开条目可见四维卡片（aim / use / trigger，线索渲染为换行芯片）。
 
 ### 项目
 
@@ -104,7 +104,10 @@ open AutumnDesktop.xcodeproj
 | POST   | `/intent`               | 仅做 A1 分类，不执行——返回 inputType / taskType / route / 置信度 / reasoning |
 | GET    | `/stream?input=...`     | SSE 流式分块；交替发 `{"chunk":...}` 与一个最终 `{"trace":...}` |
 | GET    | `/terrs`                | 返回已注册的 Terr（能力域）摘要——tools / skills / mcps |
-| GET    | `/memory/{area}/history`| `mom1` / `mom2` / `mom3` 历史       |
+| GET    | `/memory/{area}/history`| `mom1` / `mom2` / `mom3` / `shared` 历史（`limit`/`offset` 分页）|
+| GET    | `/memory/stats`         | WP4 全区统计总览                    |
+| GET    | `/memory/{area}/stats`  | 单区统计（总数 / 置顶 / 过期 / 标签等）|
+| POST   | `/memory/{area}/consolidate` | 用 WP4/A4 归并记忆区（未配 A4 返回 400）|
 | POST   | `/session/end`          | 清空短期记忆                        |
 
 `route` 可选值：`auto`、`direct`、`convert`。桌面端设置页的「Mission 默认路由」会随每次请求传给服务器，覆盖服务器 `.env` 中的全局默认值。
@@ -129,11 +132,11 @@ App 按"职责"分目录组织，每个目录都可以独立替换或扩展。
 | 目录 | 职责 | 何时编辑 |
 |---|---|---|
 | `DesignSystem/` | 颜色 / 字号 / 间距 / 圆角 / 阴影 / 动效 | 想统一调整视觉风格 |
-| `DesignSystem/Components/` | `AutumnCard` / `AutumnBadge` / `AutumnPrimaryButton` / `EmptyStateView` | 想引入新原子组件 |
+| `DesignSystem/Components/` | `AutumnCard` / `AutumnBadge` / `AutumnChip` / `AutumnPrimaryButton` / `EmptyStateView` / `FlowLayout` | 想引入新原子组件 |
 | `Chat/` | 聊天 VM + 视图 + 工作流时间线 | 改对话呈现 |
 | `Conversations/` | 多对话持久化（UserDefaults JSON）+ 侧边栏列表 | 改对话存储/列表 UI |
 | `Workspace/` | 工作区主布局 + 检视面板（状态/路由/模型卡） | 改主区域布局 |
-| `Memory/` | Mom1/2/3 历史浏览 | 改记忆 UI |
+| `Memory/` | Mom1/2/3/Shared 历史浏览 + 四维筛选与详情卡 | 改记忆 UI |
 | `Settings/` | A1/A2/A3 配置 + 持久化 | 改配置项或配置 UI |
 | `Networking/` | `AutumnClient`（process/trace/stream/models/config/apply/memory）+ Codable 模型 | 服务器接口变更 |
 | `Services/` | `LocalServerManager`（App 内拉起 Python 服务）/ `AutumnAppDelegate` | 改生命周期/进程管理 |
@@ -167,17 +170,19 @@ desktop/
     │   └── Components/
     │       ├── AutumnCard.swift
     │       ├── AutumnBadge.swift
+    │       ├── AutumnChip.swift
     │       ├── AutumnPrimaryButton.swift
-    │       └── EmptyStateView.swift
+    │       ├── EmptyStateView.swift
+    │       └── FlowLayout.swift          # 标签/线索芯片换行布局
     ├── Models/
     │   ├── AppSection.swift             # 侧边栏选择
-    │   └── MemoryModels.swift           # Mom1-3 + JSON 记忆条目
+    │   └── MemoryModels.swift           # Mom1-3 + JSON 记忆条目 + 四维访问器
     ├── Views/
     │   └── SidebarView.swift            # 主导航 + 对话列表
     ├── Workspace/
     │   └── WorkspaceView.swift          # 协作工作台 + 可折叠检视面板
     ├── Memory/
-    │   ├── MemoryView.swift             # Mom1-3 历史视图
+    │   ├── MemoryView.swift             # Mom1-3/Shared 历史 + 四维筛选/详情卡
     │   └── MemoryViewModel.swift
     ├── Chat/
     │   ├── ChatMessage.swift

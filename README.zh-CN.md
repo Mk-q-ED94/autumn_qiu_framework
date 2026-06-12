@@ -400,13 +400,15 @@ python -m pytest
 
 当前版本：**0.2.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
 
-### 未发布 —— 四维记忆（活性记忆）
+### 未发布 —— 四维记忆（活性记忆）、客户端重设计与质量梳理
 
 - **四个正交维度** —— `MemoryEntry` 在内容之外新增 `aim`（为什么——关联门）、`use`（怎么用——处理模式 + 使用账本）、`trigger`（何时——带权时间轴调度器）。序列化带版本号（`_v=2`）且完全向后兼容；v1 旧记录原样加载。
 - **激活打分** —— 回忆/淘汰可按 `trigger.weight × 衰减后重要度 × aim.align × (1 + use.utility)` 排序，由 `FOURD_MEMORY_ENABLED` 开关守护（默认关闭 → 行为与之前完全一致）。
 - **pull 引擎** —— `WP4.activate(query)` 闭合反馈环：检索命中会回写各自的 `use` 账本，反复有用的记忆排名更靠前、更晚被淘汰。
 - **push 引擎与每轮自动注入** —— 在 `FOURD_PUSH_ON_TURN` 开关下，`CONSTRAIN`/`REMIND` 记忆在每轮开始时无查询地自动触发，以「活跃约束 / 提醒」块追加到 WP2/WP3 的 system prompt；`Autumn.active_context()` 暴露同一接缝供手动调用。push 默认不回写账本——被自动浮出 ≠ 被主动使用。
-- **追踪与桌面客户端** —— 触发的 push 在工作流追踪与管线条中显示为 `wp4.push` 阶段（WP4 紫色）；macOS 记忆视图为每条记忆显示使用模式徽章，展开时显示专属的四维卡片（aim / use / trigger 字段）。
+- **追踪与管线条** —— 触发的 push 在工作流追踪中显示为 `wp4.push` 阶段；管线条新增紫色 4D brain 芯片，引擎触发时折叠摘要以「4D 推入」开头。
+- **记忆浏览器重设计（macOS 客户端）** —— 记忆视图围绕四维系统重建：使用模式筛选芯片（约束 / 提醒 / 上下文 / 摘要，带实时计数——仅当记忆区存在四维条目时出现）、最新优先排序、每条记忆的置顶 / 相对时间 / 标签 / 重要度标识、统计条新增四维注解计数，以及把 `aim.scope` 与 `trigger.cues` 渲染为换行芯片的专属四维卡片。新增 `Autumn.colors.memory` 设计令牌统一各视图的四维视觉身份；v2 序列化记录的标题现在能正确解析（schema 默认的 `use.mode=context` 不再给每一行都打上徽章）。
+- **可靠性与代码质量梳理** —— 包元数据修正为实际支持的依赖（`pydantic>=2,<3`，取消 FastAPI 上界锁定）；服务端迁移掉已被移除的 Pydantic v1 API（`.dict()`/`.json()` → `model_dump…`）；向量存储表名加入 SQL 注入校验；工具调用/结果配对使用 `zip(strict=True)`；SQLite 后端改用 `asyncio.get_running_loop()`；另有全模块 ruff 风格与导入清理（约 130 处修复）。
 - 完整设计依据与分阶段计划见 [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md)。
 
 ### 0.2.1 —— 性能优化、新内置域与扩充 MCP 目录

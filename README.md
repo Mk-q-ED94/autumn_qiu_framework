@@ -428,7 +428,7 @@ python -m pytest
 Current version: **0.2.1**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
 
-### Unreleased — 4D memory (active memory)
+### Unreleased — 4D memory (active memory), client redesign & quality pass
 
 - **Four orthogonal dimensions** — `MemoryEntry` gains `aim` (why — relevance
   gate), `use` (how — processing mode + usage ledger), and `trigger` (when —
@@ -445,10 +445,25 @@ minor versions add features and may adjust APIs.
   and are appended to the WP2/WP3 system prompts as an "active constraints /
   reminders" block; `Autumn.active_context()` exposes the same seam manually.
   Push does not reinforce by default — auto-surfacing is not deliberate use.
-- **Trace & desktop client** — fired pushes surface as a `wp4.push` stage (WP4
-  purple) in the workflow trace and pipeline strip; the macOS Memory view shows
-  a use-mode badge per entry and a dedicated 4D card (aim / use / trigger
-  fields) when expanded.
+- **Trace & pipeline strip** — fired pushes surface as a `wp4.push` stage in
+  the workflow trace; the pipeline strip gains a purple 4D brain chip, and the
+  collapsed trace summary leads with "4D 推入" whenever the engine fired.
+- **Memory browser redesign (macOS client)** — the Memory view is rebuilt
+  around the 4D system: use-mode filter chips (constrain / remind / context /
+  summarize, with live counts — shown only when the area has annotated
+  entries), newest-first ordering, pinned / relative-time / tag / importance
+  indicators per entry, a 4D annotated-count stat, and a dedicated 四维 card
+  rendering `aim.scope` and `trigger.cues` as wrapping chips. A new
+  `Autumn.colors.memory` design token unifies the 4D identity across views,
+  and v2-serialized records now resolve their titles correctly (the
+  schema-default `use.mode=context` no longer badges every row).
+- **Reliability & code-quality pass** — packaging metadata corrected to the
+  actually-supported dependencies (`pydantic>=2,<3`, FastAPI upper bound
+  removed); the server migrated off removed Pydantic v1 APIs
+  (`.dict()`/`.json()` → `model_dump…`); vector-store table names are
+  validated against SQL injection; tool-call/result pairing uses
+  `zip(strict=True)`; the SQLite backend uses `asyncio.get_running_loop()`;
+  plus a module-wide ruff style/import sweep (~130 fixes).
 - Full design rationale and phasing in
   [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md).
 
