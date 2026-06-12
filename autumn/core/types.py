@@ -56,6 +56,7 @@ class WorkflowStage:
 @dataclass
 class AgentStep:
     """One tool/skill invocation inside an Agent's ReAct loop."""
+
     name: str
     arguments: dict
     result: str
@@ -93,6 +94,7 @@ class SelectorResult:
 @dataclass
 class SearchResult:
     """Single result from a semantic vector search."""
+
     id: str
     text: str
     score: float       # cosine similarity in [0, 1]

@@ -1,12 +1,12 @@
 import asyncio
 import time
-from typing import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
 
-from .base import WorkspaceBase
-from ..types import Message, Role, TaskType, WorkflowStage, AgentStep
 from ..components.agent import Agent
 from ..components.skill import Skill
 from ..components.tool import Tool
+from ..types import AgentStep, Message, Role, TaskType, WorkflowStage
+from .base import WorkspaceBase
 
 _DEFAULT_SYSTEM = (
     "You are a precise task executor in the Autumn framework. "
@@ -163,7 +163,7 @@ class WP2Tas(WorkspaceBase):
             steps: list[AgentStep] = []
             agent_started = time.perf_counter()
             result, agent_prompt, agent_completion = await self._run_with_agent(
-                task_input, tools, skills, steps, task_type, turn_context=turn_context
+                task_input, tools, skills, steps, task_type, turn_context=turn_context,
             )
             agent_stage = _agent_to_stage(
                 round((time.perf_counter() - agent_started) * 1000, 1),
@@ -279,7 +279,7 @@ class WP2Tas(WorkspaceBase):
             try:
                 agent_started = time.perf_counter()
                 result, _, _ = await self._run_with_agent(
-                    task_input, tools, skills, steps, task_type, turn_context=turn_context
+                    task_input, tools, skills, steps, task_type, turn_context=turn_context,
                 )
                 agent_stage = _agent_to_stage(
                     round((time.perf_counter() - agent_started) * 1000, 1),

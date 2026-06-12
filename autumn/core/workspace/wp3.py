@@ -1,7 +1,8 @@
 import time
-from typing import AsyncIterator
-from .base import WorkspaceBase
+from collections.abc import AsyncIterator
+
 from ..types import Message, MissionRoute, Role
+from .base import WorkspaceBase
 
 _DEFAULT_DIRECT = (
     "You are a helpful assistant in the Autumn framework. "
@@ -85,7 +86,8 @@ class WP3Mis(WorkspaceBase):
     async def stream_direct(self, mission_input: str, turn_context: str = "") -> AsyncIterator[str]:
         """Token-level streaming for the direct path. Bypasses the checker —
         caller handles post-hoc validation. Mom3 history is written even if the
-        stream is interrupted mid-flight, so a partial answer is recoverable."""
+        stream is interrupted mid-flight, so a partial answer is recoverable.
+        """
         messages = [
             Message(role=Role.SYSTEM, content=self._direct_system_for_turn(turn_context)),
             Message(role=Role.USER, content=mission_input),

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..types import SearchResult
-from .dimensions import Aim, ActivationContext, Trigger, Use, activation_score
+from .dimensions import ActivationContext, Aim, Trigger, Use, activation_score
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -72,7 +72,7 @@ class MemoryEntry:
         return (now if now is not None else time.time()) >= self.expires_at
 
     def effective_importance(
-        self, now: float | None = None, half_life: float | None = None
+        self, now: float | None = None, half_life: float | None = None,
     ) -> float:
         """Importance after time-decay.
 
@@ -87,7 +87,7 @@ class MemoryEntry:
         return self.importance * (0.5 ** (age / half_life))
 
     def activation(
-        self, ctx: "ActivationContext", half_life: float | None = None
+        self, ctx: ActivationContext, half_life: float | None = None,
     ) -> float:
         """Query-time 4D activation score (see docs/rfc-4d-memory.md §5).
 
@@ -107,7 +107,7 @@ class MemoryEntry:
         return activation_score(time_factor, a, self.use.utility())
 
     def retention_score(
-        self, now: float | None = None, half_life: float | None = None
+        self, now: float | None = None, half_life: float | None = None,
     ) -> float:
         """Context-free value for eviction: importance×decay boosted by usage.
 
@@ -135,7 +135,7 @@ class MemoryEntry:
         }
 
     @classmethod
-    def from_dict(cls, raw: dict) -> "MemoryEntry":
+    def from_dict(cls, raw: dict) -> MemoryEntry:
         """Load from serialized form, or transparently upgrade a legacy raw dict.
 
         v1 records (no ``_v``) simply lack the ``aim``/``use``/``trigger`` keys,
@@ -233,8 +233,8 @@ class _VectorLayer:
 
     def __init__(
         self,
-        embedding: "EmbeddingInterface",
-        store: "SQLiteVectorStore",
+        embedding: EmbeddingInterface,
+        store: SQLiteVectorStore,
         auto_index: bool = False,
     ):
         self.embedding = embedding
@@ -292,8 +292,8 @@ class MemoryArea:
 
     def enable_vector(
         self,
-        embedding: "EmbeddingInterface",
-        store: "SQLiteVectorStore",
+        embedding: EmbeddingInterface,
+        store: SQLiteVectorStore,
         auto_index: bool = False,
     ) -> None:
         """Attach a vector layer for semantic search."""
@@ -345,15 +345,15 @@ class MemoryArea:
 
     async def append_history(
         self,
-        entry: "dict | str | MemoryEntry",
+        entry: dict | str | MemoryEntry,
         importance: float = 1.0,
         tags: list[str] | None = None,
         max_entries: int | None = None,
         ttl: float | None = None,
-        aim: "Aim | None" = None,
-        use: "Use | None" = None,
-        trigger: "Trigger | None" = None,
-    ) -> "MemoryEntry":
+        aim: Aim | None = None,
+        use: Use | None = None,
+        trigger: Trigger | None = None,
+    ) -> MemoryEntry:
         """Append a turn record. Returns the stored MemoryEntry.
 
         Accepts a raw dict or string (backward-compatible) or a MemoryEntry.
@@ -412,7 +412,7 @@ class MemoryArea:
         tags: list[str] | None = None,
         since: float | None = None,
         include_expired: bool = False,
-    ) -> list["MemoryEntry"]:
+    ) -> list[MemoryEntry]:
         """Return history entries, optionally filtered.
 
         Args:
@@ -420,6 +420,7 @@ class MemoryArea:
             tags:  If given, only entries that have ALL listed tags are returned.
             since: If given, only entries with timestamp >= since are returned.
             include_expired: If True, do not filter out TTL-expired entries.
+
         """
         entries = _decode(await self.get(_HISTORY_KEY))
         if not include_expired:
@@ -434,7 +435,7 @@ class MemoryArea:
             entries = entries[-n:]
         return entries
 
-    async def recent(self, n: int = 5) -> list["MemoryEntry"]:
+    async def recent(self, n: int = 5) -> list[MemoryEntry]:
         """Return the n most recent (non-expired) history entries."""
         return await self.get_history(n=n)
 
@@ -443,7 +444,7 @@ class MemoryArea:
         query: str,
         k: int = 5,
         tags: list[str] | None = None,
-    ) -> list["MemoryEntry"]:
+    ) -> list[MemoryEntry]:
         """Unified retrieval combining three strategies, ranked by relevance.
 
         1. Exact key-value lookup on *query* as a key.
@@ -601,11 +602,11 @@ class MemoryArea:
 
     async def consolidate(
         self,
-        api: "ModelAPIInterface",
+        api: ModelAPIInterface,
         keep_recent: int = 10,
         min_candidates: int = 3,
         max_chars: int = 4000,
-    ) -> "MemoryEntry | None":
+    ) -> MemoryEntry | None:
         """Summarise older history into a single pinned entry to free space.
 
         The most recent ``keep_recent`` entries, plus all pinned entries and any
@@ -618,6 +619,7 @@ class MemoryArea:
             keep_recent: number of newest entries to leave untouched.
             min_candidates: minimum old entries required to bother summarising.
             max_chars: cap on the candidate text fed to the model.
+
         """
         async with self._history_lock:
             now = time.time()
@@ -656,7 +658,7 @@ class MemoryArea:
                 tags=["summary"],
                 meta={"consolidated": len(candidates)},
             )
-            new_history = preserved + [summary] + tail
+            new_history = [*preserved, summary, *tail]
             new_history.sort(key=lambda e: e.timestamp)
             await self.set(_HISTORY_KEY, [e.to_dict() for e in new_history])
 

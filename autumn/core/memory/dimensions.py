@@ -33,7 +33,6 @@ import time as _time
 from dataclasses import dataclass, field
 from enum import Enum
 
-
 # ── pure helpers ──────────────────────────────────────────────────────────────
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -108,7 +107,7 @@ class Aim:
         return {"intent": self.intent, "goal_ref": self.goal_ref, "scope": list(self.scope)}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Aim":
+    def from_dict(cls, d: dict) -> Aim:
         return cls(
             intent=d.get("intent", ""),
             goal_ref=d.get("goal_ref"),
@@ -149,7 +148,7 @@ class UseStats:
         return {"count": self.count, "last_used": self.last_used, "reward": self.reward}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "UseStats":
+    def from_dict(cls, d: dict) -> UseStats:
         return cls(
             count=int(d.get("count", 0)),
             last_used=d.get("last_used"),
@@ -196,7 +195,7 @@ class Use:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Use":
+    def from_dict(cls, d: dict) -> Use:
         raw_mode = d.get("mode", UseMode.CONTEXT.value)
         try:
             mode = UseMode(raw_mode)
@@ -273,7 +272,7 @@ class Trigger:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Trigger":
+    def from_dict(cls, d: dict) -> Trigger:
         return cls(
             half_life=d.get("half_life"),
             not_before=d.get("not_before"),

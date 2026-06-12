@@ -1,7 +1,8 @@
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from .tool import ToolParameter, build_openai_schema, build_anthropic_schema
+from .tool import ToolParameter, build_anthropic_schema, build_openai_schema
 
 
 class Skill:

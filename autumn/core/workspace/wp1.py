@@ -1,22 +1,24 @@
 import asyncio
 import json
 import time
-from typing import AsyncIterator, Literal
-from .base import WorkspaceBase
-from .wp2 import WP2Tas
-from .wp3 import WP3Mis
+from collections.abc import AsyncIterator
+from typing import Literal
+
+from ..components.selector import Selector
+from ..interaction import UserInteraction
 from ..types import (
     InputType,
-    TaskType,
-    MissionRoute,
     Message,
+    MissionRoute,
     Role,
     SelectorResult,
+    TaskType,
     WorkflowRun,
     WorkflowStage,
 )
-from ..components.selector import Selector
-from ..interaction import UserInteraction
+from .base import WorkspaceBase
+from .wp2 import WP2Tas
+from .wp3 import WP3Mis
 
 _ADVISORY_PREFIX = "\n\n---\n[质量提示] "
 
@@ -161,7 +163,7 @@ class WP1Tot(WorkspaceBase):
             t = time.perf_counter()
             result, tool_stages, wp2_prompt, wp2_completion = (
                 await self.wp2.process_with_trace(
-                    user_input, task_type=task_type, turn_context=push_context
+                    user_input, task_type=task_type, turn_context=push_context,
                 )
             )
             stages.extend(tool_stages)
@@ -253,7 +255,7 @@ class WP1Tot(WorkspaceBase):
 
         t = time.perf_counter()
         result, tool_stages, wp2_prompt, wp2_completion = await self.wp2.process_with_trace(
-            task_form, turn_context=push_context
+            task_form, turn_context=push_context,
         )
         stages.extend(tool_stages)
         stages.append(WorkflowStage(
@@ -405,7 +407,7 @@ class WP1Tot(WorkspaceBase):
         if input_type == InputType.TASK:
             task_started = time.perf_counter()
             gen = self.wp2.stream_with_trace(
-                user_input, task_type=task_type, chunk_size=chunk_size, turn_context=push_context
+                user_input, task_type=task_type, chunk_size=chunk_size, turn_context=push_context,
             )
             chosen_route: MissionRoute | None = None
         else:
@@ -442,7 +444,7 @@ class WP1Tot(WorkspaceBase):
                     ))
                 task_started = time.perf_counter()
                 gen = self.wp2.stream_with_trace(
-                    task_form, chunk_size=chunk_size, turn_context=push_context
+                    task_form, chunk_size=chunk_size, turn_context=push_context,
                 )
 
         buf: list[str] = []

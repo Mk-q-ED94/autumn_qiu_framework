@@ -17,7 +17,6 @@ import uuid
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
-
 _MAX_INPUT = 1_000_000  # 1MB cap; protects the framework from OOM on bad input.
 _HASH_ALGOS = ("md5", "sha1", "sha256", "sha512")
 

@@ -1,4 +1,4 @@
-from .base import MemoryArea, MemoryBackend, _MAX_HISTORY
+from .base import _MAX_HISTORY, MemoryArea, MemoryBackend
 
 
 class SharedZone(MemoryArea):

@@ -16,7 +16,6 @@ from typing import Any
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
-
 _BIN_OPS: dict[type, Any] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,

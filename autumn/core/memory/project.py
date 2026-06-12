@@ -27,10 +27,10 @@ under a reserved key inside its zone:
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Iterator
 
 from .base import MemoryArea, MemoryBackend
 
@@ -41,7 +41,7 @@ _META_KEY = "__meta__"
 # so project-scoped memory resolves to the right zone without threading the id
 # through every workspace and skill call site.
 _current_project: ContextVar[str | None] = ContextVar(
-    "autumn_current_project", default=None
+    "autumn_current_project", default=None,
 )
 
 _REGISTRY = "__projects__"
@@ -67,7 +67,7 @@ class ProjectGoals:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ProjectGoals":
+    def from_dict(cls, d: dict) -> ProjectGoals:
         return cls(
             master=d.get("master", ""),
             long_term=list(d.get("long_term") or []),
@@ -95,7 +95,7 @@ class ProjectEnvironment:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ProjectEnvironment":
+    def from_dict(cls, d: dict) -> ProjectEnvironment:
         return cls(
             terrs=list(d.get("terrs") or []),
             skills=list(d.get("skills") or []),
@@ -129,7 +129,7 @@ class ProjectMeta:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ProjectMeta":
+    def from_dict(cls, d: dict) -> ProjectMeta:
         return cls(
             project_type=d.get("project_type"),
             description=d.get("description", ""),

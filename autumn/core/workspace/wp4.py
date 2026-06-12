@@ -29,20 +29,20 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from .base import WorkspaceBase
 from ..memory.dimensions import ActivationContext, UseMode
+from .base import WorkspaceBase
 
 if TYPE_CHECKING:
     from ..components.skill import Skill
     from ..memory.base import MemoryArea, MemoryEntry
-    from ..memory.project import ProjectGoals, ProjectMeta, ProjectMemory
+    from ..memory.project import ProjectGoals, ProjectMemory, ProjectMeta
 
 # Modes that surface proactively at turn start (push). CONTEXT is pull-only,
 # SUMMARIZE feeds consolidation — neither is injected by the push engine.
 _PUSH_MODES = (UseMode.CONSTRAIN, UseMode.REMIND)
 
 
-def _render_one(entry: "MemoryEntry") -> str:
+def _render_one(entry: MemoryEntry) -> str:
     """One activated memory as a line, applying its use.template when present."""
     template = entry.use.template
     if template:
@@ -53,7 +53,7 @@ def _render_one(entry: "MemoryEntry") -> str:
     return entry.text
 
 
-def render_push_context(entries: "list[MemoryEntry]") -> str:
+def render_push_context(entries: list[MemoryEntry]) -> str:
     """Render push-activated memories into an injectable prompt fragment.
 
     CONSTRAIN entries become a "must follow" rules block; REMIND entries become
@@ -90,14 +90,15 @@ class WP4Mem(WorkspaceBase):
     projects:
         Optional :class:`ProjectMemory` manager. When supplied, the ``"project"``
         area resolves to the context-active project's shared zone.
+
     """
 
     def __init__(
         self,
         api,
-        memory: "MemoryArea",
-        zones: "dict[str, MemoryArea]",
-        projects: "ProjectMemory | None" = None,
+        memory: MemoryArea,
+        zones: dict[str, MemoryArea],
+        projects: ProjectMemory | None = None,
     ):
         super().__init__(api, memory)
         self._zones: dict[str, MemoryArea] = dict(zones)
@@ -119,7 +120,7 @@ class WP4Mem(WorkspaceBase):
             names.append("project")
         return names
 
-    def _resolve(self, area: str) -> "MemoryArea":
+    def _resolve(self, area: str) -> MemoryArea:
         """Resolve a zone name to a live :class:`MemoryArea`.
 
         ``"project"`` resolves to the *context-active* project's zone, so the
@@ -133,7 +134,7 @@ class WP4Mem(WorkspaceBase):
             return self._zones[area]
         except KeyError:
             raise ValueError(
-                f"Unknown memory area: {area!r}. Choose from: {self.zone_names()}"
+                f"Unknown memory area: {area!r}. Choose from: {self.zone_names()}",
             ) from None
 
     # ── audit log ───────────────────────────────────────────────────────────────
@@ -148,13 +149,13 @@ class WP4Mem(WorkspaceBase):
         except Exception:
             pass  # auditing must never break the operation it describes
 
-    async def audit_log(self, n: int = 20) -> list["MemoryEntry"]:
+    async def audit_log(self, n: int = 20) -> list[MemoryEntry]:
         """Return the most recent management actions WP4 has performed."""
         return await self.memory.recent(n)
 
     # ── skills ──────────────────────────────────────────────────────────────────
 
-    def skills(self, area: str = "shared") -> list["Skill"]:
+    def skills(self, area: str = "shared") -> list[Skill]:
         """Build memory skills bound to a zone, wired to WP4's A4 model.
 
         Returns ``[recall, remember, list_recent, pin_memory]``. ``area="project"``
@@ -172,8 +173,8 @@ class WP4Mem(WorkspaceBase):
     # ── recall / remember ───────────────────────────────────────────────────────
 
     async def recall(
-        self, query: str, area: str = "shared", k: int = 5
-    ) -> list["MemoryEntry"]:
+        self, query: str, area: str = "shared", k: int = 5,
+    ) -> list[MemoryEntry]:
         """Unified retrieval (exact key → tags → semantic) over a zone."""
         return await self._resolve(area).recall(query, k=k)
 
@@ -192,10 +193,10 @@ class WP4Mem(WorkspaceBase):
         query: str,
         area: str = "shared",
         k: int = 5,
-        tags: "list[str] | None" = None,
+        tags: list[str] | None = None,
         reward: float = 0.0,
         reinforce: bool = True,
-    ) -> list["MemoryEntry"]:
+    ) -> list[MemoryEntry]:
         """Pull-activate a zone's memories for *query*, closing the feedback loop.
 
         Ranks via the zone's :meth:`MemoryArea.recall` (4D activation when the
@@ -218,10 +219,10 @@ class WP4Mem(WorkspaceBase):
     async def activate_push(
         self,
         area: str = "shared",
-        ctx: "ActivationContext | None" = None,
+        ctx: ActivationContext | None = None,
         k: int = 5,
         reinforce: bool = False,
-    ) -> list["MemoryEntry"]:
+    ) -> list[MemoryEntry]:
         """Push side of the engine: scan a zone and fire turn-relevant memories.
 
         Query-less. Only ``CONSTRAIN``/``REMIND`` entries are candidates (those
@@ -236,7 +237,7 @@ class WP4Mem(WorkspaceBase):
         """
         ctx = ctx or ActivationContext()
         zone = self._resolve(area)
-        scored: list[tuple[float, "MemoryEntry"]] = []
+        scored: list[tuple[float, MemoryEntry]] = []
         for e in await zone.get_history():
             if e.use.mode not in _PUSH_MODES:
                 continue
@@ -257,7 +258,7 @@ class WP4Mem(WorkspaceBase):
         area: str = "shared",
         keep_recent: int = 10,
         min_candidates: int = 3,
-    ) -> "MemoryEntry | None":
+    ) -> MemoryEntry | None:
         """Summarise a zone's older history into one pinned entry via A4.
 
         Raises ``RuntimeError`` when no A4 model is configured. Returns ``None``
@@ -265,10 +266,10 @@ class WP4Mem(WorkspaceBase):
         """
         if not self.has_model:
             raise RuntimeError(
-                "Memory consolidation needs the A4 model slot; none is configured."
+                "Memory consolidation needs the A4 model slot; none is configured.",
             )
         summary = await self._resolve(area).consolidate(
-            self.api, keep_recent=keep_recent, min_candidates=min_candidates
+            self.api, keep_recent=keep_recent, min_candidates=min_candidates,
         )
         await self._log(
             "consolidate",
@@ -281,8 +282,8 @@ class WP4Mem(WorkspaceBase):
         return summary
 
     async def consolidate_all(
-        self, keep_recent: int = 10, min_candidates: int = 3
-    ) -> "dict[str, MemoryEntry | None]":
+        self, keep_recent: int = 10, min_candidates: int = 3,
+    ) -> dict[str, MemoryEntry | None]:
         """Run :meth:`consolidate` across every directly-managed zone.
 
         Project zones are dynamic and per-request, so they are not swept here —
@@ -291,7 +292,7 @@ class WP4Mem(WorkspaceBase):
         """
         return {
             name: await self.consolidate(
-                name, keep_recent=keep_recent, min_candidates=min_candidates
+                name, keep_recent=keep_recent, min_candidates=min_candidates,
             )
             for name in self._zones
         }
@@ -307,7 +308,7 @@ class WP4Mem(WorkspaceBase):
     ) -> int:
         """Bulk-remove matching history entries from a zone. Returns the count."""
         removed = await self._resolve(area).forget(
-            tags=tags, before=before, expired=expired
+            tags=tags, before=before, expired=expired,
         )
         if removed:
             await self._log(
@@ -350,10 +351,10 @@ class WP4Mem(WorkspaceBase):
     def _require_model(self, op: str) -> None:
         if not self.has_model:
             raise RuntimeError(
-                f"{op} needs the A4 model slot; none is configured."
+                f"{op} needs the A4 model slot; none is configured.",
             )
 
-    def _require_projects(self) -> "ProjectMemory":
+    def _require_projects(self) -> ProjectMemory:
         if self._projects is None:
             raise ValueError("Project memory is not configured.")
         return self._projects
@@ -396,7 +397,7 @@ class WP4Mem(WorkspaceBase):
         result = await self.api.complete(messages)
         return result.strip()
 
-    async def draft_goals(self, user_input: str, project_id: str) -> "ProjectGoals":
+    async def draft_goals(self, user_input: str, project_id: str) -> ProjectGoals:
         """Structure the user's goal description into master / long-term / short-term.
 
         Returns a :class:`~autumn.core.memory.project.ProjectGoals` instance.
@@ -432,7 +433,7 @@ class WP4Mem(WorkspaceBase):
         except (json.JSONDecodeError, ValueError, AttributeError):
             return ProjectGoals(master=response.strip()[:300])
 
-    async def infer_environment(self, project_id: str) -> "ProjectMeta":
+    async def infer_environment(self, project_id: str) -> ProjectMeta:
         """Infer an appropriate environment config for *project_id* using A4.
 
         Reads the project's type, description, and master goal, calls A4 to

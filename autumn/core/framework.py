@@ -1,33 +1,34 @@
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator, Literal
+from typing import Literal
 
+from ..plugins.loader import PluginLoader
+from .api.embedding import EmbeddingInterface
+from .api.interfaces import A1, A2, A3, A4
+from .components.agent import Agent
+from .components.checker import Checker
+from .components.mcp import MCPClient
+from .components.mcp_bridge import mcp_to_tools
+from .components.skill import Skill
+from .components.terr import Terr
+from .components.tool import Tool
 from .config import AutumnConfig
 from .interaction import UserInteraction
-from .api.interfaces import A1, A2, A3, A4
-from .api.embedding import EmbeddingInterface
-from .memory.backends import SQLiteBackend, HybridBackend, SQLiteVectorStore
+from .memory.backends import HybridBackend, SQLiteBackend, SQLiteVectorStore
 from .memory.base import MemoryArea
 from .memory.dimensions import ActivationContext
-from .memory.shared import SharedZone
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
 from .memory.mom3 import Mom3
 from .memory.project import ProjectMemory, ProjectZone, project_context
+from .memory.shared import SharedZone
+from .types import InputType, MissionRoute, TaskType, WorkflowRun
 from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
 from .workspace.wp4 import WP4Mem
-from .components.checker import Checker
-from .components.agent import Agent
-from .components.skill import Skill
-from .components.tool import Tool
-from .components.terr import Terr
-from .components.mcp import MCPClient
-from .components.mcp_bridge import mcp_to_tools
-from .types import InputType, MissionRoute, TaskType, WorkflowRun
-from ..plugins.loader import PluginLoader
 
 
 def _mark_terr_source(callable_obj, terr: Terr) -> None:
@@ -320,9 +321,8 @@ class Autumn:
 
     def describe_terrs(self) -> list[dict]:
         """Return serializable Terr summaries for desktop/debug UI."""
-        summaries: list[dict] = []
-        for terr in self.plugins.all_terrs().values():
-            summaries.append({
+        return [
+            {
                 "name": terr.name,
                 "description": terr.description,
                 "enabled": self.plugins.is_terr_enabled(terr.name),
@@ -349,8 +349,9 @@ class Autumn:
                     }
                     for client in terr.mcps
                 ],
-            })
-        return summaries
+            }
+            for terr in self.plugins.all_terrs().values()
+        ]
 
     async def active_context(
         self,
@@ -380,7 +381,7 @@ class Autumn:
         turn_cues = list(cues or [])
         turn_cues += [t for t in text.split() if t]  # naive; explicit cues preferred
         ctx = ActivationContext(
-            now=time.time(), query=text or None, goal=goal, cues=turn_cues
+            now=time.time(), query=text or None, goal=goal, cues=turn_cues,
         )
         fired = await self.wp4.activate_push(area=area, ctx=ctx, k=k, reinforce=reinforce)
         return render_push_context(fired)
@@ -426,6 +427,7 @@ class Autumn:
 
         The skills are built by WP4, the memory-management workspace, so they
         share the A4 model and zone resolution WP4 uses everywhere else.
+
         """
         for skill in self.wp4.skills(area):
             self.register_skill(skill)

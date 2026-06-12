@@ -12,7 +12,6 @@ import re
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
-
 _MAX_INPUT = 200_000  # ~200KB; the model rarely benefits from larger inputs.
 _MAX_MATCHES = 200
 _MAX_PATTERN = 1024

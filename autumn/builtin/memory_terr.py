@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
 
 def memory_terr(
-    memory: "MemoryArea",
-    api: "ModelAPIInterface | None" = None,
+    memory: MemoryArea,
+    api: ModelAPIInterface | None = None,
     *,
     area_name: str = "shared",
 ) -> Terr:
@@ -36,6 +36,7 @@ def memory_terr(
     area_name:
         Human-readable label appended to the Terr description so the user
         can tell which memory zone these skills target.
+
     """
     skills = make_memory_skills(memory, api=api)
     return Terr(
@@ -51,8 +52,8 @@ def memory_terr(
 
 
 def project_memory_terr(
-    projects: "ProjectMemory",
-    api: "ModelAPIInterface | None" = None,
+    projects: ProjectMemory,
+    api: ModelAPIInterface | None = None,
 ) -> Terr:
     """Build the ``memory`` Terr bound to the context-active project's shared zone.
 

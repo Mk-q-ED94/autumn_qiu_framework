@@ -13,7 +13,6 @@ from typing import Any
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
-
 _MAX_ITEMS = 100_000  # cap element count; protects against OOM on pathological input.
 
 
