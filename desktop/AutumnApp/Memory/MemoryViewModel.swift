@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class MemoryViewModel: ObservableObject {
     @Published var selectedArea: MemoryArea = .mom1
+    @Published var selectedMode: FourDUseMode?   // nil = 全部
     @Published var entries: [MemoryEntry] = []
     @Published var stats: MemoryStats?
     @Published var overview: MemoryStatsOverview?
@@ -15,6 +16,27 @@ final class MemoryViewModel: ObservableObject {
 
     init(settings: AppSettings) {
         self.settings = settings
+    }
+
+    /// Entries matching the active use-mode filter (newest first for display).
+    var filteredEntries: [MemoryEntry] {
+        let ordered = entries.reversed()
+        guard let mode = selectedMode else { return Array(ordered) }
+        return ordered.filter { $0.fourdMode == mode }
+    }
+
+    /// Count per use-mode across the loaded area — drives the filter chips.
+    var modeCounts: [FourDUseMode: Int] {
+        entries.reduce(into: [:]) { counts, entry in
+            if let mode = entry.fourdMode {
+                counts[mode, default: 0] += 1
+            }
+        }
+    }
+
+    /// Entries carrying meaningful 4D annotation (for the stats strip).
+    var annotatedCount: Int {
+        entries.filter(\.has4DData).count
     }
 
     func load() async {

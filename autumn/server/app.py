@@ -413,7 +413,7 @@ def _trace_payload(run: WorkflowRun) -> dict:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.1", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

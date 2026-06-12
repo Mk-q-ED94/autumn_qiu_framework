@@ -107,6 +107,9 @@ struct WorkflowTraceView: View {
 
     private var summary: String {
         var parts: [String] = []
+        if trace.pushStage != nil {
+            parts.append("4D 推入")
+        }
         if trace.hasAgentActivity {
             parts.append(trace.toolStageCount > 0 ? "Agent · \(trace.toolStageCount) 工具" : "Agent")
         }

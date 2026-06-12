@@ -37,6 +37,9 @@ struct PipelineStripView: View {
                 }
                 .help(tooltipText(for: stage))
             }
+            if trace.pushStage != nil {
+                PushStatusChip()
+            }
             if agentCount > 0 {
                 AgentStatusChip()
             }
@@ -144,6 +147,12 @@ private struct ToolCountChip: View {
 private struct AgentStatusChip: View {
     var body: some View {
         AutumnChip("Agent", icon: "cpu", color: Autumn.colors.warning, size: .compact)
+    }
+}
+
+private struct PushStatusChip: View {
+    var body: some View {
+        AutumnChip("4D", icon: "brain", color: Autumn.colors.memory, size: .compact)
     }
 }
 
