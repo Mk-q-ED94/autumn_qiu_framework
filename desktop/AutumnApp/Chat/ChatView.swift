@@ -265,7 +265,7 @@ struct ChatView: View {
         let tokens = ContextLimit.estimateTokens(vm.input)
         let limit = ContextLimit.limit(for: settings.a2Model)
         let ratio = Double(tokens) / Double(limit)
-        let color: Color = ratio > 0.8 ? Autumn.colors.danger : (ratio > 0.6 ? .orange : Autumn.colors.muted)
+        let color: Color = ratio > 0.8 ? Autumn.colors.danger : (ratio > 0.6 ? Autumn.colors.warning : Autumn.colors.muted)
         return Text("\(ContextLimit.format(tokens)) / \(ContextLimit.format(limit))")
             .font(.system(size: 10, weight: .regular, design: .monospaced))
             .foregroundStyle(color)

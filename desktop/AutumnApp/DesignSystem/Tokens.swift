@@ -5,59 +5,79 @@ import SwiftUI
 /// Updating a token here propagates to every view that uses `Autumn.colors`,
 /// `Autumn.typography`, etc. Views should never hard-code colors, sizes, or
 /// durations — go through this module.
+///
+/// Design language — "Paper & Clay". A calm, neutral canvas (the way ChatGPT
+/// and Codex keep surfaces quiet) warmed by a single restrained clay/terracotta
+/// accent (the way Claude carries its identity through one warm tone rather than
+/// a rainbow). Hairline borders do the structural work; shadows stay almost
+/// invisible. Typography is clean system sans, not rounded.
 enum Autumn {
     enum colors {
-        // Logo-derived accents: ember red, hot orange, leaf gold, and a small
-        // green counterpoint from the project palette. Keep the app warm without
-        // turning every surface into one flat orange theme.
-        static let ember = Color(red: 0.72, green: 0.08, blue: 0.07)
-        static let flame = Color(red: 0.96, green: 0.36, blue: 0.10)
-        static let gold = Color(red: 1.00, green: 0.72, blue: 0.18)
-        static let leaf = Color(red: 0.39, green: 0.66, blue: 0.36)
-        static let teal = Color(red: 0.10, green: 0.52, blue: 0.55)
+        // ── brand spine ──────────────────────────────────────────────────────
+        // One warm accent — clay/terracotta — carries the whole identity. The
+        // remaining hues are desaturated companions used only for semantic
+        // status and the four workspace identities, never as decoration.
+        static let clay = Color(red: 0.80, green: 0.40, blue: 0.27)   // primary accent
+        static let claydeep = Color(red: 0.61, green: 0.27, blue: 0.18) // gradient anchor
+        static let sand = Color(red: 0.76, green: 0.62, blue: 0.45)   // soft warm neutral
+        static let sage = Color(red: 0.44, green: 0.56, blue: 0.45)   // muted green
+        static let slate = Color(red: 0.32, green: 0.48, blue: 0.52)  // muted blue-green
+
+        // Back-compat aliases — the rest of the app refers to these names. They
+        // now point at the calmer Paper & Clay palette rather than the old
+        // ember/flame/gold ramp, so every view restyles without code changes.
+        static let ember = claydeep
+        static let flame = clay
+        static let gold = sand
+        static let leaf = sage
+        static let teal = slate
 
         // Brand accent. Root `.tint` also uses this token so the whole app
-        // follows the same warmer logo direction.
-        static let accent: Color = flame
+        // follows the same single-accent direction.
+        static let accent: Color = clay
 
-        // Surface hierarchy (lighter → heavier emphasis).
+        // Surface hierarchy (lighter → heavier emphasis). Neutral and
+        // theme-adaptive — built from `primary` so light and dark both stay
+        // quiet, the way a modern assistant canvas does.
         static let surface = Color.clear                         // page background (uses material)
-        static let surfaceElevated = flame.opacity(0.075)
-        static let surfaceHover = flame.opacity(0.13)
-        static let surfaceActive = flame.opacity(0.19)
+        static let surfaceElevated = Color.primary.opacity(0.040)
+        static let surfaceHover = Color.primary.opacity(0.070)
+        static let surfaceActive = Color.primary.opacity(0.105)
 
-        // Bubble palettes (chat).
-        static let userBubble = flame.opacity(0.18)
-        static let userBubbleStroke = flame.opacity(0.40)
-        static let assistantBubble = gold.opacity(0.10)
-        static let assistantBubbleStroke = gold.opacity(0.24)
+        // Bubble palettes (chat). User turns carry a hint of the clay accent;
+        // assistant turns stay neutral and near-borderless.
+        static let userBubble = clay.opacity(0.12)
+        static let userBubbleStroke = clay.opacity(0.30)
+        static let assistantBubble = Color.primary.opacity(0.035)
+        static let assistantBubbleStroke = Color.primary.opacity(0.085)
 
-        // Status semantics.
-        static let success = Color.green
-        static let warning = flame
-        static let danger = Color.red
-        static let info = teal
+        // Status semantics — calmer, desaturated so they sit on paper without
+        // shouting. `warning` is its own amber, distinct from the clay accent.
+        static let success = Color(red: 0.36, green: 0.60, blue: 0.42)
+        static let warning = Color(red: 0.84, green: 0.58, blue: 0.26)
+        static let danger = Color(red: 0.80, green: 0.33, blue: 0.30)
+        static let info = slate
         static let muted = Color.secondary
 
         // 4D memory / WP4 identity. One token so the brain icon, push stage,
         // mode badges and the 四维 detail card all read as the same system.
-        static let memory = Color(red: 0.56, green: 0.31, blue: 0.70)
+        static let memory = Color(red: 0.51, green: 0.41, blue: 0.62)
 
         static var brandGradient: LinearGradient {
             LinearGradient(
-                colors: [ember, flame, gold],
+                colors: [claydeep, clay],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
         }
 
+        // Page washes — barely-there warmth over the material canvas, so the app
+        // reads as warm paper rather than a tinted orange panel.
         static var pageWarmth: LinearGradient {
             LinearGradient(
                 colors: [
-                    ember.opacity(0.13),
-                    flame.opacity(0.12),
-                    gold.opacity(0.08),
-                    leaf.opacity(0.045),
+                    clay.opacity(0.045),
+                    sand.opacity(0.025),
                     Color.clear,
                 ],
                 startPoint: .topLeading,
@@ -68,9 +88,9 @@ enum Autumn {
         static var pageFoundation: LinearGradient {
             LinearGradient(
                 colors: [
-                    ember.opacity(0.08),
-                    gold.opacity(0.045),
-                    teal.opacity(0.035),
+                    clay.opacity(0.022),
+                    Color.clear,
+                    slate.opacity(0.015),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -79,18 +99,18 @@ enum Autumn {
 
         static func section(_ section: AppSection) -> Color {
             switch section {
-            case .workspace: return flame
+            case .workspace: return clay
             case .memory: return memory
-            case .terrs: return leaf
-            case .settings: return gold
+            case .terrs: return sage
+            case .settings: return slate
             }
         }
 
         static func workspace(_ name: String) -> Color {
             switch name {
-            case "WP1": return accent
+            case "WP1": return clay
             case "WP2": return warning
-            case "WP3": return info
+            case "WP3": return slate
             case "WP4": return memory
             default:    return muted
             }
@@ -98,9 +118,11 @@ enum Autumn {
     }
 
     enum typography {
-        static let display = Font.system(.largeTitle, design: .rounded).weight(.semibold)
-        static let title = Font.system(.title2, design: .rounded).weight(.semibold)
-        static let headline = Font.system(.headline, design: .rounded)
+        // Clean system sans (SF) — no rounded design — to match the restrained,
+        // editorial feel of modern assistant clients.
+        static let display = Font.system(.largeTitle, design: .default).weight(.semibold)
+        static let title = Font.system(.title2, design: .default).weight(.semibold)
+        static let headline = Font.system(.headline, design: .default)
         static let body = Font.system(.body, design: .default)
         static let bodyMedium = Font.system(.body, design: .default).weight(.medium)
         static let callout = Font.system(.callout, design: .default)
@@ -122,10 +144,10 @@ enum Autumn {
 
     enum radius {
         static let xs: CGFloat = 4
-        static let sm: CGFloat = 6
-        static let md: CGFloat = 10
-        static let lg: CGFloat = 14
-        static let xl: CGFloat = 20
+        static let sm: CGFloat = 7
+        static let md: CGFloat = 11
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 22
         static let pill: CGFloat = 999
     }
 
@@ -136,9 +158,10 @@ enum Autumn {
     }
 
     enum shadow {
-        static let subtle = ShadowStyle(color: .black.opacity(0.05), radius: 4, y: 1)
-        static let elevated = ShadowStyle(color: .black.opacity(0.10), radius: 12, y: 4)
-        static let floating = ShadowStyle(color: .black.opacity(0.16), radius: 24, y: 8)
+        // Flattened — the new language leans on hairline borders, not shadows.
+        static let subtle = ShadowStyle(color: .black.opacity(0.04), radius: 3, y: 1)
+        static let elevated = ShadowStyle(color: .black.opacity(0.07), radius: 10, y: 3)
+        static let floating = ShadowStyle(color: .black.opacity(0.12), radius: 20, y: 7)
     }
 
     enum motion {
@@ -149,9 +172,9 @@ enum Autumn {
     }
 
     enum sizing {
-        static let bubbleMaxWidth: CGFloat = 560
+        static let bubbleMaxWidth: CGFloat = 580
         static let inspectorWidth: CGFloat = 296
-        static let sidebarWidth: CGFloat = 232
+        static let sidebarWidth: CGFloat = 236
         static let composerMinHeight: CGFloat = 44
     }
 
@@ -205,11 +228,11 @@ struct AutumnLogoMark: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            RoundedRectangle(cornerRadius: size * 0.30, style: .continuous)
                 .fill(Autumn.colors.brandGradient)
                 .autumnShadow(Autumn.shadow.subtle)
             Image(systemName: "leaf.fill")
-                .font(.system(size: size * 0.46, weight: .semibold))
+                .font(.system(size: size * 0.44, weight: .semibold))
                 .foregroundStyle(.white)
         }
         .frame(width: size, height: size)

@@ -426,7 +426,7 @@ struct SettingsView: View {
                     Text(configured ? "已连接" : "已连接（服务器未配置 API key）")
                 }
                 .font(.caption)
-                .foregroundStyle(configured ? .green : .orange)
+                .foregroundStyle(configured ? Autumn.colors.success : Autumn.colors.warning)
                 if let err = serverLastError {
                     Text(err)
                         .font(.caption2)
