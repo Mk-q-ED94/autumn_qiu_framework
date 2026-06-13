@@ -47,6 +47,8 @@
 - `Mom2` 和 `Mom3` 共享一块公共区，但都无法读取 `Mom1`。
 - 每一层都有两级：内存中的短期缓存 + 持久化的 SQLite。
 
+**受治理的上行通道**——默认隔离是非对称的，但留有一条*受闸*的路径，让下层不至于被永久隔死：`Mom2`/`Mom3` 可以**申请**读取 `Mom1`，由 `A1` 裁决（批准/拒绝 + 收窄范围 + 脱敏），`A4` 调解出一个受限答案，`WP4` 全程审计。它以 `request_mom1_access` 技能的形式暴露给 agent 的 ReAct 循环；每一次裁决——无论批准还是拒绝——都会写入访问审计日志（`GET /memory/audit/access_log`）。一键关闭：`MOM1_ACCESS_ENABLED=false` 会在不咨询 `A1` 的情况下拒绝每一个请求。
+
 **按项目隔离的共享记忆**——每个项目 id 拥有自己独立的记忆命名空间，但在同一个项目*内部*，这块区是跨所有工作区、所有轮次**共享**的：
 
 ```python
@@ -139,6 +141,14 @@ hits = await autumn.wp4.activate("部署目标", area="shared")
 # push 的手动接缝（开关关闭或无命中时返回 ""）
 frag = await autumn.active_context(text="现在部署 v2")
 ```
+
+**生产标注**——激活引擎只有在记忆真正带上维度后才能区分；未标注的数据打分与「重要度×新近度」完全一致。三种投喂方式：
+
+- **A4 推断**——`await autumn.wp4.annotate_recent("mom1")` 扫描未标注条目，让 A4 把每条归类为「使用模式 + 目的 + 触发线索」。HTTP：`POST /memory/{area}/auto-annotate`。
+- **Agent 声明**——`annotate_memory` 技能让 WP2/WP3 的 agent 给它刚存的条目打标（「这是一条约束」「部署时提醒」）。
+- **用户 / UI**——`POST /memory/{area}/annotate` 给单条记忆设置维度（代码中为 `MemoryArea.annotate()`）；归并产生的摘要会自动标记为 `SUMMARIZE`。
+
+**可观测性**——`GET /memory/4d/status` 报告排序/推送到底有没有启用（相对于休眠的默认态），`POST /memory/push/preview` 在*不回写账本*的前提下对一个假设轮次干跑 push 引擎，返回命中的记忆、它们的激活分数，以及会被注入的确切提示词片段。macOS 记忆视图把这些全部呈现：4D 状态徽章、一键自动标注、每条记忆的标注控件、推送预览模式，以及一个 Mom1 访问审计面板。
 
 ## 快速开始
 
@@ -406,6 +416,9 @@ python -m pytest
 - **激活打分** —— 回忆/淘汰可按 `trigger.weight × 衰减后重要度 × aim.align × (1 + use.utility)` 排序，由 `FOURD_MEMORY_ENABLED` 开关守护（默认关闭 → 行为与之前完全一致）。
 - **pull 引擎** —— `WP4.activate(query)` 闭合反馈环：检索命中会回写各自的 `use` 账本，反复有用的记忆排名更靠前、更晚被淘汰。
 - **push 引擎与每轮自动注入** —— 在 `FOURD_PUSH_ON_TURN` 开关下，`CONSTRAIN`/`REMIND` 记忆在每轮开始时无查询地自动触发，以「活跃约束 / 提醒」块追加到 WP2/WP3 的 system prompt；`Autumn.active_context()` 暴露同一接缝供手动调用。push 默认不回写账本——被自动浮出 ≠ 被主动使用。
+- **四维生产侧** —— 激活引擎终于有了可区分的信号：`MemoryArea.annotate()` 把维度合并到已有条目上（保留使用账本），`WP4.annotate_recent()` 用 A4 批量推断，`annotate_memory` 技能让 agent 主动声明，归并摘要自动标记为 `SUMMARIZE`。端点：`POST /memory/{area}/annotate` 与 `/auto-annotate`。
+- **受治理的 Mom1 访问** —— `Mom2`/`Mom3` 保持默认隔离，但获得一条受闸的上行通道：A1 裁决被申请的 `Mom1` 读取（收窄范围 + 脱敏），A4 调解出受限答案，WP4 审计每一次裁决。以 `request_mom1_access` 技能与 `GET /memory/audit/access_log` 端点呈现；一键关闭 `MOM1_ACCESS_ENABLED=false`。
+- **四维可观测性** —— `GET /memory/4d/status` 与 `POST /memory/push/preview` 让引擎可被审视（预览在不回写账本的前提下干跑 push）；macOS 记忆视图新增 4D 状态徽章、一键自动标注、每条记忆的标注控件、推送预览模式，以及 Mom1 访问审计面板。
 - **追踪与管线条** —— 触发的 push 在工作流追踪中显示为 `wp4.push` 阶段；管线条新增紫色 4D brain 芯片，引擎触发时折叠摘要以「4D 推入」开头。
 - **记忆浏览器重设计（macOS 客户端）** —— 记忆视图围绕四维系统重建：使用模式筛选芯片（约束 / 提醒 / 上下文 / 摘要，带实时计数——仅当记忆区存在四维条目时出现）、最新优先排序、每条记忆的置顶 / 相对时间 / 标签 / 重要度标识、统计条新增四维注解计数，以及把 `aim.scope` 与 `trigger.cues` 渲染为换行芯片的专属四维卡片。新增 `Autumn.colors.memory` 设计令牌统一各视图的四维视觉身份；v2 序列化记录的标题现在能正确解析（schema 默认的 `use.mode=context` 不再给每一行都打上徽章）。
 - **可靠性与代码质量梳理** —— 包元数据修正为实际支持的依赖（`pydantic>=2,<3`，取消 FastAPI 上界锁定）；服务端迁移掉已被移除的 Pydantic v1 API（`.dict()`/`.json()` → `model_dump…`）；向量存储表名加入 SQL 注入校验；工具调用/结果配对使用 `zip(strict=True)`；SQLite 后端改用 `asyncio.get_running_loop()`；另有全模块 ruff 风格与导入清理（约 130 处修复）。

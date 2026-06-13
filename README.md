@@ -44,6 +44,15 @@ A multi-model collaborative workflow framework. Three model API interfaces (A1, 
 - `Mom2` and `Mom3` share a public zone but cannot read `Mom1`.
 - Each layer has two tiers: short-term in-memory cache + persistent SQLite.
 
+**Governed upward channel** — the default isolation is asymmetric, but a *gated*
+path exists so a lower zone is not permanently walled off: `Mom2`/`Mom3` can
+**request** a `Mom1` read, which `A1` adjudicates (approve/deny + narrowed scope
++ redaction), `A4` mediates into a restricted answer, and `WP4` audits. It is
+exposed to the agent ReAct loop as the `request_mom1_access` skill, and every
+decision — granted or denied — is recorded to the access audit log
+(`GET /memory/audit/access_log`). Kill-switch: `MOM1_ACCESS_ENABLED=false`
+denies every request without ever consulting `A1`.
+
 **Per-project shared memory** — each project id gets its own isolated zone, but
 within a project the zone is *shared* across every workspace and turn:
 
@@ -143,6 +152,27 @@ hits = await autumn.wp4.activate("deploy target", area="shared")
 # push, manual seam (returns "" when the flag is off or nothing fires)
 frag = await autumn.active_context(text="deploying v2 now")
 ```
+
+**Producing annotations** — the activation engine only discriminates once
+entries actually carry dimensions; un-annotated data scores exactly as
+importance×recency. Three ways to feed it:
+
+- **A4 inference** — `await autumn.wp4.annotate_recent("mom1")` scans
+  un-annotated entries and lets A4 classify each into a use-mode + purpose +
+  trigger cues. Over HTTP: `POST /memory/{area}/auto-annotate`.
+- **Agent-declared** — the `annotate_memory` skill lets a WP2/WP3 agent tag an
+  entry it just stored ("this is a constraint", "remind on deploy").
+- **User / UI** — `POST /memory/{area}/annotate` sets dimensions on one entry
+  (and `MemoryArea.annotate()` in code); consolidation digests are auto-marked
+  `SUMMARIZE`.
+
+**Observability** — `GET /memory/4d/status` reports whether ranking/push are
+actually enabled (vs. the dormant default), and `POST /memory/push/preview`
+dry-runs the push engine for a hypothetical turn *without* reinforcing,
+returning the fired memories, their activation scores, and the exact prompt
+fragment that would be injected. The macOS Memory view surfaces all of it: 4D
+status badges, one-tap auto-annotate, per-entry annotation controls, a
+push-preview mode, and a Mom1 access-audit panel.
 
 ## Quick start
 
@@ -445,6 +475,21 @@ minor versions add features and may adjust APIs.
   and are appended to the WP2/WP3 system prompts as an "active constraints /
   reminders" block; `Autumn.active_context()` exposes the same seam manually.
   Push does not reinforce by default — auto-surfacing is not deliberate use.
+- **4D producer side** — the activation engine finally has something to score:
+  `MemoryArea.annotate()` merges dimensions onto an entry (preserving its usage
+  ledger), `WP4.annotate_recent()` runs A4 to infer them in bulk, the
+  `annotate_memory` skill lets an agent declare them, and consolidation digests
+  are auto-tagged `SUMMARIZE`. Endpoints: `POST /memory/{area}/annotate` and
+  `/auto-annotate`.
+- **Governed Mom1 access** — `Mom2`/`Mom3` keep their default isolation but gain
+  a gated upward channel: A1 adjudicates a requested `Mom1` read (narrowed scope
+  + redaction), A4 mediates a restricted answer, and WP4 audits every decision.
+  Surfaced as the `request_mom1_access` skill and `GET /memory/audit/access_log`;
+  kill-switch `MOM1_ACCESS_ENABLED=false`.
+- **4D observability** — `GET /memory/4d/status` and `POST /memory/push/preview`
+  make the engine inspectable (the preview dry-runs push without reinforcing);
+  the macOS Memory view adds 4D status badges, one-tap auto-annotate, per-entry
+  annotation controls, a push-preview mode, and a Mom1 access-audit panel.
 - **Trace & pipeline strip** — fired pushes surface as a `wp4.push` stage in
   the workflow trace; the pipeline strip gains a purple 4D brain chip, and the
   collapsed trace summary leads with "4D 推入" whenever the engine fired.
