@@ -962,8 +962,9 @@ class _FakeOllamaClient:
     deleted = []
     seen_urls = []
 
-    def __init__(self, timeout=None, headers=None):
+    def __init__(self, timeout=None, headers=None, trust_env=None):
         self.timeout = timeout
+        self.trust_env = trust_env
 
     async def __aenter__(self):
         return self
@@ -1002,6 +1003,7 @@ def test_ollama_status_running(unconfigured_client, monkeypatch):
     body = r.json()
     assert body["running"] is True
     assert body["version"] == "0.5.7"
+    assert body["base_url"] == "http://127.0.0.1:11434"
 
 
 def test_ollama_status_down_is_graceful(unconfigured_client, monkeypatch):
@@ -1009,6 +1011,7 @@ def test_ollama_status_down_is_graceful(unconfigured_client, monkeypatch):
     r = unconfigured_client.post("/ollama/status", json={"base_url": "http://x:1"})
     assert r.status_code == 200
     assert r.json()["running"] is False
+    assert "服务器能访问" in r.json()["error"]
 
 
 def test_ollama_models_strips_v1_suffix(unconfigured_client, monkeypatch):
@@ -1020,13 +1023,14 @@ def test_ollama_models_strips_v1_suffix(unconfigured_client, monkeypatch):
     models = r.json()["models"]
     assert models[0]["name"] == "qwen2.5:1.5b"
     assert models[0]["parameter_size"] == "1.5B"
-    assert any(u == "http://localhost:11434/api/tags" for u in _FakeOllamaClient.seen_urls)
+    assert any(u == "http://127.0.0.1:11434/api/tags" for u in _FakeOllamaClient.seen_urls)
 
 
 def test_ollama_models_error_returns_502(unconfigured_client, monkeypatch):
     monkeypatch.setattr(server_app.httpx, "AsyncClient", _DownOllamaClient)
     r = unconfigured_client.post("/ollama/models", json={})
     assert r.status_code == 502
+    assert "localhost 指的是服务器环境" in r.json()["detail"]
 
 
 def test_ollama_recommended_has_a_default(unconfigured_client):

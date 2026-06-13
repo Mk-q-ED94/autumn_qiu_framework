@@ -12,7 +12,7 @@ extension View {
             .overlay(
                 RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
                     .strokeBorder(
-                        isFocused ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.12),
+                        isFocused ? Autumn.colors.flame.opacity(0.65) : Autumn.colors.gold.opacity(0.16),
                         lineWidth: isFocused ? Autumn.stroke.medium : Autumn.stroke.hairline
                     )
             )

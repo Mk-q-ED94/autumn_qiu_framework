@@ -31,6 +31,20 @@ struct OllamaPanel: View {
                 .help("刷新 Ollama 状态")
             }
 
+            if let status {
+                HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.xs) {
+                    Image(systemName: status.running ? "network" : "exclamationmark.triangle")
+                        .foregroundStyle(status.running ? Autumn.colors.success : Autumn.colors.warning)
+                    Text(status.running
+                         ? "管理端点：\(status.baseURL)"
+                         : "未连接到 \(status.baseURL)")
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+            }
+
             if !installedModels.isEmpty {
                 VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
                     Text("已安装")
@@ -94,10 +108,19 @@ struct OllamaPanel: View {
             }
 
             if let errorMessage, !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(Autumn.typography.caption)
-                    .foregroundStyle(Autumn.colors.danger)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+                    Image(systemName: "lightbulb.max")
+                        .foregroundStyle(Autumn.colors.gold)
+                    Text(errorMessage)
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(Autumn.colors.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Autumn.spacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                        .fill(Autumn.colors.warning.opacity(0.10))
+                )
             }
         }
         .padding(.vertical, Autumn.spacing.xs)

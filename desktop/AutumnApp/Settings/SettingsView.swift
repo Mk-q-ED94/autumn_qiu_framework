@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var localServer: LocalServerManager
+    @EnvironmentObject private var ollamaManager: OllamaManager
     @State private var selectedTab: SettingsTab = .server
     @State private var connectionState: ConnectionState = .unknown
     @State private var serverLastError: String? = nil
@@ -10,7 +11,11 @@ struct SettingsView: View {
     @State private var modelOptions: [ModelSlot: [String]] = [:]
     @State private var modelErrors: [ModelSlot: String] = [:]
     @State private var refreshTasks: [ModelSlot: Task<Void, Never>] = [:]
+    @State private var validatedSlots: Set<ModelSlot> = []
     @State private var isApplying: Bool = false
+    @State private var manualApplyRequired: Bool = false
+    @State private var lastAppliedFingerprint: String?
+    @State private var autoApplyTask: Task<Void, Never>?
     @State private var applyMessage: String? = nil
     @State private var ollamaStatus: OllamaStatus?
     @State private var ollamaModels: [OllamaModel] = []
@@ -58,30 +63,43 @@ struct SettingsView: View {
         }
         .navigationTitle("设置")
         .onAppear {
+            Task { await checkConnection() }
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
             if settings.a4Enabled {
-                Task { await loadOllama() }
+                Task {
+                    await ensureOllamaRunning()
+                    await loadOllama()
+                }
             }
         }
-        .onChange(of: settings.a1APIKey)   { _, _ in scheduleModelRefresh(.a1) }
-        .onChange(of: settings.a1BaseURL)  { _, _ in scheduleModelRefresh(.a1) }
-        .onChange(of: settings.a1Protocol) { _, _ in scheduleModelRefresh(.a1) }
-        .onChange(of: settings.a2APIKey)   { _, _ in scheduleModelRefresh(.a2) }
-        .onChange(of: settings.a2BaseURL)  { _, _ in scheduleModelRefresh(.a2) }
-        .onChange(of: settings.a2Protocol) { _, _ in scheduleModelRefresh(.a2) }
-        .onChange(of: settings.a3APIKey)   { _, _ in scheduleModelRefresh(.a3) }
-        .onChange(of: settings.a3BaseURL)  { _, _ in scheduleModelRefresh(.a3) }
-        .onChange(of: settings.a3Protocol) { _, _ in scheduleModelRefresh(.a3) }
+        .onChange(of: settings.a1APIKey)   { _, _ in apiKeyChanged(.a1) }
+        .onChange(of: settings.a1BaseURL)  { _, _ in modelEndpointChanged(.a1) }
+        .onChange(of: settings.a1Protocol) { _, _ in modelEndpointChanged(.a1) }
+        .onChange(of: settings.a1Model)    { _, _ in modelSelectionChanged() }
+        .onChange(of: settings.a2APIKey)   { _, _ in apiKeyChanged(.a2) }
+        .onChange(of: settings.a2BaseURL)  { _, _ in modelEndpointChanged(.a2) }
+        .onChange(of: settings.a2Protocol) { _, _ in modelEndpointChanged(.a2) }
+        .onChange(of: settings.a2Model)    { _, _ in modelSelectionChanged() }
+        .onChange(of: settings.a3APIKey)   { _, _ in apiKeyChanged(.a3) }
+        .onChange(of: settings.a3BaseURL)  { _, _ in modelEndpointChanged(.a3) }
+        .onChange(of: settings.a3Protocol) { _, _ in modelEndpointChanged(.a3) }
+        .onChange(of: settings.a3Model)    { _, _ in modelSelectionChanged() }
         .onChange(of: settings.a4Enabled) { _, enabled in
             if enabled {
-                Task { await loadOllama() }
+                Task {
+                    await ensureOllamaRunning()
+                    await loadOllama()
+                }
             }
         }
         .onChange(of: settings.a4BaseURL) { _, _ in
             guard settings.a4Enabled else { return }
-            Task { await loadOllama() }
+            Task {
+                await ensureOllamaRunning()
+                await loadOllama()
+            }
         }
     }
 
@@ -179,14 +197,24 @@ struct SettingsView: View {
                     Button(action: { Task { await applyConfiguration() } }) {
                         if isApplying {
                             ProgressView().controlSize(.small)
+                        } else if manualApplyRequired {
+                            Text("确认应用更新")
                         } else {
                             Text("应用配置")
                         }
                     }
-                    .disabled(isApplying)
+                    .disabled(isApplying || !hasCompleteConfiguration)
                     Spacer()
                     if let applyMessage {
                         Text(applyMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if manualApplyRequired {
+                        Text("API key 已更新，确认后才切换服务器配置")
+                            .font(.caption)
+                            .foregroundStyle(Autumn.colors.warning)
+                    } else if hasCompleteConfiguration {
+                        Text("可用配置会在验证后自动同步到本地服务")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -194,7 +222,7 @@ struct SettingsView: View {
             } header: {
                 Text("A1 · A2 · A3")
             } footer: {
-                Text("三个 slot 都填好后点击「应用配置」才会推送到 Autumn 服务器。")
+                Text("已保存且验证可用的配置会自动同步；只有更新 API key 后，需要点击确认应用以切换到新凭据。")
                     .font(.caption)
             }
         }
@@ -211,6 +239,8 @@ struct SettingsView: View {
                 Toggle("启用 A4", isOn: $settings.a4Enabled)
 
                 if settings.a4Enabled {
+                    LabeledContent("Ollama 后台", value: ollamaManager.statusText)
+
                     SecureField("API Key（本地模型可留空）", text: $settings.a4APIKey)
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
@@ -243,7 +273,12 @@ struct SettingsView: View {
                         pullingModel: pullingOllamaModel,
                         pullProgress: ollamaPullProgress,
                         errorMessage: ollamaError,
-                        refresh: { Task { await loadOllama() } },
+                        refresh: {
+                            Task {
+                                await ensureOllamaRunning()
+                                await loadOllama()
+                            }
+                        },
                         useModel: useOllamaModel,
                         pullModel: { name in Task { await pullOllamaModel(name) } }
                     )
@@ -303,7 +338,7 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("版本", value: "0.2.0")
+                LabeledContent("版本", value: "0.2.1")
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
@@ -373,6 +408,24 @@ struct SettingsView: View {
             serverLastError = nil
             connectionState = .failed("无法连接到服务器")
         }
+    }
+
+    private func apiKeyChanged(_ slot: ModelSlot) {
+        validatedSlots.remove(slot)
+        manualApplyRequired = true
+        applyMessage = "API key 已更新，检测通过后请确认应用"
+        scheduleModelRefresh(slot)
+    }
+
+    private func modelEndpointChanged(_ slot: ModelSlot) {
+        validatedSlots.remove(slot)
+        applyMessage = manualApplyRequired ? applyMessage : "正在验证模型服务…"
+        scheduleModelRefresh(slot)
+    }
+
+    private func modelSelectionChanged() {
+        applyMessage = manualApplyRequired ? applyMessage : "模型已更新，准备自动同步…"
+        scheduleAutoApplyConfiguration()
     }
 
     private func apiKeyBinding(for slot: ModelSlot) -> Binding<String> {
@@ -453,11 +506,13 @@ struct SettingsView: View {
         guard !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             modelOptions[slot] = []
             modelErrors[slot] = nil
+            validatedSlots.remove(slot)
             settings.setModelState(.unconfigured, for: slot)
             return
         }
         guard !config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             modelErrors[slot] = "Base URL 为空"
+            validatedSlots.remove(slot)
             settings.setModelState(.unconfigured, for: slot)
             return
         }
@@ -477,13 +532,16 @@ struct SettingsView: View {
                 setModel(first, for: slot)
             }
             settings.setModelState(.ready, for: slot)
+            validatedSlots.insert(slot)
+            scheduleAutoApplyConfiguration()
         } catch {
+            validatedSlots.remove(slot)
             modelErrors[slot] = error.localizedDescription
             settings.setModelState(.failed, for: slot)
         }
     }
 
-    private func applyConfiguration() async {
+    private func applyConfiguration(automatic: Bool = false) async {
         guard let url = URL(string: settings.serverURL) else {
             applyMessage = "服务器 URL 无效"
             connectionState = .failed("URL 无效")
@@ -491,6 +549,10 @@ struct SettingsView: View {
         }
         guard hasCompleteConfiguration else {
             applyMessage = "请填写 A1/A2/A3 的 Key 和模型"
+            return
+        }
+        guard hasValidatedConfiguration else {
+            applyMessage = "请等待 A1/A2/A3 模型列表验证完成"
             return
         }
 
@@ -502,7 +564,9 @@ struct SettingsView: View {
             let client = AutumnClient(baseURL: url)
             let response = try await client.applyConfiguration(settings.applyConfigRequest())
             connectionState = .ok(configured: response.configured)
-            applyMessage = "已应用"
+            lastAppliedFingerprint = configurationFingerprint
+            manualApplyRequired = false
+            applyMessage = automatic ? "已自动应用可用配置" : "已应用"
             for slot in ModelSlot.allCases {
                 settings.setModelState(.ready, for: slot)
             }
@@ -510,6 +574,24 @@ struct SettingsView: View {
             applyMessage = error.localizedDescription
             connectionState = .failed(error.localizedDescription)
         }
+    }
+
+    private func scheduleAutoApplyConfiguration(delay: UInt64 = 350_000_000) {
+        autoApplyTask?.cancel()
+        autoApplyTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled { return }
+            await maybeAutoApplyConfiguration()
+        }
+    }
+
+    private func maybeAutoApplyConfiguration() async {
+        guard !manualApplyRequired else { return }
+        guard hasCompleteConfiguration, hasValidatedConfiguration else { return }
+        guard !isApplying else { return }
+        let fingerprint = configurationFingerprint
+        guard fingerprint != lastAppliedFingerprint else { return }
+        await applyConfiguration(automatic: true)
     }
 
     private var hasCompleteConfiguration: Bool {
@@ -528,27 +610,53 @@ struct SettingsView: View {
         return true
     }
 
-    private func loadOllama() async {
-        guard let url = URL(string: settings.serverURL) else {
-            ollamaError = "服务器 URL 无效"
-            return
+    private var hasValidatedConfiguration: Bool {
+        ModelSlot.allCases.allSatisfy { validatedSlots.contains($0) }
+    }
+
+    private var configurationFingerprint: String {
+        ModelSlot.allCases.map { slot in
+            let config = settings.providerConfig(for: slot)
+            return [
+                slot.rawValue,
+                config.apiKey,
+                config.baseURL,
+                config.apiProtocol,
+                config.model ?? "",
+            ].joined(separator: "\u{1F}")
         }
+        .joined(separator: "\u{1E}")
+    }
+
+    private func ensureOllamaRunning() async {
+        await ollamaManager.startIfNeeded(
+            enabled: settings.a4Enabled,
+            baseURL: settings.a4BaseURL
+        )
+    }
+
+    private func loadOllama() async {
         isLoadingOllama = true
         ollamaError = nil
         defer { isLoadingOllama = false }
 
         do {
-            let client = AutumnClient(baseURL: url)
-            async let status = client.ollamaStatus(baseURL: settings.a4BaseURL)
-            async let recommended = client.ollamaRecommendedModels()
-            let resolvedStatus = try await status
+            let localClient = try LocalOllamaClient(baseURL: settings.a4BaseURL)
+            async let status = localClient.status()
+            async let recommended = loadRecommendedOllamaModels()
+            let resolvedStatus = await status
             ollamaStatus = resolvedStatus
-            ollamaRecommended = try await recommended
+            ollamaRecommended = await recommended
             if resolvedStatus.running {
-                ollamaModels = try await client.ollamaModels(baseURL: settings.a4BaseURL)
+                do {
+                    ollamaModels = try await localClient.models()
+                } catch {
+                    ollamaModels = []
+                    ollamaError = ollamaManagementError(error, baseURL: resolvedStatus.baseURL)
+                }
             } else {
                 ollamaModels = []
-                ollamaError = resolvedStatus.error
+                ollamaError = ollamaUnavailableMessage(resolvedStatus)
             }
         } catch {
             ollamaModels = []
@@ -556,9 +664,23 @@ struct SettingsView: View {
         }
     }
 
+    private func loadRecommendedOllamaModels() async -> [OllamaRecommendedModel] {
+        guard let url = URL(string: settings.serverURL) else {
+            return fallbackOllamaRecommended
+        }
+        do {
+            return try await AutumnClient(baseURL: url).ollamaRecommendedModels()
+        } catch {
+            return fallbackOllamaRecommended
+        }
+    }
+
     private func useOllamaModel(_ name: String) {
         settings.a4Enabled = true
         settings.a4Protocol = "openai"
+        if settings.a4BaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            settings.a4BaseURL = "http://127.0.0.1:11434"
+        }
         settings.a4APIKey = settings.a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "ollama"
             : settings.a4APIKey
@@ -566,11 +688,6 @@ struct SettingsView: View {
     }
 
     private func pullOllamaModel(_ name: String) async {
-        guard let url = URL(string: settings.serverURL) else {
-            ollamaError = "服务器 URL 无效"
-            return
-        }
-
         pullingOllamaModel = name
         ollamaPullProgress = "准备拉取"
         ollamaError = nil
@@ -580,8 +697,14 @@ struct SettingsView: View {
         }
 
         do {
-            let client = AutumnClient(baseURL: url)
-            for try await event in client.pullOllamaModel(name: name, baseURL: settings.a4BaseURL) {
+            let localClient = try LocalOllamaClient(baseURL: settings.a4BaseURL)
+            let status = await localClient.status()
+            ollamaStatus = status
+            guard status.running else {
+                ollamaError = ollamaUnavailableMessage(status)
+                return
+            }
+            for try await event in localClient.pullModel(name: name) {
                 if let fraction = event.progressFraction {
                     ollamaPullProgress = "\(Int((fraction * 100).rounded()))%"
                 } else if let status = event.status {
@@ -591,8 +714,47 @@ struct SettingsView: View {
             useOllamaModel(name)
             await loadOllama()
         } catch {
-            ollamaError = error.localizedDescription
+            ollamaError = ollamaManagementError(error, baseURL: settings.a4BaseURL)
         }
+    }
+
+    private func ollamaUnavailableMessage(_ status: OllamaStatus) -> String {
+        let base = status.baseURL.isEmpty ? settings.a4BaseURL : status.baseURL
+        let raw = status.error?.isEmpty == false ? "\n\(status.error ?? "")" : ""
+        return "无法连接本机 Ollama（\(base)）。Autumn Desktop 已尝试后台启动 Ollama；请确认 Ollama.app 或 `ollama serve` 正在运行。\(raw)"
+    }
+
+    private func ollamaManagementError(_ error: Error, baseURL: String) -> String {
+        let base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "http://127.0.0.1:11434"
+            : baseURL
+        return "A4 本地模型操作失败（\(base)）：\(error.localizedDescription)"
+    }
+
+    private var fallbackOllamaRecommended: [OllamaRecommendedModel] {
+        [
+            OllamaRecommendedModel(
+                name: "qwen2.5:1.5b",
+                label: "Qwen2.5 1.5B",
+                size: "~1.0 GB",
+                note: "速度/质量平衡 · A4 推荐",
+                recommended: true
+            ),
+            OllamaRecommendedModel(
+                name: "qwen2.5:3b",
+                label: "Qwen2.5 3B",
+                size: "~2.0 GB",
+                note: "更强理解 · 仍然轻量",
+                recommended: false
+            ),
+            OllamaRecommendedModel(
+                name: "llama3.2:3b",
+                label: "Llama 3.2 3B",
+                size: "~2.0 GB",
+                note: "Meta 通用小模型",
+                recommended: false
+            ),
+        ]
     }
 }
 
@@ -616,7 +778,9 @@ private struct TabPill: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
             .background(
-                Capsule().fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.10))
+                Capsule().fill(isSelected
+                               ? AnyShapeStyle(Autumn.colors.brandGradient)
+                               : AnyShapeStyle(Autumn.colors.surfaceElevated))
             )
         }
         .buttonStyle(.plain)
@@ -639,7 +803,7 @@ private struct MemoryAreaCard: View {
                 .padding(.vertical, 2)
                 .background(
                     RoundedRectangle(cornerRadius: Autumn.radius.xs, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.12))
+                        .fill(Autumn.colors.flame.opacity(0.13))
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

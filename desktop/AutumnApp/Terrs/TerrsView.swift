@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 struct TerrsView: View {
     @StateObject private var vm: TerrsViewModel
@@ -21,8 +24,18 @@ struct TerrsView: View {
 
     private var toolbar: some View {
         HStack(spacing: Autumn.spacing.sm) {
+            AutumnLogoMark(size: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("能力域")
+                    .font(Autumn.typography.captionStrong)
+                Text("Terr · Tool · Skill · MCP")
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+                .frame(height: 22)
             AutumnChip("\(vm.enabledCount)/\(vm.terrs.count)",
-                       icon: "puzzlepiece.extension", color: Autumn.colors.accent)
+                       icon: "puzzlepiece.extension", color: Autumn.colors.leaf)
             if vm.toolCount > 0 {
                 AutumnChip("\(vm.toolCount)", icon: "wrench.and.screwdriver.fill", color: Autumn.colors.info)
             }
@@ -75,6 +88,7 @@ struct TerrsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Autumn.spacing.md) {
                     if !vm.terrs.isEmpty {
+                        InvocationGuideCard(terrs: vm.terrs)
                         sectionHeader("已注册能力域", systemImage: "checkmark.seal")
                         ForEach(vm.terrs) { terr in
                             TerrCard(terr: terr, vm: vm)
@@ -249,6 +263,89 @@ private struct TerrCard: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            Button {
+                copyInvocationHint(name)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .help("复制调用提示")
+        }
+    }
+
+    private func copyInvocationHint(_ name: String) {
+        let text = "请在需要时调用能力域工具 \(name)，并根据当前任务补全参数。"
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+    }
+}
+
+// MARK: - Invocation guide
+
+private struct InvocationGuideCard: View {
+    let terrs: [TerrSummary]
+
+    private var enabledTerrs: [TerrSummary] {
+        terrs.filter(\.enabled)
+    }
+
+    private var sampleNames: [String] {
+        enabledTerrs
+            .flatMap { $0.tools.map(\.name) + $0.skills.map(\.name) }
+            .prefix(4)
+            .map { $0 }
+    }
+
+    var body: some View {
+        AutumnCard(emphasis: .subtle, padding: Autumn.spacing.md) {
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                HStack(spacing: Autumn.spacing.sm) {
+                    AutumnLogoMark(size: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("能力域调用")
+                            .font(Autumn.typography.headline)
+                        Text("启用的 Terr 会注入 A2 Agent；在输入中明确目标，A2 会按工具名和参数 schema 自动选择调用。")
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if sampleNames.isEmpty {
+                    AutumnBadge("当前没有启用的 Tool / Skill", icon: "pause.circle", tone: .neutral)
+                } else {
+                    InvocationChips(values: sampleNames.map { "调用名 · \($0)" })
+                    Text("例：请使用 \(sampleNames[0]) 处理这个输入，并把结果解释给我。")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(Autumn.spacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                                .fill(Autumn.colors.surfaceElevated)
+                        )
+                }
+            }
+        }
+    }
+}
+
+private struct InvocationChips: View {
+    let values: [String]
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 120), spacing: Autumn.spacing.xs)],
+            alignment: .leading,
+            spacing: Autumn.spacing.xs
+        ) {
+            ForEach(values, id: \.self) { value in
+                AutumnBadge(value, tone: .info)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

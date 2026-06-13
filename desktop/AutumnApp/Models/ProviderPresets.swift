@@ -70,14 +70,14 @@ enum ProviderPresets {
         ),
         ProviderPreset(
             id: "ollama", name: "Ollama 本地",
-            baseURL: "http://localhost:11434",
+            baseURL: "http://127.0.0.1:11434",
             apiProtocol: "openai",
             urlPatterns: ["localhost:11434", "127.0.0.1:11434"],
             note: "OpenAI 兼容接口"
         ),
         ProviderPreset(
             id: "hermes", name: "Hermes 本地",
-            baseURL: "http://localhost:11434",
+            baseURL: "http://127.0.0.1:11434",
             apiProtocol: "hermes",
             urlPatterns: [],
             note: "Nous Hermes XML tool-use"
