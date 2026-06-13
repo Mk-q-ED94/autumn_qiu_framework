@@ -487,10 +487,10 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.2.1**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.2.2**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
 
-### Unreleased — 4D memory (active memory), client redesign, platform integrations & quality pass
+### 0.2.2 — 2026-06-13 · 4D memory (active memory), client redesign, platform integrations & quality pass
 
 - **Platform integrations** — save a credential once (GitHub, GitLab, Slack,
   Brave, Google Maps, Postgres) and the WP2 agent gains that platform's tools

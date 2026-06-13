@@ -425,9 +425,9 @@ python -m pytest
 
 ## 开发历程
 
-当前版本：**0.2.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+当前版本：**0.2.2**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
 
-### 未发布 —— 四维记忆（活性记忆）、客户端重设计、平台集成与质量梳理
+### 0.2.2 — 2026-06-13 · 四维记忆（活性记忆）、客户端重设计、平台集成与质量梳理
 
 - **平台集成** —— 只需保存一次凭据（GitHub、GitLab、Slack、Brave、Google Maps、Postgres），WP2 agent 在本会话内即获得该平台的工具：自行读写 issues、PR、文件与消息，无需每次手动提供凭据。服务端启动对应的 MCP 服务并注册为一个 Terr —— `GET /integrations/catalog`、`/integrations/status`、`POST /integrations/connect`、`DELETE /integrations/{id}`。凭据只保存在服务器进程内，`/config/apply` 重建后自动恢复，状态接口绝不回传明文。macOS 设置 → 集成 标签页提供连接 / 更新 / 断开与实时状态。
 - **「纸感陶土」客户端重塑** —— 桌面视觉语言从暖橙色阶转向由单一陶土强调色统领的冷静中性画布（Claude / ChatGPT / Codex 那种克制的单强调色方向）：随主题自适应的表面、干净的系统无衬线字体、压扁的阴影与发丝级描边。全部走设计令牌，一次性重塑所有视图。
