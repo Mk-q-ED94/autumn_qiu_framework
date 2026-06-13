@@ -88,6 +88,13 @@ struct MemoryEntry: Identifiable, Equatable {
         values.keys.sorted()
     }
 
+    /// The server-side entry id (from the payload), distinct from the local
+    /// `id` UUID used for SwiftUI identity. Needed to annotate the entry.
+    var entryID: String? {
+        if case .string(let s)? = values["id"], !s.isEmpty { return s }
+        return nil
+    }
+
     // ── entry metadata accessors ────────────────────────────────────────────
 
     var importance: Double? {
@@ -268,6 +275,54 @@ struct AccessLogEntry: Identifiable, Decodable, Equatable {
 struct AccessLogResponse: Decodable {
     let entries: [AccessLogEntry]
     let total: Int
+}
+
+// ── 4D memory observability ─────────────────────────────────────────────────────
+
+struct FourDStatus: Decodable, Equatable {
+    let fourdMemoryEnabled: Bool
+    let fourdPushOnTurn: Bool
+    let mom1AccessEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case fourdMemoryEnabled = "fourd_memory_enabled"
+        case fourdPushOnTurn = "fourd_push_on_turn"
+        case mom1AccessEnabled = "mom1_access_enabled"
+    }
+}
+
+struct PushPreviewEntry: Identifiable, Decodable, Equatable {
+    let id: String
+    let text: String
+    let mode: String
+    let intent: String
+    let cues: [String]
+    let score: Double
+
+    var fourdMode: FourDUseMode? { FourDUseMode(rawValue: mode) }
+}
+
+struct PushPreviewResponse: Decodable {
+    let fired: [PushPreviewEntry]
+    let fragment: String
+    let enabled: Bool
+}
+
+struct AnnotateResult: Decodable {
+    let status: String
+    let entryId: String
+    let found: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case status, found
+        case entryId = "entry_id"
+    }
+}
+
+struct AutoAnnotateResult: Decodable {
+    let status: String
+    let annotated: Int
+    let scanned: Int
 }
 
 enum JSONValue: Codable, Equatable {

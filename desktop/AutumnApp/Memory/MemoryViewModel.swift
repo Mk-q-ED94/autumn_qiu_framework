@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class MemoryViewModel: ObservableObject {
-    enum ViewMode { case memory, accessLog }
+    enum ViewMode { case memory, accessLog, pushPreview }
 
     @Published var viewMode: ViewMode = .memory
     @Published var selectedArea: MemoryArea = .mom1
@@ -14,6 +14,19 @@ final class MemoryViewModel: ObservableObject {
     @Published var isConsolidating = false
     @Published var errorMessage: String?
     @Published var actionMessage: String?
+
+    // ── 4D status + producer actions ────────────────────────────────────────────
+    @Published var fourdStatus: FourDStatus?
+    @Published var isAutoAnnotating = false
+
+    // ── push preview ─────────────────────────────────────────────────────────────
+    @Published var pushQuery: String = ""
+    @Published var pushFired: [PushPreviewEntry] = []
+    @Published var pushFragment: String = ""
+    @Published var pushEnabled: Bool = false
+    @Published var hasRunPush: Bool = false
+    @Published var isLoadingPush = false
+    @Published var pushError: String?
 
     // ── access log ─────────────────────────────────────────────────────────────
     @Published var accessLogEntries: [AccessLogEntry] = []
@@ -65,6 +78,79 @@ final class MemoryViewModel: ObservableObject {
             stats = nil
             overview = nil
             errorMessage = error.localizedDescription
+        }
+        // 4D status is best-effort: an older server without the endpoint simply
+        // leaves the badges hidden rather than failing the whole load.
+        fourdStatus = try? await AutumnClient(baseURL: url).fetch4DStatus()
+    }
+
+    // ── producer actions: annotate + auto-annotate ──────────────────────────────
+
+    func autoAnnotate() async {
+        guard let url = URL(string: settings.serverURL) else {
+            actionMessage = "服务器 URL 无效"
+            return
+        }
+        isAutoAnnotating = true
+        actionMessage = nil
+        defer { isAutoAnnotating = false }
+        do {
+            let result = try await AutumnClient(baseURL: url).autoAnnotate(area: selectedArea)
+            actionMessage = "已标注 \(result.annotated)/\(result.scanned) 条"
+            await load()
+        } catch {
+            actionMessage = error.localizedDescription
+        }
+    }
+
+    func annotate(entry: MemoryEntry, mode: FourDUseMode, cues: String) async {
+        guard let url = URL(string: settings.serverURL) else {
+            actionMessage = "服务器 URL 无效"
+            return
+        }
+        guard let entryID = entry.entryID else {
+            actionMessage = "无法获取条目 ID"
+            return
+        }
+        let cueList = cues
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        do {
+            _ = try await AutumnClient(baseURL: url).annotateMemory(
+                area: selectedArea, entryID: entryID,
+                mode: mode.rawValue, intent: nil,
+                cues: cueList.isEmpty ? nil : cueList
+            )
+            actionMessage = "已标注为 \(mode.label)"
+            await load()
+        } catch {
+            actionMessage = error.localizedDescription
+        }
+    }
+
+    // ── push preview ─────────────────────────────────────────────────────────────
+
+    func runPushPreview() async {
+        guard let url = URL(string: settings.serverURL) else {
+            pushError = "服务器 URL 无效"
+            return
+        }
+        isLoadingPush = true
+        pushError = nil
+        defer { isLoadingPush = false }
+        do {
+            let response = try await AutumnClient(baseURL: url)
+                .pushPreview(area: selectedArea, query: pushQuery)
+            pushFired = response.fired
+            pushFragment = response.fragment
+            pushEnabled = response.enabled
+            hasRunPush = true
+        } catch {
+            pushFired = []
+            pushFragment = ""
+            pushError = error.localizedDescription
+            hasRunPush = true
         }
     }
 

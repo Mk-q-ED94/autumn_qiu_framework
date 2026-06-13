@@ -11,21 +11,43 @@ struct MemoryView: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            if vm.viewMode == .memory {
+            switch vm.viewMode {
+            case .memory:
                 statsStrip
                 Divider()
                 memoryContent
-            } else {
+            case .accessLog:
                 accessLogStatsStrip
                 Divider()
                 accessLogContent
+            case .pushPreview:
+                pushPreviewStrip
+                Divider()
+                pushPreviewContent
             }
         }
-        .navigationTitle(vm.viewMode == .memory ? "记忆" : "Mom1 访问审计")
+        .navigationTitle(navTitle)
         .task { await vm.load() }
         .onChange(of: vm.selectedArea) { _, _ in
             vm.selectedMode = nil
             Task { await vm.load() }
+        }
+    }
+
+    private var navTitle: String {
+        switch vm.viewMode {
+        case .memory:      return "记忆"
+        case .accessLog:   return "Mom1 访问审计"
+        case .pushPreview: return "4D 推送预览"
+        }
+    }
+
+    private func toggle(_ mode: MemoryViewModel.ViewMode, loader: @escaping () async -> Void) {
+        if vm.viewMode == mode {
+            vm.viewMode = .memory
+        } else {
+            vm.viewMode = mode
+            Task { await loader() }
         }
     }
 
@@ -44,30 +66,33 @@ struct MemoryView: View {
                 AutumnBadge(vm.selectedArea.subtitle, tone: .accent)
             } else {
                 HStack(spacing: Autumn.spacing.xs) {
-                    Image(systemName: "shield.lefthalf.filled")
+                    Image(systemName: vm.viewMode == .accessLog ? "shield.lefthalf.filled" : "bolt.fill")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Autumn.colors.warning)
-                    Text("Mom1 访问审计日志")
-                        .font(Autumn.typography.headline)
+                        .foregroundStyle(vm.viewMode == .accessLog ? Autumn.colors.warning : Autumn.colors.memory)
+                    Text(navTitle).font(Autumn.typography.headline)
+                    AutumnBadge(vm.selectedArea.title, tone: .neutral)
                 }
             }
 
             Spacer()
 
-            // Audit log toggle
-            Button {
-                let entering = vm.viewMode == .memory
-                vm.viewMode = entering ? .accessLog : .memory
-                if entering { Task { await vm.loadAccessLog() } }
-            } label: {
-                Image(systemName: vm.viewMode == .accessLog ? "shield.lefthalf.filled" : "shield")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(vm.viewMode == .accessLog ? Autumn.colors.warning : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(vm.viewMode == .accessLog ? "返回记忆视图" : "Mom1 访问审计日志")
-
+            // Auto-annotate (memory mode only) — A4 infers 4D dimensions.
             if vm.viewMode == .memory {
+                Button {
+                    Task { await vm.autoAnnotate() }
+                } label: {
+                    if vm.isAutoAnnotating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Autumn.colors.memory)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("用 A4 自动推断当前记忆区的 4D 维度")
+                .disabled(vm.isLoading || vm.isAutoAnnotating)
+
                 Button {
                     Task { await vm.consolidateSelectedArea() }
                 } label: {
@@ -83,22 +108,59 @@ struct MemoryView: View {
                 .disabled(vm.isLoading || vm.isConsolidating)
             }
 
+            // Push-preview toggle
+            Button {
+                toggle(.pushPreview, loader: {})
+            } label: {
+                Image(systemName: "bolt.badge.clock")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(vm.viewMode == .pushPreview ? Autumn.colors.memory : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(vm.viewMode == .pushPreview ? "返回记忆视图" : "4D 推送预览：看看哪些记忆会被自动注入")
+
+            // Access-log toggle
+            Button {
+                toggle(.accessLog, loader: { await vm.loadAccessLog() })
+            } label: {
+                Image(systemName: vm.viewMode == .accessLog ? "shield.lefthalf.filled" : "shield")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(vm.viewMode == .accessLog ? Autumn.colors.warning : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(vm.viewMode == .accessLog ? "返回记忆视图" : "Mom1 访问审计日志")
+
             Button {
                 Task {
-                    if vm.viewMode == .memory { await vm.load() }
-                    else { await vm.loadAccessLog() }
+                    switch vm.viewMode {
+                    case .memory:      await vm.load()
+                    case .accessLog:   await vm.loadAccessLog()
+                    case .pushPreview: await vm.runPushPreview()
+                    }
                 }
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .medium))
             }
             .buttonStyle(.plain)
             .help("刷新")
-            .disabled(vm.viewMode == .memory ? vm.isLoading : vm.isLoadingAccessLog)
         }
         .padding(.horizontal, Autumn.spacing.lg)
         .padding(.vertical, Autumn.spacing.sm)
         .background(.bar)
+    }
+
+    // ── 4D status badges (shared) ────────────────────────────────────────────────
+
+    @ViewBuilder
+    private func fourdStatusBadges() -> some View {
+        if let status = vm.fourdStatus {
+            AutumnBadge(status.fourdMemoryEnabled ? "4D 排序 开" : "4D 排序 关",
+                        icon: "brain",
+                        tone: status.fourdMemoryEnabled ? .memory : .neutral)
+            AutumnBadge(status.fourdPushOnTurn ? "推送 开" : "推送 关",
+                        icon: "bolt.fill",
+                        tone: status.fourdPushOnTurn ? .warning : .neutral)
+        }
     }
 
     // ── memory stats strip ───────────────────────────────────────────────────────
@@ -123,9 +185,7 @@ struct MemoryView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if let overview = vm.overview {
-                AutumnBadge("WP4 · \(overview.total)", icon: "brain", tone: .memory)
-            }
+            fourdStatusBadges()
             if let message = vm.actionMessage {
                 Text(message)
                     .font(Autumn.typography.caption)
@@ -149,6 +209,23 @@ struct MemoryView: View {
                        color: Autumn.colors.danger)
             Spacer()
             AutumnBadge("WP4 审计", icon: "shield.lefthalf.filled", tone: .warning)
+        }
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(.regularMaterial)
+    }
+
+    // ── push preview strip ───────────────────────────────────────────────────────
+
+    private var pushPreviewStrip: some View {
+        HStack(spacing: Autumn.spacing.md) {
+            MemoryStat(label: "命中", value: "\(vm.pushFired.count)", icon: "bolt.fill",
+                       color: Autumn.colors.memory)
+            Spacer()
+            fourdStatusBadges()
+            AutumnBadge(vm.pushEnabled ? "回合推送已启用" : "回合推送未启用",
+                        icon: vm.pushEnabled ? "checkmark.circle.fill" : "circle.dashed",
+                        tone: vm.pushEnabled ? .success : .neutral)
         }
         .padding(.horizontal, Autumn.spacing.lg)
         .padding(.vertical, Autumn.spacing.sm)
@@ -203,7 +280,9 @@ struct MemoryView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: Autumn.spacing.sm) {
                             ForEach(vm.filteredEntries) { entry in
-                                MemoryEntryRow(entry: entry)
+                                MemoryEntryRow(entry: entry, onAnnotate: { mode, cues in
+                                    Task { await vm.annotate(entry: entry, mode: mode, cues: cues) }
+                                })
                             }
                         }
                         .padding(Autumn.spacing.lg)
@@ -267,6 +346,77 @@ struct MemoryView: View {
         .padding(.horizontal, Autumn.spacing.lg)
         .padding(.vertical, Autumn.spacing.sm)
     }
+
+    // ── push preview content ───────────────────────────────────────────────────
+
+    @ViewBuilder
+    private var pushPreviewContent: some View {
+        VStack(spacing: 0) {
+            // Query bar
+            HStack(spacing: Autumn.spacing.sm) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                TextField("输入一个回合的内容，预览会触发哪些记忆…", text: $vm.pushQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { Task { await vm.runPushPreview() } }
+                Button {
+                    Task { await vm.runPushPreview() }
+                } label: {
+                    if vm.isLoadingPush {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("预览")
+                    }
+                }
+                .disabled(vm.isLoadingPush)
+            }
+            .padding(.horizontal, Autumn.spacing.lg)
+            .padding(.vertical, Autumn.spacing.sm)
+
+            Divider()
+
+            if let error = vm.pushError {
+                EmptyStateView(icon: "exclamationmark.triangle", title: "预览失败",
+                               message: error, actionTitle: "重试") { Task { await vm.runPushPreview() } }
+            } else if !vm.hasRunPush {
+                EmptyStateView(icon: "bolt.badge.clock", title: "推送预览",
+                               message: "输入一个回合内容，看看 CONSTRAIN/REMIND 记忆会不会被自动注入到提示词中。")
+            } else if vm.pushFired.isEmpty {
+                EmptyStateView(icon: "bolt.slash", title: "无命中",
+                               message: "当前上下文不会触发任何推送记忆。只有标注为约束/提醒、且触发线索匹配的记忆才会命中。")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                        ForEach(vm.pushFired) { entry in
+                            PushPreviewEntryRow(entry: entry)
+                        }
+                        if !vm.pushFragment.isEmpty {
+                            injectedFragmentCard
+                        }
+                    }
+                    .padding(Autumn.spacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var injectedFragmentCard: some View {
+        AutumnCard(padding: Autumn.spacing.md) {
+            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                HStack(spacing: Autumn.spacing.xs) {
+                    Image(systemName: "text.insert").font(.system(size: 10, weight: .bold))
+                    Text("注入提示词片段").font(Autumn.typography.captionStrong)
+                }
+                .foregroundStyle(Autumn.colors.memory)
+                Text(vm.pushFragment)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 }
 
 // ── shared sub-views ─────────────────────────────────────────────────────────
@@ -326,7 +476,10 @@ private typealias VerdictFilterChip = ModeFilterChip
 
 private struct MemoryEntryRow: View {
     let entry: MemoryEntry
+    var onAnnotate: ((FourDUseMode, String) -> Void)?
     @State private var isExpanded: Bool = false
+    @State private var annotateMode: FourDUseMode = .context
+    @State private var annotateCues: String = ""
 
     var body: some View {
         AutumnCard(padding: Autumn.spacing.md) {
@@ -374,6 +527,10 @@ private struct MemoryEntryRow: View {
                         }
                     }
                     .transition(.opacity)
+                    if onAnnotate != nil, entry.entryID != nil {
+                        Divider()
+                        annotateControl
+                    }
                 }
                 HStack {
                     if let importance = entry.importance, importance != 1.0 {
@@ -394,6 +551,35 @@ private struct MemoryEntryRow: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var annotateControl: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            HStack(spacing: Autumn.spacing.xs) {
+                Image(systemName: "wand.and.stars").font(.system(size: 9, weight: .bold))
+                Text("标注 4D 维度").font(Autumn.typography.captionStrong)
+            }
+            .foregroundStyle(Autumn.colors.memory)
+            HStack(spacing: Autumn.spacing.sm) {
+                Picker("模式", selection: $annotateMode) {
+                    ForEach(FourDUseMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 110)
+                TextField("触发线索（逗号分隔，可选）", text: $annotateCues)
+                    .textFieldStyle(.roundedBorder)
+                Button("应用") {
+                    onAnnotate?(annotateMode, annotateCues)
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(Autumn.spacing.sm)
+        .background(Autumn.colors.memory.opacity(0.06), in: RoundedRectangle(cornerRadius: Autumn.radius.sm))
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -446,6 +632,44 @@ private struct MemoryEntryRow: View {
     }
 }
 
+// ── PushPreviewEntryRow ──────────────────────────────────────────────────────
+
+private struct PushPreviewEntryRow: View {
+    let entry: PushPreviewEntry
+
+    var body: some View {
+        AutumnCard(padding: Autumn.spacing.md) {
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                HStack(spacing: Autumn.spacing.xs) {
+                    if let mode = entry.fourdMode {
+                        AutumnBadge(mode.label, icon: mode.icon, tone: mode.tone)
+                    }
+                    if !entry.intent.isEmpty {
+                        Text(entry.intent)
+                            .font(Autumn.typography.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    AutumnChip(String(format: "分数 %.2f", entry.score),
+                               icon: "bolt.fill", color: Autumn.colors.memory, size: .compact)
+                }
+                Text(entry.text)
+                    .font(Autumn.typography.callout)
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !entry.cues.isEmpty {
+                    FlowLayout(spacing: Autumn.spacing.xs) {
+                        ForEach(entry.cues, id: \.self) { cue in
+                            AutumnChip(cue, icon: "bolt.fill", color: Autumn.colors.memory, size: .compact)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ── AccessLogEntryRow ────────────────────────────────────────────────────────
 
 private struct AccessLogEntryRow: View {
@@ -455,7 +679,6 @@ private struct AccessLogEntryRow: View {
     var body: some View {
         AutumnCard(padding: Autumn.spacing.md) {
             VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
-                // Header row
                 HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.xs) {
                     AutumnBadge(
                         entry.isGranted ? "已批准" : "已拒绝",
@@ -468,15 +691,11 @@ private struct AccessLogEntryRow: View {
                         .font(Autumn.typography.caption)
                         .foregroundStyle(.tertiary)
                 }
-
-                // Query
                 Text(entry.query)
                     .font(Autumn.typography.callout)
                     .foregroundStyle(.primary)
                     .lineLimit(isExpanded ? nil : 2)
                     .textSelection(.enabled)
-
-                // Expanded detail
                 if isExpanded {
                     Divider()
                     Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 5) {
@@ -501,7 +720,6 @@ private struct AccessLogEntryRow: View {
                     }
                     .transition(.opacity)
                 }
-
                 HStack {
                     Spacer()
                     AutumnGhostButton(action: {

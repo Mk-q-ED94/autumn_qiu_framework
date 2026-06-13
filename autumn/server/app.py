@@ -258,6 +258,38 @@ class AutoAnnotateResponse(BaseModel):
     scanned: int
 
 
+class FourDStatusResponse(BaseModel):
+    """Whether the 4D activation engine is actually wired into live turns."""
+
+    fourd_memory_enabled: bool
+    fourd_push_on_turn: bool
+    mom1_access_enabled: bool
+
+
+class PushPreviewRequest(BaseModel):
+    """Dry-run the turn-start push engine against a hypothetical context."""
+
+    area: MemoryArea = "mom1"
+    query: str = ""
+    cues: list[str] | None = None
+    k: int = 5
+
+
+class PushPreviewEntry(BaseModel):
+    id: str
+    text: str
+    mode: str
+    intent: str = ""
+    cues: list[str] = []
+    score: float
+
+
+class PushPreviewResponse(BaseModel):
+    fired: list[PushPreviewEntry]
+    fragment: str
+    enabled: bool       # whether push is actually active on live turns
+
+
 class AccessLogEntry(BaseModel):
     id: str
     timestamp: float
@@ -816,6 +848,62 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise _record_failure(request, exc) from exc
         return AutoAnnotateResponse(status="ok", **result)
+
+    @app.get("/memory/4d/status", response_model=FourDStatusResponse)
+    async def fourd_status(request: Request):
+        """Report whether the 4D engine is enabled — so the client can show it.
+
+        The activation machinery is always present; these flags say whether it
+        actually drives recall/eviction ranking and turn-start push, or sits
+        dormant (collapsing to importance×recency).
+        """
+        autumn = _autumn_or_503(request)
+        b = getattr(getattr(autumn, "config", None), "behavior", None)
+        return FourDStatusResponse(
+            fourd_memory_enabled=bool(getattr(b, "fourd_memory_enabled", False)),
+            fourd_push_on_turn=bool(getattr(b, "fourd_push_on_turn", False)),
+            mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
+        )
+
+    @app.post("/memory/push/preview", response_model=PushPreviewResponse)
+    async def push_preview(req: PushPreviewRequest, request: Request):
+        """Dry-run the push engine: what would auto-inject for this context.
+
+        Runs the same ``activate_push`` the turn pipeline uses, but never
+        reinforces — so inspecting the preview doesn't perturb usage stats. Only
+        CONSTRAIN/REMIND memories are candidates. Works regardless of whether
+        push is enabled on live turns (``enabled`` reports that separately).
+        """
+        import time as _t
+
+        from ..core.memory.dimensions import ActivationContext
+        from ..core.workspace.wp4 import render_push_context
+
+        autumn = _autumn_or_503(request)
+        wp4 = _memory_curator(autumn)
+        cues = req.cues if req.cues is not None else [t for t in req.query.split() if t]
+        ctx = ActivationContext(now=_t.time(), query=req.query or None, cues=cues)
+        try:
+            fired = await wp4.activate_push(area=req.area, ctx=ctx, k=req.k, reinforce=False)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        entries = [
+            PushPreviewEntry(
+                id=e.id,
+                text=e.text[:300],
+                mode=e.use.mode.value,
+                intent=e.aim.intent,
+                cues=list(e.trigger.cues),
+                score=round(e.activation(ctx), 4),
+            )
+            for e in fired
+        ]
+        b = getattr(getattr(autumn, "config", None), "behavior", None)
+        return PushPreviewResponse(
+            fired=entries,
+            fragment=render_push_context(fired),
+            enabled=bool(getattr(b, "fourd_push_on_turn", False)),
+        )
 
     @app.get("/memory/audit/access_log", response_model=AccessLogResponse)
     async def get_access_log(

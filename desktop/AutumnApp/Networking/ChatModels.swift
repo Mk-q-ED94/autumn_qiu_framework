@@ -396,3 +396,33 @@ struct ModelsResponse: Decodable {
 struct TerrToggleRequest: Encodable {
     let enabled: Bool
 }
+
+// ── 4D memory: push preview + annotation ────────────────────────────────────────
+
+struct PushPreviewRequestBody: Encodable {
+    let area: String
+    let query: String
+    let k: Int
+}
+
+struct AnnotateRequestBody: Encodable {
+    let entryId: String
+    let mode: String?
+    let intent: String?
+    let cues: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case mode, intent, cues
+        case entryId = "entry_id"
+    }
+}
+
+struct AutoAnnotateRequestBody: Encodable {
+    let n: Int
+    let onlyUnannotated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case n
+        case onlyUnannotated = "only_unannotated"
+    }
+}

@@ -276,6 +276,59 @@ final class AutumnClient {
         return try JSONDecoder().decode(MemoryStatsOverview.self, from: data)
     }
 
+    func fetch4DStatus() async throws -> FourDStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/4d/status"))
+        request.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(FourDStatus.self, from: data)
+    }
+
+    func pushPreview(area: MemoryArea, query: String) async throws -> PushPreviewResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/push/preview"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            PushPreviewRequestBody(area: area.rawValue, query: query, k: 5)
+        )
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(PushPreviewResponse.self, from: data)
+    }
+
+    @discardableResult
+    func annotateMemory(
+        area: MemoryArea, entryID: String,
+        mode: String?, intent: String?, cues: [String]?
+    ) async throws -> AnnotateResult {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/annotate")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            AnnotateRequestBody(entryId: entryID, mode: mode, intent: intent, cues: cues)
+        )
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(AnnotateResult.self, from: data)
+    }
+
+    func autoAnnotate(area: MemoryArea, n: Int = 10) async throws -> AutoAnnotateResult {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/auto-annotate")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(AutoAnnotateRequestBody(n: n, onlyUnannotated: true))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(AutoAnnotateResult.self, from: data)
+    }
+
     func fetchAccessLog(limit: Int = 200, offset: Int = 0) async throws -> AccessLogResponse {
         var components = URLComponents(
             url: baseURL.appendingPathComponent("memory/audit/access_log"),
