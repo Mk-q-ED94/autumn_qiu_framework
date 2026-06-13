@@ -170,7 +170,7 @@ final class OllamaManager: ObservableObject {
     private static func normalizedBaseURL(from rawValue: String) -> URL? {
         var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty {
-            value = "http://localhost:11434"
+            value = "http://127.0.0.1:11434"
         }
         if !value.contains("://") {
             value = "http://\(value)"

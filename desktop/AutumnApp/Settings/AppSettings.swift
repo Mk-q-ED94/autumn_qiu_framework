@@ -55,7 +55,7 @@ final class AppSettings: ObservableObject {
     private static let defaultServerURL  = "http://127.0.0.1:8765"
     private static let openAIBaseURL     = "https://api.openai.com"
     private static let anthropicBaseURL  = "https://api.anthropic.com"
-    private static let ollamaBaseURL     = "http://localhost:11434"
+    private static let ollamaBaseURL     = "http://127.0.0.1:11434"
 
     private var _persistTask: Task<Void, Never>?
 
@@ -76,7 +76,9 @@ final class AppSettings: ObservableObject {
         self.a3Model    = UserDefaults.standard.string(forKey: Self.a3ModelKey)   ?? "gpt-4o"
         self.a4Enabled  = UserDefaults.standard.bool(forKey: Self.a4EnabledKey)
         self.a4APIKey   = UserDefaults.standard.string(forKey: Self.a4APIKeyKey)  ?? ""
-        self.a4BaseURL  = UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
+        self.a4BaseURL  = Self.normalizedLocalOllamaBaseURL(
+            UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
+        )
         self.a4Protocol = UserDefaults.standard.string(forKey: Self.a4ProtocolKey) ?? "openai"
         self.a4Model    = UserDefaults.standard.string(forKey: Self.a4ModelKey)   ?? ""
         refreshInitialModelStates()
@@ -198,6 +200,32 @@ final class AppSettings: ObservableObject {
         ud.set(a4BaseURL,  forKey: Self.a4BaseURLKey)
         ud.set(a4Protocol, forKey: Self.a4ProtocolKey)
         ud.set(a4Model,    forKey: Self.a4ModelKey)
+    }
+
+    private static func normalizedLocalOllamaBaseURL(_ rawValue: String) -> String {
+        let original = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = original
+        if value.isEmpty {
+            value = Self.ollamaBaseURL
+        }
+        if !value.contains("://") {
+            value = "http://\(value)"
+        }
+        guard var components = URLComponents(string: value) else {
+            return rawValue
+        }
+        let host = components.host?.lowercased()
+        guard host == "localhost" || host == "127.0.0.1" || host == "::1" else {
+            return original.isEmpty ? Self.ollamaBaseURL : original
+        }
+        if components.path == "/v1" || components.path == "/api" {
+            components.path = ""
+        }
+        if host == "localhost" || host == "::1" {
+            components.host = "127.0.0.1"
+        }
+        return components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            ?? rawValue
     }
 }
 

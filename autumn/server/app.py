@@ -4,6 +4,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -227,7 +228,7 @@ class AddFileRequest(BaseModel):
 
 
 class OllamaTarget(BaseModel):
-    base_url: str = "http://localhost:11434"
+    base_url: str = "http://127.0.0.1:11434"
 
 
 class OllamaDeleteRequest(OllamaTarget):
@@ -283,9 +284,24 @@ def _ollama_base(base_url: str) -> str:
     be reused here for model management.
     """
     root = (base_url or "").strip().rstrip("/")
-    if root.endswith("/v1"):
-        root = root[:-3].rstrip("/")
-    return root or "http://localhost:11434"
+    if not root:
+        root = "http://127.0.0.1:11434"
+    if "://" not in root:
+        root = f"http://{root}"
+
+    parsed = urlsplit(root)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[:-3].rstrip("/")
+    elif path.endswith("/api"):
+        path = path[:-4].rstrip("/")
+
+    host = parsed.hostname or "127.0.0.1"
+    if host in {"localhost", "::1"}:
+        host = "127.0.0.1"
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{host}{port}"
+    return urlunsplit((parsed.scheme or "http", netloc, path, "", ""))
 
 
 def _ollama_unavailable_detail(base: str, exc: Exception) -> str:
@@ -891,7 +907,7 @@ def create_app() -> FastAPI:
     async def ollama_status(req: OllamaTarget):
         base = _ollama_base(req.base_url)
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
                 resp = await client.get(f"{base}/api/version")
                 resp.raise_for_status()
                 data = resp.json()
@@ -903,7 +919,7 @@ def create_app() -> FastAPI:
     async def ollama_models(req: OllamaTarget):
         base = _ollama_base(req.base_url)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 resp = await client.get(f"{base}/api/tags")
                 resp.raise_for_status()
                 payload = resp.json()
@@ -927,7 +943,7 @@ def create_app() -> FastAPI:
     async def ollama_delete(req: OllamaDeleteRequest):
         base = _ollama_base(req.base_url)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 resp = await client.request(
                     "DELETE",
                     f"{base}/api/delete",
@@ -946,7 +962,7 @@ def create_app() -> FastAPI:
     async def ollama_pull(
         name: str,
         request: Request,
-        base_url: str = "http://localhost:11434",
+        base_url: str = "http://127.0.0.1:11434",
     ):
         base = _ollama_base(base_url)
 
@@ -954,7 +970,7 @@ def create_app() -> FastAPI:
             # No read timeout — a pull can take minutes — but bound the connect.
             timeout = httpx.Timeout(None, connect=5.0)
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream(
                         "POST",
                         f"{base}/api/pull",

@@ -201,7 +201,7 @@ class AutumnConfig:
         if a4_key:
             a4 = ModelConfig(
                 api_key=a4_key,
-                base_url=env("A4_BASE_URL", "http://localhost:11434"),
+                base_url=env("A4_BASE_URL", "http://127.0.0.1:11434"),
                 model=env("A4_MODEL", ""),
                 protocol=Protocol(env("A4_PROTOCOL", "openai")),
             )

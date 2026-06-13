@@ -273,7 +273,12 @@ struct SettingsView: View {
                         pullingModel: pullingOllamaModel,
                         pullProgress: ollamaPullProgress,
                         errorMessage: ollamaError,
-                        refresh: { Task { await loadOllama() } },
+                        refresh: {
+                            Task {
+                                await ensureOllamaRunning()
+                                await loadOllama()
+                            }
+                        },
                         useModel: useOllamaModel,
                         pullModel: { name in Task { await pullOllamaModel(name) } }
                     )
@@ -631,24 +636,20 @@ struct SettingsView: View {
     }
 
     private func loadOllama() async {
-        guard let url = URL(string: settings.serverURL) else {
-            ollamaError = "服务器 URL 无效"
-            return
-        }
         isLoadingOllama = true
         ollamaError = nil
         defer { isLoadingOllama = false }
 
         do {
-            let client = AutumnClient(baseURL: url)
-            async let status = client.ollamaStatus(baseURL: settings.a4BaseURL)
-            async let recommended = client.ollamaRecommendedModels()
-            let resolvedStatus = try await status
+            let localClient = try LocalOllamaClient(baseURL: settings.a4BaseURL)
+            async let status = localClient.status()
+            async let recommended = loadRecommendedOllamaModels()
+            let resolvedStatus = await status
             ollamaStatus = resolvedStatus
-            ollamaRecommended = try await recommended
+            ollamaRecommended = await recommended
             if resolvedStatus.running {
                 do {
-                    ollamaModels = try await client.ollamaModels(baseURL: settings.a4BaseURL)
+                    ollamaModels = try await localClient.models()
                 } catch {
                     ollamaModels = []
                     ollamaError = ollamaManagementError(error, baseURL: resolvedStatus.baseURL)
@@ -663,11 +664,22 @@ struct SettingsView: View {
         }
     }
 
+    private func loadRecommendedOllamaModels() async -> [OllamaRecommendedModel] {
+        guard let url = URL(string: settings.serverURL) else {
+            return fallbackOllamaRecommended
+        }
+        do {
+            return try await AutumnClient(baseURL: url).ollamaRecommendedModels()
+        } catch {
+            return fallbackOllamaRecommended
+        }
+    }
+
     private func useOllamaModel(_ name: String) {
         settings.a4Enabled = true
         settings.a4Protocol = "openai"
         if settings.a4BaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            settings.a4BaseURL = "http://localhost:11434"
+            settings.a4BaseURL = "http://127.0.0.1:11434"
         }
         settings.a4APIKey = settings.a4APIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "ollama"
@@ -676,11 +688,6 @@ struct SettingsView: View {
     }
 
     private func pullOllamaModel(_ name: String) async {
-        guard let url = URL(string: settings.serverURL) else {
-            ollamaError = "服务器 URL 无效"
-            return
-        }
-
         pullingOllamaModel = name
         ollamaPullProgress = "准备拉取"
         ollamaError = nil
@@ -690,14 +697,14 @@ struct SettingsView: View {
         }
 
         do {
-            let client = AutumnClient(baseURL: url)
-            let status = try await client.ollamaStatus(baseURL: settings.a4BaseURL)
+            let localClient = try LocalOllamaClient(baseURL: settings.a4BaseURL)
+            let status = await localClient.status()
             ollamaStatus = status
             guard status.running else {
                 ollamaError = ollamaUnavailableMessage(status)
                 return
             }
-            for try await event in client.pullOllamaModel(name: name, baseURL: settings.a4BaseURL) {
+            for try await event in localClient.pullModel(name: name) {
                 if let fraction = event.progressFraction {
                     ollamaPullProgress = "\(Int((fraction * 100).rounded()))%"
                 } else if let status = event.status {
@@ -714,14 +721,40 @@ struct SettingsView: View {
     private func ollamaUnavailableMessage(_ status: OllamaStatus) -> String {
         let base = status.baseURL.isEmpty ? settings.a4BaseURL : status.baseURL
         let raw = status.error?.isEmpty == false ? "\n\(status.error ?? "")" : ""
-        return "无法连接 Ollama（\(base)）。请先启动 Ollama，或确认 Autumn 服务器和 Ollama 在同一台机器/容器网络内。\(raw)"
+        return "无法连接本机 Ollama（\(base)）。Autumn Desktop 已尝试后台启动 Ollama；请确认 Ollama.app 或 `ollama serve` 正在运行。\(raw)"
     }
 
     private func ollamaManagementError(_ error: Error, baseURL: String) -> String {
         let base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "http://localhost:11434"
+            ? "http://127.0.0.1:11434"
             : baseURL
         return "A4 本地模型操作失败（\(base)）：\(error.localizedDescription)"
+    }
+
+    private var fallbackOllamaRecommended: [OllamaRecommendedModel] {
+        [
+            OllamaRecommendedModel(
+                name: "qwen2.5:1.5b",
+                label: "Qwen2.5 1.5B",
+                size: "~1.0 GB",
+                note: "速度/质量平衡 · A4 推荐",
+                recommended: true
+            ),
+            OllamaRecommendedModel(
+                name: "qwen2.5:3b",
+                label: "Qwen2.5 3B",
+                size: "~2.0 GB",
+                note: "更强理解 · 仍然轻量",
+                recommended: false
+            ),
+            OllamaRecommendedModel(
+                name: "llama3.2:3b",
+                label: "Llama 3.2 3B",
+                size: "~2.0 GB",
+                note: "Meta 通用小模型",
+                recommended: false
+            ),
+        ]
     }
 }
 
