@@ -2,8 +2,11 @@ import Foundation
 
 @MainActor
 final class MemoryViewModel: ObservableObject {
+    enum ViewMode { case memory, accessLog }
+
+    @Published var viewMode: ViewMode = .memory
     @Published var selectedArea: MemoryArea = .mom1
-    @Published var selectedMode: FourDUseMode?   // nil = 全部
+    @Published var selectedMode: FourDUseMode?
     @Published var entries: [MemoryEntry] = []
     @Published var stats: MemoryStats?
     @Published var overview: MemoryStatsOverview?
@@ -12,43 +15,43 @@ final class MemoryViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var actionMessage: String?
 
+    // ── access log ─────────────────────────────────────────────────────────────
+    @Published var accessLogEntries: [AccessLogEntry] = []
+    @Published var accessLogTotal: Int = 0
+    @Published var accessLogVerdict: String? = nil   // nil=all, "granted", "denied"
+    @Published var isLoadingAccessLog = false
+    @Published var accessLogError: String?
+
     private let settings: AppSettings
 
     init(settings: AppSettings) {
         self.settings = settings
     }
 
-    /// Entries matching the active use-mode filter (newest first for display).
+    // ── memory ──────────────────────────────────────────────────────────────────
+
     var filteredEntries: [MemoryEntry] {
         let ordered = entries.reversed()
         guard let mode = selectedMode else { return Array(ordered) }
         return ordered.filter { $0.fourdMode == mode }
     }
 
-    /// Count per use-mode across the loaded area — drives the filter chips.
     var modeCounts: [FourDUseMode: Int] {
         entries.reduce(into: [:]) { counts, entry in
-            if let mode = entry.fourdMode {
-                counts[mode, default: 0] += 1
-            }
+            if let mode = entry.fourdMode { counts[mode, default: 0] += 1 }
         }
     }
 
-    /// Entries carrying meaningful 4D annotation (for the stats strip).
-    var annotatedCount: Int {
-        entries.filter(\.has4DData).count
-    }
+    var annotatedCount: Int { entries.filter(\.has4DData).count }
 
     func load() async {
         guard let url = URL(string: settings.serverURL) else {
             errorMessage = "服务器 URL 无效"
             return
         }
-
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-
         do {
             let client = AutumnClient(baseURL: url)
             async let history = client.memoryHistory(area: selectedArea)
@@ -70,18 +73,46 @@ final class MemoryViewModel: ObservableObject {
             actionMessage = "服务器 URL 无效"
             return
         }
-
         isConsolidating = true
         actionMessage = nil
         defer { isConsolidating = false }
-
         do {
-            let response = try await AutumnClient(baseURL: url)
-                .consolidateMemory(area: selectedArea)
+            let response = try await AutumnClient(baseURL: url).consolidateMemory(area: selectedArea)
             actionMessage = response.status == "noop" ? "无需归并" : "已归并"
             await load()
         } catch {
             actionMessage = error.localizedDescription
+        }
+    }
+
+    // ── access log ──────────────────────────────────────────────────────────────
+
+    var filteredAccessEntries: [AccessLogEntry] {
+        switch accessLogVerdict {
+        case "granted": return accessLogEntries.filter(\.isGranted)
+        case "denied":  return accessLogEntries.filter { !$0.isGranted }
+        default:        return accessLogEntries
+        }
+    }
+
+    var grantedCount: Int { accessLogEntries.filter(\.isGranted).count }
+    var deniedCount: Int  { accessLogEntries.filter { !$0.isGranted }.count }
+
+    func loadAccessLog() async {
+        guard let url = URL(string: settings.serverURL) else {
+            accessLogError = "服务器 URL 无效"
+            return
+        }
+        isLoadingAccessLog = true
+        accessLogError = nil
+        defer { isLoadingAccessLog = false }
+        do {
+            let response = try await AutumnClient(baseURL: url).fetchAccessLog()
+            accessLogEntries = response.entries
+            accessLogTotal = response.total
+        } catch {
+            accessLogEntries = []
+            accessLogError = error.localizedDescription
         }
     }
 }

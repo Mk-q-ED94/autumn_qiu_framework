@@ -236,6 +236,40 @@ struct ConsolidateResponse: Decodable, Equatable {
     let summary: [String: JSONValue]?
 }
 
+struct AccessLogEntry: Identifiable, Decodable, Equatable {
+    let id: String
+    let timestamp: Double
+    let action: String
+    let requester: String
+    let query: String
+    let reason: String
+    let decisionReason: String
+    let redact: Bool
+    let entryIds: [String]
+    let mediatedBy: String?
+
+    var date: Date { Date(timeIntervalSince1970: timestamp) }
+    var isGranted: Bool { action == "mom1_access_granted" }
+
+    var relativeTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, action, requester, query, reason, redact
+        case decisionReason = "decision_reason"
+        case entryIds = "entry_ids"
+        case mediatedBy = "mediated_by"
+    }
+}
+
+struct AccessLogResponse: Decodable {
+    let entries: [AccessLogEntry]
+    let total: Int
+}
+
 enum JSONValue: Codable, Equatable {
     case string(String)
     case number(Double)

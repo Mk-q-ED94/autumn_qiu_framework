@@ -227,6 +227,24 @@ class AddFileRequest(BaseModel):
     path: str
 
 
+class AccessLogEntry(BaseModel):
+    id: str
+    timestamp: float
+    action: str
+    requester: str
+    query: str
+    reason: str
+    decision_reason: str = ""
+    redact: bool = False
+    entry_ids: list[str] = []
+    mediated_by: str | None = None
+
+
+class AccessLogResponse(BaseModel):
+    entries: list[AccessLogEntry]
+    total: int
+
+
 class OllamaTarget(BaseModel):
     base_url: str = "http://127.0.0.1:11434"
 
@@ -719,6 +737,47 @@ def create_app() -> FastAPI:
         if summary is None:
             return {"status": "noop", "summary": None}
         return {"status": "ok", "summary": summary.to_dict()}
+
+    @app.get("/memory/audit/access_log", response_model=AccessLogResponse)
+    async def get_access_log(
+        request: Request,
+        limit: Annotated[int, Query(ge=1, le=_HISTORY_PAGE_MAX)] = _HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        verdict: str | None = None,
+    ):
+        """Mom1 access audit log from WP4 memory.
+
+        Each entry records one ``request_mom1_access`` invocation: the requester
+        (mom2/mom3), query, A1's verdict, redaction flag, and A4 mediator used.
+        ``verdict`` filters to ``"granted"`` or ``"denied"``; omit for all entries.
+        """
+        autumn = _autumn_or_503(request)
+        wp4 = _memory_curator(autumn)
+        history = await wp4.memory.get_history()
+        access_entries = [e for e in history if "access" in e.tags]
+        if verdict == "granted":
+            access_entries = [e for e in access_entries if "mom1_access_granted" in e.tags]
+        elif verdict == "denied":
+            access_entries = [e for e in access_entries if "mom1_access_denied" in e.tags]
+        access_entries.sort(key=lambda e: e.timestamp, reverse=True)
+        total = len(access_entries)
+        page = access_entries[offset:offset + limit]
+        entries = []
+        for e in page:
+            c = e.content if isinstance(e.content, dict) else {}
+            entries.append(AccessLogEntry(
+                id=e.id,
+                timestamp=e.timestamp,
+                action=c.get("action", ""),
+                requester=c.get("requester", ""),
+                query=c.get("query", ""),
+                reason=c.get("reason", ""),
+                decision_reason=c.get("decision_reason", ""),
+                redact=bool(c.get("redact", False)),
+                entry_ids=c.get("entries") or [],
+                mediated_by=c.get("mediated_by"),
+            ))
+        return AccessLogResponse(entries=entries, total=total)
 
     # ── Per-project shared memory ────────────────────────────────────────────
     # Each project id gets its own isolated shared memory zone. The zone is

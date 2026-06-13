@@ -276,6 +276,24 @@ final class AutumnClient {
         return try JSONDecoder().decode(MemoryStatsOverview.self, from: data)
     }
 
+    func fetchAccessLog(limit: Int = 200, offset: Int = 0) async throws -> AccessLogResponse {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("memory/audit/access_log"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
+        ]
+        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(AccessLogResponse.self, from: data)
+    }
+
     func consolidateMemory(area: MemoryArea) async throws -> ConsolidateResponse {
         var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/consolidate"))
         request.httpMethod = "POST"

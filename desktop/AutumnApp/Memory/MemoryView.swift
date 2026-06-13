@@ -10,16 +10,18 @@ struct MemoryView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-
             Divider()
-
-            statsStrip
-
-            Divider()
-
-            content
+            if vm.viewMode == .memory {
+                statsStrip
+                Divider()
+                memoryContent
+            } else {
+                accessLogStatsStrip
+                Divider()
+                accessLogContent
+            }
         }
-        .navigationTitle("记忆")
+        .navigationTitle(vm.viewMode == .memory ? "记忆" : "Mom1 访问审计")
         .task { await vm.load() }
         .onChange(of: vm.selectedArea) { _, _ in
             vm.selectedMode = nil
@@ -27,48 +29,79 @@ struct MemoryView: View {
         }
     }
 
+    // ── toolbar ─────────────────────────────────────────────────────────────────
+
     private var toolbar: some View {
         HStack(spacing: Autumn.spacing.md) {
-            Picker("记忆区", selection: $vm.selectedArea) {
-                ForEach(MemoryArea.allCases) { area in
-                    Text(area.title).tag(area)
+            if vm.viewMode == .memory {
+                Picker("记忆区", selection: $vm.selectedArea) {
+                    ForEach(MemoryArea.allCases) { area in
+                        Text(area.title).tag(area)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 260)
+                AutumnBadge(vm.selectedArea.subtitle, tone: .accent)
+            } else {
+                HStack(spacing: Autumn.spacing.xs) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Autumn.colors.warning)
+                    Text("Mom1 访问审计日志")
+                        .font(Autumn.typography.headline)
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(width: 260)
-
-            AutumnBadge(vm.selectedArea.subtitle, tone: .accent)
 
             Spacer()
 
+            // Audit log toggle
             Button {
-                Task { await vm.consolidateSelectedArea() }
+                let entering = vm.viewMode == .memory
+                vm.viewMode = entering ? .accessLog : .memory
+                if entering { Task { await vm.loadAccessLog() } }
             } label: {
-                if vm.isConsolidating {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "rectangle.compress.vertical")
-                        .font(.system(size: 13, weight: .medium))
-                }
+                Image(systemName: vm.viewMode == .accessLog ? "shield.lefthalf.filled" : "shield")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(vm.viewMode == .accessLog ? Autumn.colors.warning : .secondary)
             }
             .buttonStyle(.plain)
-            .help("用 WP4/A4 归并当前记忆区")
-            .disabled(vm.isLoading || vm.isConsolidating)
+            .help(vm.viewMode == .accessLog ? "返回记忆视图" : "Mom1 访问审计日志")
+
+            if vm.viewMode == .memory {
+                Button {
+                    Task { await vm.consolidateSelectedArea() }
+                } label: {
+                    if vm.isConsolidating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "rectangle.compress.vertical")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("用 WP4/A4 归并当前记忆区")
+                .disabled(vm.isLoading || vm.isConsolidating)
+            }
 
             Button {
-                Task { await vm.load() }
+                Task {
+                    if vm.viewMode == .memory { await vm.load() }
+                    else { await vm.loadAccessLog() }
+                }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .medium))
             }
             .buttonStyle(.plain)
             .help("刷新")
-            .disabled(vm.isLoading)
+            .disabled(vm.viewMode == .memory ? vm.isLoading : vm.isLoadingAccessLog)
         }
         .padding(.horizontal, Autumn.spacing.lg)
         .padding(.vertical, Autumn.spacing.sm)
         .background(.bar)
     }
+
+    // ── memory stats strip ───────────────────────────────────────────────────────
 
     private var statsStrip: some View {
         HStack(spacing: Autumn.spacing.md) {
@@ -105,31 +138,39 @@ struct MemoryView: View {
         .background(.regularMaterial)
     }
 
-    /// Use-mode filter chips — shown only when the area has 4D-mode entries,
-    /// so plain conversation areas keep the original uncluttered layout.
+    // ── access log stats strip ───────────────────────────────────────────────────
+
+    private var accessLogStatsStrip: some View {
+        HStack(spacing: Autumn.spacing.md) {
+            MemoryStat(label: "总计", value: "\(vm.accessLogTotal)", icon: "list.bullet.clipboard")
+            MemoryStat(label: "已批准", value: "\(vm.grantedCount)", icon: "checkmark.shield.fill",
+                       color: Autumn.colors.success)
+            MemoryStat(label: "已拒绝", value: "\(vm.deniedCount)", icon: "xmark.shield.fill",
+                       color: Autumn.colors.danger)
+            Spacer()
+            AutumnBadge("WP4 审计", icon: "shield.lefthalf.filled", tone: .warning)
+        }
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(.regularMaterial)
+    }
+
+    // ── memory content ───────────────────────────────────────────────────────────
+
     @ViewBuilder
     private var modeFilterBar: some View {
         let counts = vm.modeCounts
         if !counts.isEmpty {
             HStack(spacing: Autumn.spacing.xs) {
-                ModeFilterChip(
-                    label: "全部",
-                    icon: "square.grid.2x2",
-                    count: vm.entries.count,
-                    color: Autumn.colors.muted,
-                    isSelected: vm.selectedMode == nil
-                ) {
+                ModeFilterChip(label: "全部", icon: "square.grid.2x2", count: vm.entries.count,
+                               color: Autumn.colors.muted, isSelected: vm.selectedMode == nil) {
                     vm.selectedMode = nil
                 }
                 ForEach(FourDUseMode.allCases) { mode in
                     if let count = counts[mode] {
-                        ModeFilterChip(
-                            label: mode.label,
-                            icon: mode.icon,
-                            count: count,
-                            color: mode.tone.foreground,
-                            isSelected: vm.selectedMode == mode
-                        ) {
+                        ModeFilterChip(label: mode.label, icon: mode.icon, count: count,
+                                       color: mode.tone.foreground,
+                                       isSelected: vm.selectedMode == mode) {
                             vm.selectedMode = vm.selectedMode == mode ? nil : mode
                         }
                     }
@@ -142,36 +183,22 @@ struct MemoryView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var memoryContent: some View {
         if vm.isLoading {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = vm.errorMessage {
-            EmptyStateView(
-                icon: "exclamationmark.triangle",
-                title: "无法读取记忆",
-                message: error,
-                actionTitle: "重试",
-                action: { Task { await vm.load() } }
-            )
+            EmptyStateView(icon: "exclamationmark.triangle", title: "无法读取记忆",
+                           message: error, actionTitle: "重试") { Task { await vm.load() } }
         } else if vm.entries.isEmpty {
-            EmptyStateView(
-                icon: "tray",
-                title: "暂无记忆",
-                message: vm.selectedArea.subtitle
-            )
+            EmptyStateView(icon: "tray", title: "暂无记忆", message: vm.selectedArea.subtitle)
         } else {
             VStack(spacing: 0) {
                 modeFilterBar
-
                 if vm.filteredEntries.isEmpty {
-                    EmptyStateView(
-                        icon: "line.3.horizontal.decrease.circle",
-                        title: "无匹配记忆",
-                        message: "当前筛选下没有条目",
-                        actionTitle: "清除筛选",
-                        action: { vm.selectedMode = nil }
-                    )
+                    EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "无匹配记忆",
+                                   message: "当前筛选下没有条目", actionTitle: "清除筛选") {
+                        vm.selectedMode = nil
+                    }
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: Autumn.spacing.sm) {
@@ -186,7 +213,63 @@ struct MemoryView: View {
             }
         }
     }
+
+    // ── access log content ───────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private var accessLogContent: some View {
+        if vm.isLoadingAccessLog {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error = vm.accessLogError {
+            EmptyStateView(icon: "exclamationmark.triangle", title: "无法读取审计日志",
+                           message: error, actionTitle: "重试") { Task { await vm.loadAccessLog() } }
+        } else if vm.accessLogEntries.isEmpty {
+            EmptyStateView(icon: "shield", title: "暂无审计记录",
+                           message: "Mom2/Mom3 尚未发起 Mom1 访问请求")
+        } else {
+            VStack(spacing: 0) {
+                accessLogVerdictFilter
+                if vm.filteredAccessEntries.isEmpty {
+                    EmptyStateView(icon: "line.3.horizontal.decrease.circle",
+                                   title: "无匹配记录", message: "当前筛选下没有条目",
+                                   actionTitle: "清除筛选") { vm.accessLogVerdict = nil }
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                            ForEach(vm.filteredAccessEntries) { entry in
+                                AccessLogEntryRow(entry: entry)
+                            }
+                        }
+                        .padding(Autumn.spacing.lg)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    private var accessLogVerdictFilter: some View {
+        HStack(spacing: Autumn.spacing.xs) {
+            VerdictFilterChip(label: "全部", icon: "shield", count: vm.accessLogEntries.count,
+                              color: Autumn.colors.muted, isSelected: vm.accessLogVerdict == nil) {
+                vm.accessLogVerdict = nil
+            }
+            VerdictFilterChip(label: "已批准", icon: "checkmark.shield.fill", count: vm.grantedCount,
+                              color: Autumn.colors.success, isSelected: vm.accessLogVerdict == "granted") {
+                vm.accessLogVerdict = vm.accessLogVerdict == "granted" ? nil : "granted"
+            }
+            VerdictFilterChip(label: "已拒绝", icon: "xmark.shield.fill", count: vm.deniedCount,
+                              color: Autumn.colors.danger, isSelected: vm.accessLogVerdict == "denied") {
+                vm.accessLogVerdict = vm.accessLogVerdict == "denied" ? nil : "denied"
+            }
+            Spacer()
+        }
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+    }
 }
+
+// ── shared sub-views ─────────────────────────────────────────────────────────
 
 private struct MemoryStat: View {
     let label: String
@@ -200,11 +283,8 @@ private struct MemoryStat: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(color)
             VStack(alignment: .leading, spacing: 0) {
-                Text(label)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                Text(value)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                Text(label).font(.system(size: 9)).foregroundStyle(.tertiary)
+                Text(value).font(.system(size: 11, weight: .semibold, design: .monospaced))
             }
         }
     }
@@ -221,36 +301,28 @@ private struct ModeFilterChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Autumn.spacing.xs) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .bold))
-                Text(label)
-                    .font(Autumn.typography.captionStrong)
+                Image(systemName: icon).font(.system(size: 9, weight: .bold))
+                Text(label).font(Autumn.typography.captionStrong)
                 Text("\(count)")
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .foregroundStyle(isSelected ? color : .secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
                     .background(Capsule().fill(.background.opacity(0.6)))
             }
             .foregroundStyle(isSelected ? color : .secondary)
-            .padding(.horizontal, Autumn.spacing.sm)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isSelected ? color.opacity(0.14) : Autumn.colors.surfaceElevated)
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(
-                        isSelected ? color.opacity(0.4) : Color.secondary.opacity(0.14),
-                        lineWidth: Autumn.stroke.thin
-                    )
-            )
+            .padding(.horizontal, Autumn.spacing.sm).padding(.vertical, 3)
+            .background(Capsule(style: .continuous)
+                .fill(isSelected ? color.opacity(0.14) : Autumn.colors.surfaceElevated))
+            .overlay(Capsule(style: .continuous)
+                .strokeBorder(isSelected ? color.opacity(0.4) : Color.secondary.opacity(0.14),
+                              lineWidth: Autumn.stroke.thin))
         }
         .buttonStyle(.plain)
         .animation(Autumn.motion.soft, value: isSelected)
     }
 }
+
+private typealias VerdictFilterChip = ModeFilterChip
 
 private struct MemoryEntryRow: View {
     let entry: MemoryEntry
@@ -266,12 +338,9 @@ private struct MemoryEntryRow: View {
                             .foregroundStyle(Autumn.colors.warning)
                             .help("置顶 — 不会被淘汰")
                     }
-                    Text(entry.title)
-                        .font(Autumn.typography.headline)
+                    Text(entry.title).font(Autumn.typography.headline)
                     if let time = entry.relativeTime {
-                        Text(time)
-                            .font(Autumn.typography.caption)
-                            .foregroundStyle(.tertiary)
+                        Text(time).font(Autumn.typography.caption).foregroundStyle(.tertiary)
                     }
                     Spacer()
                     if entry.has4DData, let mode = entry.fourdMode {
@@ -279,14 +348,12 @@ private struct MemoryEntryRow: View {
                     }
                     AutumnBadge(entry.area.title, tone: .neutral)
                 }
-
                 Text(entry.preview)
                     .font(Autumn.typography.callout)
                     .foregroundStyle(.primary)
                     .lineLimit(isExpanded ? nil : 3)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-
                 if !entry.tags.isEmpty {
                     FlowLayout(spacing: Autumn.spacing.xs) {
                         ForEach(entry.tags, id: \.self) { tag in
@@ -294,36 +361,26 @@ private struct MemoryEntryRow: View {
                         }
                     }
                 }
-
                 if isExpanded {
                     Divider()
-                    if entry.has4DData {
-                        fourdSection
-                        Divider()
-                    }
+                    if entry.has4DData { fourdSection; Divider() }
                     Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 4) {
                         ForEach(entry.sortedKeys, id: \.self) { key in
                             GridRow {
-                                Text(key)
-                                    .font(Autumn.typography.caption)
-                                    .foregroundStyle(.secondary)
+                                Text(key).font(Autumn.typography.caption).foregroundStyle(.secondary)
                                 Text(entry.values[key]?.formatted ?? "")
-                                    .font(Autumn.typography.caption)
-                                    .textSelection(.enabled)
+                                    .font(Autumn.typography.caption).textSelection(.enabled)
                             }
                         }
                     }
                     .transition(.opacity)
                 }
-
                 HStack {
                     if let importance = entry.importance, importance != 1.0 {
-                        AutumnChip(
-                            String(format: "重要度 %.1f", importance),
-                            icon: "waveform.path.ecg",
-                            color: entry.isPinned ? Autumn.colors.warning : Autumn.colors.muted,
-                            size: .compact
-                        )
+                        AutumnChip(String(format: "重要度 %.1f", importance),
+                                   icon: "waveform.path.ecg",
+                                   color: entry.isPinned ? Autumn.colors.warning : Autumn.colors.muted,
+                                   size: .compact)
                     }
                     Spacer()
                     AutumnGhostButton(action: {
@@ -343,13 +400,10 @@ private struct MemoryEntryRow: View {
     private var fourdSection: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
             HStack(spacing: Autumn.spacing.xs) {
-                Image(systemName: "brain")
-                    .font(.system(size: 9, weight: .bold))
-                Text("四维")
-                    .font(Autumn.typography.captionStrong)
+                Image(systemName: "brain").font(.system(size: 9, weight: .bold))
+                Text("四维").font(Autumn.typography.captionStrong)
             }
             .foregroundStyle(Autumn.colors.memory)
-
             Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 3) {
                 if let mode = entry.fourdMode {
                     GridRow {
@@ -360,51 +414,117 @@ private struct MemoryEntryRow: View {
                 if let count = entry.useCount, count > 0 {
                     GridRow {
                         dimensionLabel("use.count")
-                        Text("\(count) 次激活")
-                            .font(.system(.caption, design: .monospaced))
+                        Text("\(count) 次激活").font(.system(.caption, design: .monospaced))
                     }
                 }
                 if let intent = entry.aimIntent {
                     GridRow {
                         dimensionLabel("aim.intent")
-                        Text(intent)
-                            .font(Autumn.typography.caption)
-                            .textSelection(.enabled)
+                        Text(intent).font(Autumn.typography.caption).textSelection(.enabled)
                     }
                 }
             }
-
-            // Chip collections live outside the Grid: a wrapping layout inside
-            // a grid cell is measured at unlimited width and can overflow.
-            if !entry.aimScope.isEmpty {
-                chipRow(label: "aim.scope", items: entry.aimScope, color: Autumn.colors.info)
-            }
-            if !entry.triggerCues.isEmpty {
-                chipRow(label: "trigger.cues", items: entry.triggerCues, color: Autumn.colors.memory)
-            }
+            if !entry.aimScope.isEmpty { chipRow(label: "aim.scope", items: entry.aimScope, color: Autumn.colors.info) }
+            if !entry.triggerCues.isEmpty { chipRow(label: "trigger.cues", items: entry.triggerCues, color: Autumn.colors.memory) }
         }
         .padding(Autumn.spacing.sm)
-        .background(
-            Autumn.colors.memory.opacity(0.06),
-            in: RoundedRectangle(cornerRadius: Autumn.radius.sm)
-        )
+        .background(Autumn.colors.memory.opacity(0.06), in: RoundedRectangle(cornerRadius: Autumn.radius.sm))
         .transition(.opacity)
     }
 
     private func dimensionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(.caption, design: .monospaced))
-            .foregroundStyle(.secondary)
+        Text(text).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
     }
 
     private func chipRow(label: String, items: [String], color: Color) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             dimensionLabel(label)
             FlowLayout(spacing: Autumn.spacing.xs) {
-                ForEach(items, id: \.self) { item in
-                    AutumnChip(item, color: color, size: .compact)
+                ForEach(items, id: \.self) { AutumnChip($0, color: color, size: .compact) }
+            }
+        }
+    }
+}
+
+// ── AccessLogEntryRow ────────────────────────────────────────────────────────
+
+private struct AccessLogEntryRow: View {
+    let entry: AccessLogEntry
+    @State private var isExpanded = false
+
+    var body: some View {
+        AutumnCard(padding: Autumn.spacing.md) {
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                // Header row
+                HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.xs) {
+                    AutumnBadge(
+                        entry.isGranted ? "已批准" : "已拒绝",
+                        icon: entry.isGranted ? "checkmark.shield.fill" : "xmark.shield.fill",
+                        tone: entry.isGranted ? .success : .danger
+                    )
+                    AutumnBadge(entry.requester.uppercased(), tone: .memory)
+                    Spacer()
+                    Text(entry.relativeTime)
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(.tertiary)
+                }
+
+                // Query
+                Text(entry.query)
+                    .font(Autumn.typography.callout)
+                    .foregroundStyle(.primary)
+                    .lineLimit(isExpanded ? nil : 2)
+                    .textSelection(.enabled)
+
+                // Expanded detail
+                if isExpanded {
+                    Divider()
+                    Grid(alignment: .leading, horizontalSpacing: Autumn.spacing.md, verticalSpacing: 5) {
+                        detailRow(label: "原因", value: entry.reason)
+                        if !entry.decisionReason.isEmpty {
+                            detailRow(label: "A1 判断", value: entry.decisionReason)
+                        }
+                        if let mediatedBy = entry.mediatedBy, !mediatedBy.isEmpty {
+                            detailRow(label: "调解方", value: mediatedBy)
+                        }
+                        GridRow {
+                            Text("条目数").font(Autumn.typography.caption).foregroundStyle(.secondary)
+                            Text("\(entry.entryIds.count) 条")
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                        if entry.redact {
+                            GridRow {
+                                Text("脱敏").font(Autumn.typography.caption).foregroundStyle(.secondary)
+                                AutumnBadge("已脱敏", icon: "eye.slash", tone: .warning)
+                            }
+                        }
+                    }
+                    .transition(.opacity)
+                }
+
+                HStack {
+                    Spacer()
+                    AutumnGhostButton(action: {
+                        withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
+                    }) {
+                        HStack(spacing: Autumn.spacing.xs) {
+                            Text(isExpanded ? "收起" : "展开详情")
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    private func detailRow(label: String, value: String) -> some View {
+        GridRow {
+            Text(label)
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(Autumn.typography.caption)
+                .textSelection(.enabled)
         }
     }
 }
