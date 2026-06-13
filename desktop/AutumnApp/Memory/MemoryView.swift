@@ -27,27 +27,32 @@ struct MemoryView: View {
             }
         }
         .navigationTitle(navTitle)
-        .task { await vm.load() }
+        .task { await refreshCurrentMode() }
+        .onChange(of: vm.viewMode) { _, _ in
+            Task { await refreshCurrentMode() }
+        }
         .onChange(of: vm.selectedArea) { _, _ in
             vm.selectedMode = nil
-            Task { await vm.load() }
+            Task { await refreshCurrentMode() }
         }
     }
 
     private var navTitle: String {
-        switch vm.viewMode {
-        case .memory:      return "记忆"
-        case .accessLog:   return "Mom1 访问审计"
-        case .pushPreview: return "4D 推送预览"
-        }
+        vm.viewMode == .accessLog ? "Mom1 访问审计" : vm.viewMode.title
     }
 
-    private func toggle(_ mode: MemoryViewModel.ViewMode, loader: @escaping () async -> Void) {
-        if vm.viewMode == mode {
-            vm.viewMode = .memory
-        } else {
-            vm.viewMode = mode
-            Task { await loader() }
+    private func refreshCurrentMode(forcePushPreview: Bool = false) async {
+        switch vm.viewMode {
+        case .memory:
+            await vm.load()
+        case .accessLog:
+            await vm.loadFourDStatus()
+            await vm.loadAccessLog()
+        case .pushPreview:
+            await vm.loadFourDStatus()
+            if forcePushPreview || vm.hasRunPush {
+                await vm.runPushPreview()
+            }
         }
     }
 
@@ -55,7 +60,17 @@ struct MemoryView: View {
 
     private var toolbar: some View {
         HStack(spacing: Autumn.spacing.md) {
-            if vm.viewMode == .memory {
+            Picker("视图", selection: $vm.viewMode) {
+                ForEach(MemoryViewModel.ViewMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.icon).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 320)
+
+            if vm.viewMode == .accessLog {
+                AutumnBadge("Mom1 受治理访问", icon: "checkmark.shield.fill", tone: .warning)
+            } else {
                 Picker("记忆区", selection: $vm.selectedArea) {
                     ForEach(MemoryArea.allCases) { area in
                         Text(area.title).tag(area)
@@ -64,19 +79,10 @@ struct MemoryView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 260)
                 AutumnBadge(vm.selectedArea.subtitle, tone: .accent)
-            } else {
-                HStack(spacing: Autumn.spacing.xs) {
-                    Image(systemName: vm.viewMode == .accessLog ? "shield.lefthalf.filled" : "bolt.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(vm.viewMode == .accessLog ? Autumn.colors.warning : Autumn.colors.memory)
-                    Text(navTitle).font(Autumn.typography.headline)
-                    AutumnBadge(vm.selectedArea.title, tone: .neutral)
-                }
             }
 
             Spacer()
 
-            // Auto-annotate (memory mode only) — A4 infers 4D dimensions.
             if vm.viewMode == .memory {
                 Button {
                     Task { await vm.autoAnnotate() }
@@ -108,36 +114,8 @@ struct MemoryView: View {
                 .disabled(vm.isLoading || vm.isConsolidating)
             }
 
-            // Push-preview toggle
             Button {
-                toggle(.pushPreview, loader: {})
-            } label: {
-                Image(systemName: "bolt.badge.clock")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(vm.viewMode == .pushPreview ? Autumn.colors.memory : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(vm.viewMode == .pushPreview ? "返回记忆视图" : "4D 推送预览：看看哪些记忆会被自动注入")
-
-            // Access-log toggle
-            Button {
-                toggle(.accessLog, loader: { await vm.loadAccessLog() })
-            } label: {
-                Image(systemName: vm.viewMode == .accessLog ? "shield.lefthalf.filled" : "shield")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(vm.viewMode == .accessLog ? Autumn.colors.warning : .secondary)
-            }
-            .buttonStyle(.plain)
-            .help(vm.viewMode == .accessLog ? "返回记忆视图" : "Mom1 访问审计日志")
-
-            Button {
-                Task {
-                    switch vm.viewMode {
-                    case .memory:      await vm.load()
-                    case .accessLog:   await vm.loadAccessLog()
-                    case .pushPreview: await vm.runPushPreview()
-                    }
-                }
+                Task { await refreshCurrentMode(forcePushPreview: vm.viewMode == .pushPreview) }
             } label: {
                 Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .medium))
             }
@@ -160,6 +138,11 @@ struct MemoryView: View {
             AutumnBadge(status.fourdPushOnTurn ? "推送 开" : "推送 关",
                         icon: "bolt.fill",
                         tone: status.fourdPushOnTurn ? .warning : .neutral)
+            AutumnBadge(status.mom1AccessEnabled ? "Mom1 通道 开" : "Mom1 通道 关",
+                        icon: status.mom1AccessEnabled ? "checkmark.shield.fill" : "shield.slash",
+                        tone: status.mom1AccessEnabled ? .success : .neutral)
+        } else {
+            AutumnBadge("4D 状态未知", icon: "questionmark.circle", tone: .neutral)
         }
     }
 
@@ -208,6 +191,7 @@ struct MemoryView: View {
             MemoryStat(label: "已拒绝", value: "\(vm.deniedCount)", icon: "xmark.shield.fill",
                        color: Autumn.colors.danger)
             Spacer()
+            fourdStatusBadges()
             AutumnBadge("WP4 审计", icon: "shield.lefthalf.filled", tone: .warning)
         }
         .padding(.horizontal, Autumn.spacing.lg)
@@ -221,6 +205,7 @@ struct MemoryView: View {
         HStack(spacing: Autumn.spacing.md) {
             MemoryStat(label: "命中", value: "\(vm.pushFired.count)", icon: "bolt.fill",
                        color: Autumn.colors.memory)
+            AutumnBadge(vm.selectedArea.title, icon: "tray.full", tone: .accent)
             Spacer()
             fourdStatusBadges()
             AutumnBadge(vm.pushEnabled ? "回合推送已启用" : "回合推送未启用",

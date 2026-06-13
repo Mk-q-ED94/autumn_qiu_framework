@@ -29,7 +29,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .workspace: return "sparkles"
-        case .memory: return "tray.full"
+        case .memory: return "brain"
         case .terrs: return "puzzlepiece.extension"
         case .settings: return "gearshape"
         }

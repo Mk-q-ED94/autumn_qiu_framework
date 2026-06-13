@@ -362,14 +362,7 @@ private struct KnownMCPRow: View {
                     Text(mcp.name)
                         .font(Autumn.typography.bodyMedium)
                     AutumnChip(mcp.factory, color: Autumn.colors.muted, size: .compact)
-                    Spacer()
-                    if mcp.needsCredentials {
-                        AutumnChip("需凭据", icon: "key.fill",
-                                   color: Autumn.colors.warning, size: .compact)
-                    } else {
-                        AutumnChip("无需凭据", icon: "checkmark.seal.fill",
-                                   color: Autumn.colors.success, size: .compact)
-                    }
+                    credentialChip
                 }
                 Text(mcp.description)
                     .font(Autumn.typography.caption)
@@ -381,6 +374,17 @@ private struct KnownMCPRow: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var credentialChip: some View {
+        if mcp.needsCredentials {
+            AutumnChip("需凭据", icon: "key.fill",
+                       color: Autumn.colors.warning, size: .compact)
+        } else {
+            AutumnChip("无需凭据", icon: "checkmark.seal.fill",
+                       color: Autumn.colors.success, size: .compact)
         }
     }
 }

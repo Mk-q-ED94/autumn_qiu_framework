@@ -300,18 +300,30 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("4D 激活排序", isOn: Binding(
-                    get: { fourdMemoryEnabled },
-                    set: { fourdMemoryEnabled = $0; Task { await applyFourD() } }
-                ))
-                Toggle("每轮推送（CONSTRAIN / REMIND 自动注入）", isOn: Binding(
-                    get: { fourdPushOnTurn },
-                    set: { fourdPushOnTurn = $0; Task { await applyFourD() } }
-                ))
-                Toggle("Mom1 受治理访问通道", isOn: Binding(
-                    get: { mom1AccessEnabled },
-                    set: { mom1AccessEnabled = $0; Task { await applyFourD() } }
-                ))
+                FourDRuntimeRow(
+                    title: "4D 激活排序",
+                    detail: "回忆、归并和淘汰时按 use / scope / trigger / retention 参与排序。",
+                    icon: "brain",
+                    tint: Autumn.colors.memory,
+                    isOn: fourdMemoryBinding,
+                    isApplying: fourdApplying
+                )
+                FourDRuntimeRow(
+                    title: "回合推送",
+                    detail: "每轮开始前自动注入 CONSTRAIN / REMIND 记忆片段。",
+                    icon: "bolt.fill",
+                    tint: Autumn.colors.warning,
+                    isOn: fourdPushBinding,
+                    isApplying: fourdApplying
+                )
+                FourDRuntimeRow(
+                    title: "Mom1 访问治理",
+                    detail: "Mom2/Mom3 读取 Mom1 前由 A1 裁决，并写入 WP4 审计日志。",
+                    icon: "checkmark.shield.fill",
+                    tint: Autumn.colors.teal,
+                    isOn: mom1AccessBinding,
+                    isApplying: fourdApplying
+                )
                 HStack(spacing: Autumn.spacing.sm) {
                     if fourdApplying {
                         ProgressView().controlSize(.small)
@@ -333,7 +345,7 @@ struct SettingsView: View {
             } header: {
                 Text("4D 记忆引擎")
             } footer: {
-                Text("运行时开关，立即对服务器生效（不写回 .env）。排序：回忆/淘汰按四维激活打分；推送：每轮开始自动注入约束/提醒记忆；Mom1 通道：允许 Mom2/Mom3 经 A1 裁决申请读取 Mom1。重启服务后回到 .env 的默认值。")
+                Text("运行时开关会立即对当前服务器生效，不写回 .env；重启服务后回到 .env 默认值。")
                     .font(.caption)
             }
 
@@ -439,6 +451,27 @@ struct SettingsView: View {
         }
     }
 
+    private var fourdMemoryBinding: Binding<Bool> {
+        Binding(
+            get: { fourdMemoryEnabled },
+            set: { fourdMemoryEnabled = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var fourdPushBinding: Binding<Bool> {
+        Binding(
+            get: { fourdPushOnTurn },
+            set: { fourdPushOnTurn = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var mom1AccessBinding: Binding<Bool> {
+        Binding(
+            get: { mom1AccessEnabled },
+            set: { mom1AccessEnabled = $0; Task { await applyFourD() } }
+        )
+    }
+
     private func checkConnection() async {
         guard let url = URL(string: settings.serverURL) else {
             connectionState = .failed("URL 无效")
@@ -460,19 +493,31 @@ struct SettingsView: View {
     // ── 4D runtime switches ─────────────────────────────────────────────────────
 
     private func loadFourD() async {
-        guard let url = URL(string: settings.serverURL) else { return }
-        guard let status = try? await AutumnClient(baseURL: url).fetch4DStatus() else { return }
-        // Assign the @State directly (not via the toggles' bindings) so syncing
-        // from the server does not trigger an apply round-trip.
-        fourdMemoryEnabled = status.fourdMemoryEnabled
-        fourdPushOnTurn = status.fourdPushOnTurn
-        mom1AccessEnabled = status.mom1AccessEnabled
-        fourdError = nil
-        fourdLoaded = true
+        guard let url = URL(string: settings.serverURL) else {
+            fourdError = "服务器 URL 无效"
+            fourdLoaded = false
+            return
+        }
+        do {
+            let status = try await AutumnClient(baseURL: url).fetch4DStatus()
+            // Assign the @State directly (not via the toggles' bindings) so syncing
+            // from the server does not trigger an apply round-trip.
+            fourdMemoryEnabled = status.fourdMemoryEnabled
+            fourdPushOnTurn = status.fourdPushOnTurn
+            mom1AccessEnabled = status.mom1AccessEnabled
+            fourdError = nil
+            fourdLoaded = true
+        } catch {
+            fourdError = error.localizedDescription
+            fourdLoaded = false
+        }
     }
 
     private func applyFourD() async {
-        guard let url = URL(string: settings.serverURL) else { return }
+        guard let url = URL(string: settings.serverURL) else {
+            fourdError = "服务器 URL 无效"
+            return
+        }
         fourdApplying = true
         defer { fourdApplying = false }
         do {
@@ -869,6 +914,45 @@ private struct TabPill: View {
 }
 
 // MARK: - Memory area card
+
+private struct FourDRuntimeRow: View {
+    let title: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    @Binding var isOn: Bool
+    let isApplying: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Autumn.spacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                        .fill(tint.opacity(0.12))
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Autumn.typography.captionMedium)
+                Text(detail)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: Autumn.spacing.md)
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(isApplying)
+        }
+        .padding(.vertical, 3)
+    }
+}
 
 private struct MemoryAreaCard: View {
     let code: String

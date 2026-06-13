@@ -2,7 +2,29 @@ import Foundation
 
 @MainActor
 final class MemoryViewModel: ObservableObject {
-    enum ViewMode { case memory, accessLog, pushPreview }
+    enum ViewMode: String, CaseIterable, Identifiable {
+        case memory
+        case pushPreview
+        case accessLog
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .memory:      return "记忆"
+            case .pushPreview: return "推送预览"
+            case .accessLog:   return "访问审计"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .memory:      return "brain"
+            case .pushPreview: return "bolt.badge.clock"
+            case .accessLog:   return "shield.lefthalf.filled"
+            }
+        }
+    }
 
     @Published var viewMode: ViewMode = .memory
     @Published var selectedArea: MemoryArea = .mom1
@@ -79,8 +101,13 @@ final class MemoryViewModel: ObservableObject {
             overview = nil
             errorMessage = error.localizedDescription
         }
+        await loadFourDStatus()
+    }
+
+    func loadFourDStatus() async {
+        guard let url = URL(string: settings.serverURL) else { return }
         // 4D status is best-effort: an older server without the endpoint simply
-        // leaves the badges hidden rather than failing the whole load.
+        // leaves the memory list usable rather than failing the whole load.
         fourdStatus = try? await AutumnClient(baseURL: url).fetch4DStatus()
     }
 
@@ -146,6 +173,7 @@ final class MemoryViewModel: ObservableObject {
             pushFragment = response.fragment
             pushEnabled = response.enabled
             hasRunPush = true
+            await loadFourDStatus()
         } catch {
             pushFired = []
             pushFragment = ""

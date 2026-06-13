@@ -26,10 +26,12 @@ targets:
           - "Resources/AutumnDesktop.entitlements"
           - "Resources/zh-Hans.lproj"
           - "Resources/en.lproj"
-    resources:
       - path: AutumnApp/Resources/Assets.xcassets
+        buildPhase: resources
       - path: AutumnApp/Resources/zh-Hans.lproj
+        buildPhase: resources
       - path: AutumnApp/Resources/en.lproj
+        buildPhase: resources
     info:
       path: AutumnApp/Resources/Info.plist
       properties:
