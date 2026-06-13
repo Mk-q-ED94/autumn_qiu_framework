@@ -429,6 +429,8 @@ python -m pytest
 
 ### 未发布 —— 四维记忆（活性记忆）、客户端重设计、平台集成与质量梳理
 
+- **平台集成** —— 只需保存一次凭据（GitHub、GitLab、Slack、Brave、Google Maps、Postgres），WP2 agent 在本会话内即获得该平台的工具：自行读写 issues、PR、文件与消息，无需每次手动提供凭据。服务端启动对应的 MCP 服务并注册为一个 Terr —— `GET /integrations/catalog`、`/integrations/status`、`POST /integrations/connect`、`DELETE /integrations/{id}`。凭据只保存在服务器进程内，`/config/apply` 重建后自动恢复，状态接口绝不回传明文。macOS 设置 → 集成 标签页提供连接 / 更新 / 断开与实时状态。
+- **「纸感陶土」客户端重塑** —— 桌面视觉语言从暖橙色阶转向由单一陶土强调色统领的冷静中性画布（Claude / ChatGPT / Codex 那种克制的单强调色方向）：随主题自适应的表面、干净的系统无衬线字体、压扁的阴影与发丝级描边。全部走设计令牌，一次性重塑所有视图。
 - **四个正交维度** —— `MemoryEntry` 在内容之外新增 `aim`（为什么——关联门）、`use`（怎么用——处理模式 + 使用账本）、`trigger`（何时——带权时间轴调度器）。序列化带版本号（`_v=2`）且完全向后兼容；v1 旧记录原样加载。
 - **激活打分** —— 回忆/淘汰可按 `trigger.weight × 衰减后重要度 × aim.align × (1 + use.utility)` 排序，由 `FOURD_MEMORY_ENABLED` 开关守护（默认关闭 → 行为与之前完全一致）。
 - **pull 引擎** —— `WP4.activate(query)` 闭合反馈环：检索命中会回写各自的 `use` 账本，反复有用的记忆排名更靠前、更晚被淘汰。
@@ -440,8 +442,6 @@ python -m pytest
 - **追踪与管线条** —— 触发的 push 在工作流追踪中显示为 `wp4.push` 阶段；管线条新增紫色 4D brain 芯片，引擎触发时折叠摘要以「4D 推入」开头。
 - **记忆浏览器重设计（macOS 客户端）** —— 记忆视图围绕四维系统重建：使用模式筛选芯片（约束 / 提醒 / 上下文 / 摘要，带实时计数——仅当记忆区存在四维条目时出现）、最新优先排序、每条记忆的置顶 / 相对时间 / 标签 / 重要度标识、统计条新增四维注解计数，以及把 `aim.scope` 与 `trigger.cues` 渲染为换行芯片的专属四维卡片。新增 `Autumn.colors.memory` 设计令牌统一各视图的四维视觉身份；v2 序列化记录的标题现在能正确解析（schema 默认的 `use.mode=context` 不再给每一行都打上徽章）。
 - **可靠性与代码质量梳理** —— 包元数据修正为实际支持的依赖（`pydantic>=2,<3`，取消 FastAPI 上界锁定）；服务端迁移掉已被移除的 Pydantic v1 API（`.dict()`/`.json()` → `model_dump…`）；向量存储表名加入 SQL 注入校验；工具调用/结果配对使用 `zip(strict=True)`；SQLite 后端改用 `asyncio.get_running_loop()`；另有全模块 ruff 风格与导入清理（约 130 处修复）。
-- **平台集成** —— 只需保存一次凭据（GitHub、GitLab、Slack、Brave、Google Maps、Postgres），WP2 agent 在本会话内即获得该平台的工具：自行读写 issues、PR、文件与消息，无需每次手动提供凭据。服务端启动对应的 MCP 服务并注册为一个 Terr —— `GET /integrations/catalog`、`/integrations/status`、`POST /integrations/connect`、`DELETE /integrations/{id}`。凭据只保存在服务器进程内，`/config/apply` 重建后自动恢复，状态接口绝不回传明文。macOS 设置 → 集成 标签页提供连接 / 更新 / 断开与实时状态。
-- **「纸感陶土」客户端重塑** —— 桌面视觉语言从暖橙色阶转向由单一陶土强调色统领的冷静中性画布（Claude / ChatGPT / Codex 那种克制的单强调色方向）：随主题自适应的表面、干净的系统无衬线字体、压扁的阴影与发丝级描边。全部走设计令牌，一次性重塑所有视图。
 - 完整设计依据与分阶段计划见 [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md)。
 
 ### 0.2.1 —— 性能优化、新内置域与扩充 MCP 目录
