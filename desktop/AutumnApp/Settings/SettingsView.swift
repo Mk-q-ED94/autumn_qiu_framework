@@ -185,6 +185,20 @@ struct SettingsView: View {
                 Text("默认本地服务器地址为 http://127.0.0.1:8765。应用启动时会自动拉起捆绑的本地服务。")
                     .font(.caption)
             }
+
+            Section {
+                SecureField("API Key（本地服务器可留空）", text: $settings.serverAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+            } header: {
+                Text("访问密钥")
+            } footer: {
+                Text("当服务器设置了 AUTUMN_API_KEY（部署到本机以外时强烈建议开启）时，在此填入同一密钥；客户端会在每个请求上携带它。本地单用户运行可留空。")
+                    .font(.caption)
+            }
         }
         #if os(macOS)
         .formStyle(.grouped)
@@ -412,7 +426,9 @@ struct SettingsView: View {
                             status: integrationStatuses[entry.id],
                             isBusy: integrationBusy.contains(entry.id),
                             errorMessage: integrationErrors[entry.id],
-                            onConnect: { Task { await connectIntegration(entry) } },
+                            onConnect: { writeEnabled in
+                                Task { await connectIntegration(entry, writeEnabled: writeEnabled) }
+                            },
                             onDisconnect: { Task { await disconnectIntegration(entry) } }
                         )
                         if entry.id != integrationCatalog.last?.id {
@@ -609,7 +625,7 @@ struct SettingsView: View {
         }
     }
 
-    private func connectIntegration(_ entry: IntegrationCatalogEntry) async {
+    private func connectIntegration(_ entry: IntegrationCatalogEntry, writeEnabled: Bool) async {
         guard let url = URL(string: settings.serverURL) else { return }
         integrationErrors[entry.id] = nil
         integrationBusy.insert(entry.id)
@@ -617,7 +633,9 @@ struct SettingsView: View {
         let client = AutumnClient(baseURL: url)
         do {
             let status = try await client.connectIntegration(
-                id: entry.id, args: settings.integrationArgs(for: entry)
+                id: entry.id,
+                args: settings.integrationArgs(for: entry),
+                writeEnabled: writeEnabled
             )
             integrationStatuses[entry.id] = status
         } catch {
@@ -1066,8 +1084,12 @@ private struct IntegrationRow: View {
     let status: IntegrationStatus?
     let isBusy: Bool
     let errorMessage: String?
-    let onConnect: () -> Void
+    let onConnect: (Bool) -> Void
     let onDisconnect: () -> Void
+
+    /// User's pending write-access choice. Mirrors the server's truth when the
+    /// platform is connected; takes effect on the next (re)connect.
+    @State private var writeEnabled: Bool = false
 
     private var connected: Bool { status?.connected == true }
 
@@ -1077,6 +1099,7 @@ private struct IntegrationRow: View {
             ForEach(entry.fields) { field in
                 fieldEditor(field)
             }
+            writeAccessControl
             if let msg = displayedError, !msg.isEmpty {
                 Label(msg, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -1086,6 +1109,29 @@ private struct IntegrationRow: View {
             actions
         }
         .padding(.vertical, Autumn.spacing.xs)
+        .onAppear { writeEnabled = status?.writeEnabled ?? false }
+        .onChange(of: status?.writeEnabled) { _, newValue in
+            writeEnabled = newValue ?? false
+        }
+    }
+
+    private var writeAccessControl: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(isOn: $writeEnabled) {
+                Text("允许写操作（创建 / 编辑 / 删除 / 发送）")
+                    .font(Autumn.typography.caption)
+            }
+            #if os(macOS)
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            #endif
+            Text(writeEnabled
+                 ? "Agent 可在该平台上修改你的真实账户内容，连接后立即生效。"
+                 : "默认只读：Agent 仅能读取，无法修改你的账户。开启后需（重新）连接才生效。")
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var header: some View {
@@ -1107,10 +1153,22 @@ private struct IntegrationRow: View {
             }
             Spacer()
             if connected {
-                AutumnBadge("已连接 · \(status?.toolCount ?? 0) 工具",
-                            icon: "checkmark.circle.fill", tone: .success)
+                VStack(alignment: .trailing, spacing: 3) {
+                    AutumnBadge("已连接 · \(status?.toolCount ?? 0) 工具",
+                                icon: "checkmark.circle.fill", tone: .success)
+                    if status?.writeEnabled == true {
+                        AutumnBadge("可写", icon: "pencil", tone: .warning)
+                    } else {
+                        AutumnBadge(blockedBadgeText, icon: "lock.fill", tone: .neutral)
+                    }
+                }
             }
         }
+    }
+
+    private var blockedBadgeText: String {
+        let blocked = status?.blockedToolCount ?? 0
+        return blocked > 0 ? "只读 · 屏蔽 \(blocked) 个写工具" : "只读"
     }
 
     @ViewBuilder
@@ -1137,7 +1195,7 @@ private struct IntegrationRow: View {
                 .disabled(isBusy)
             }
             Spacer()
-            Button(action: onConnect) {
+            Button(action: { onConnect(writeEnabled) }) {
                 if isBusy {
                     ProgressView().controlSize(.small)
                 } else {

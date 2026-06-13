@@ -4,6 +4,10 @@ import SwiftUI
 @MainActor
 final class AppSettings: ObservableObject {
     @Published var serverURL: String { didSet { _schedulePersist() } }
+    /// Optional shared secret for an authenticated server (its AUTUMN_API_KEY).
+    /// When non-empty it is sent as `X-API-Key` on every request; leave blank for
+    /// an unauthenticated local server.
+    @Published var serverAPIKey: String { didSet { _schedulePersist(); _syncAPIKey() } }
     @Published var routeMode: String { didSet { _schedulePersist() } }
 
     @Published var a1APIKey: String   { didSet { _schedulePersist() } }
@@ -39,6 +43,7 @@ final class AppSettings: ObservableObject {
     @Published var integrationCredentials: [String: String] { didSet { _schedulePersist() } }
 
     private static let serverURLKey  = "AutumnDesktop.serverURL"
+    private static let serverAPIKeyKey = "AutumnDesktop.serverAPIKey"
     private static let routeModeKey  = "AutumnDesktop.routeMode"
     private static let a1APIKeyKey   = "AutumnDesktop.a1APIKey"
     private static let a1BaseURLKey  = "AutumnDesktop.a1BaseURL"
@@ -67,6 +72,7 @@ final class AppSettings: ObservableObject {
 
     init() {
         self.serverURL  = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
+        self.serverAPIKey = UserDefaults.standard.string(forKey: Self.serverAPIKeyKey) ?? ""
         self.routeMode  = UserDefaults.standard.string(forKey: Self.routeModeKey) ?? "auto"
         self.a1APIKey   = UserDefaults.standard.string(forKey: Self.a1APIKeyKey)  ?? ""
         self.a1BaseURL  = UserDefaults.standard.string(forKey: Self.a1BaseURLKey) ?? Self.openAIBaseURL
@@ -88,7 +94,15 @@ final class AppSettings: ObservableObject {
         self.a4Protocol = UserDefaults.standard.string(forKey: Self.a4ProtocolKey) ?? "openai"
         self.a4Model    = UserDefaults.standard.string(forKey: Self.a4ModelKey)   ?? ""
         self.integrationCredentials = Self.loadIntegrationCredentials()
+        _syncAPIKey()
         refreshInitialModelStates()
+    }
+
+    /// Mirror the server API key into the networking layer so every request
+    /// carries it. Called on load and whenever the key changes.
+    private func _syncAPIKey() {
+        let trimmed = serverAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        AutumnClient.apiKey = trimmed.isEmpty ? nil : trimmed
     }
 
     // ── platform-integration credentials ───────────────────────────────────────
@@ -216,6 +230,7 @@ final class AppSettings: ObservableObject {
     private func _flush() {
         let ud = UserDefaults.standard
         ud.set(serverURL,  forKey: Self.serverURLKey)
+        ud.set(serverAPIKey, forKey: Self.serverAPIKeyKey)
         ud.set(routeMode,  forKey: Self.routeModeKey)
         ud.set(a1APIKey,   forKey: Self.a1APIKeyKey)
         ud.set(a1BaseURL,  forKey: Self.a1BaseURLKey)

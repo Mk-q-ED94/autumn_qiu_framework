@@ -50,13 +50,28 @@ struct IntegrationStatus: Decodable, Identifiable, Equatable {
     let name: String
     let connected: Bool
     let toolCount: Int
+    /// Whether mutating tools (create/edit/delete/post) are exposed to the agent.
+    /// Read-only by default; the dangerous tools are withheld until granted.
+    let writeEnabled: Bool
+    /// How many mutating tools are being withheld while in read-only mode.
+    let blockedToolCount: Int
     let error: String?
 
-    init(id: String, name: String, connected: Bool, toolCount: Int = 0, error: String? = nil) {
+    init(
+        id: String,
+        name: String,
+        connected: Bool,
+        toolCount: Int = 0,
+        writeEnabled: Bool = false,
+        blockedToolCount: Int = 0,
+        error: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.connected = connected
         self.toolCount = toolCount
+        self.writeEnabled = writeEnabled
+        self.blockedToolCount = blockedToolCount
         self.error = error
     }
 
@@ -66,12 +81,16 @@ struct IntegrationStatus: Decodable, Identifiable, Equatable {
         name = try c.decode(String.self, forKey: .name)
         connected = try c.decode(Bool.self, forKey: .connected)
         toolCount = try c.decodeIfPresent(Int.self, forKey: .toolCount) ?? 0
+        writeEnabled = try c.decodeIfPresent(Bool.self, forKey: .writeEnabled) ?? false
+        blockedToolCount = try c.decodeIfPresent(Int.self, forKey: .blockedToolCount) ?? 0
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, connected, error
         case toolCount = "tool_count"
+        case writeEnabled = "write_enabled"
+        case blockedToolCount = "blocked_tool_count"
     }
 }
 
@@ -79,4 +98,17 @@ struct IntegrationStatus: Decodable, Identifiable, Equatable {
 struct IntegrationConnectBody: Encodable {
     let id: String
     let args: [String: String]
+    /// Opt-in grant: when false (default) the agent only gets the read surface.
+    let writeEnabled: Bool
+
+    init(id: String, args: [String: String], writeEnabled: Bool = false) {
+        self.id = id
+        self.args = args
+        self.writeEnabled = writeEnabled
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, args
+        case writeEnabled = "write_enabled"
+    }
 }
