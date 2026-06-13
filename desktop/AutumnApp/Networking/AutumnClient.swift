@@ -241,6 +241,53 @@ final class AutumnClient {
         return try JSONDecoder().decode([KnownMCP].self, from: data)
     }
 
+    // ── platform integrations ─────────────────────────────────────────────────
+
+    func integrationCatalog() async throws -> [IntegrationCatalogEntry] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("integrations/catalog"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([IntegrationCatalogEntry].self, from: data)
+    }
+
+    func integrationStatus() async throws -> [IntegrationStatus] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("integrations/status"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([IntegrationStatus].self, from: data)
+    }
+
+    @discardableResult
+    func connectIntegration(id: String, args: [String: String]) async throws -> IntegrationStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("integrations/connect"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Spawning the MCP subprocess (npx download on first run) can be slow.
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(IntegrationConnectBody(id: id, args: args))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(IntegrationStatus.self, from: data)
+    }
+
+    @discardableResult
+    func disconnectIntegration(id: String) async throws -> IntegrationStatus {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("integrations").appendingPathComponent(id)
+        )
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(IntegrationStatus.self, from: data)
+    }
+
     func endSession() async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("session/end"))
         request.httpMethod = "POST"

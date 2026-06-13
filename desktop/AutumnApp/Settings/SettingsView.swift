@@ -33,6 +33,13 @@ struct SettingsView: View {
     @State private var fourdApplying = false
     @State private var fourdError: String?
 
+    // Platform integrations (GitHub etc.) — catalog + live connection state.
+    @State private var integrationCatalog: [IntegrationCatalogEntry] = []
+    @State private var integrationStatuses: [String: IntegrationStatus] = [:]
+    @State private var integrationBusy: Set<String> = []
+    @State private var integrationErrors: [String: String] = [:]
+    @State private var integrationsLoaded = false
+
     enum ConnectionState {
         case unknown
         case ok(configured: Bool)
@@ -40,25 +47,27 @@ struct SettingsView: View {
     }
 
     enum SettingsTab: String, CaseIterable, Identifiable {
-        case server, models, memory, advanced
+        case server, models, memory, integrations, advanced
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .server:   return "服务器"
-            case .models:   return "模型"
-            case .memory:   return "记忆"
-            case .advanced: return "高级"
+            case .server:       return "服务器"
+            case .models:       return "模型"
+            case .memory:       return "记忆"
+            case .integrations: return "集成"
+            case .advanced:     return "高级"
             }
         }
 
         var icon: String {
             switch self {
-            case .server:   return "server.rack"
-            case .models:   return "cpu"
-            case .memory:   return "brain"
-            case .advanced: return "slider.horizontal.3"
+            case .server:       return "server.rack"
+            case .models:       return "cpu"
+            case .memory:       return "brain"
+            case .integrations: return "key.fill"
+            case .advanced:     return "slider.horizontal.3"
             }
         }
     }
@@ -73,6 +82,7 @@ struct SettingsView: View {
         .onAppear {
             Task { await checkConnection() }
             Task { await loadFourD() }
+            Task { await loadIntegrations() }
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
@@ -134,10 +144,11 @@ struct SettingsView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch selectedTab {
-        case .server:   serverTab
-        case .models:   modelsTab
-        case .memory:   memoryTab
-        case .advanced: advancedTab
+        case .server:       serverTab
+        case .models:       modelsTab
+        case .memory:       memoryTab
+        case .integrations: integrationsTab
+        case .advanced:     advancedTab
         }
     }
 
@@ -377,6 +388,50 @@ struct SettingsView: View {
         #endif
     }
 
+    // ── integrations tab ──────────────────────────────────────────────────────
+
+    private var integrationsTab: some View {
+        Form {
+            Section {
+                if integrationCatalog.isEmpty {
+                    HStack(spacing: Autumn.spacing.sm) {
+                        if !integrationsLoaded {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "wifi.slash").foregroundStyle(.secondary)
+                        }
+                        Text(integrationsLoaded ? "服务器未提供集成目录，或尚未连接。" : "正在加载平台目录…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(integrationCatalog) { entry in
+                        IntegrationRow(
+                            entry: entry,
+                            settings: settings,
+                            status: integrationStatuses[entry.id],
+                            isBusy: integrationBusy.contains(entry.id),
+                            errorMessage: integrationErrors[entry.id],
+                            onConnect: { Task { await connectIntegration(entry) } },
+                            onDisconnect: { Task { await disconnectIntegration(entry) } }
+                        )
+                        if entry.id != integrationCatalog.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            } header: {
+                Text("平台集成")
+            } footer: {
+                Text("填入平台令牌后点击连接，Autumn 会在服务器侧启动对应的 MCP 服务。当你的请求涉及读写该平台内容（如 GitHub 的 issues、PR、仓库文件）时，agent 会自行调用这些工具，无需每次手动提供凭据。令牌仅保存在本地与运行中的服务器进程，状态接口不会回传明文。需要服务器主机安装 npx / uvx。")
+                    .font(.caption)
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+    }
+
     // ── advanced tab ──────────────────────────────────────────────────────────
 
     private var advancedTab: some View {
@@ -533,6 +588,55 @@ struct SettingsView: View {
             fourdLoaded = true
         } catch {
             fourdError = error.localizedDescription
+        }
+    }
+
+    // ── platform integrations ───────────────────────────────────────────────────
+
+    private func loadIntegrations() async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        let client = AutumnClient(baseURL: url)
+        if let catalog = try? await client.integrationCatalog() {
+            integrationCatalog = catalog
+        }
+        await refreshIntegrationStatus(client: client)
+        integrationsLoaded = true
+    }
+
+    private func refreshIntegrationStatus(client: AutumnClient) async {
+        if let statuses = try? await client.integrationStatus() {
+            integrationStatuses = Dictionary(statuses.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        }
+    }
+
+    private func connectIntegration(_ entry: IntegrationCatalogEntry) async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        integrationErrors[entry.id] = nil
+        integrationBusy.insert(entry.id)
+        defer { integrationBusy.remove(entry.id) }
+        let client = AutumnClient(baseURL: url)
+        do {
+            let status = try await client.connectIntegration(
+                id: entry.id, args: settings.integrationArgs(for: entry)
+            )
+            integrationStatuses[entry.id] = status
+        } catch {
+            integrationErrors[entry.id] = error.localizedDescription
+            await refreshIntegrationStatus(client: client)
+        }
+    }
+
+    private func disconnectIntegration(_ entry: IntegrationCatalogEntry) async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        integrationErrors[entry.id] = nil
+        integrationBusy.insert(entry.id)
+        defer { integrationBusy.remove(entry.id) }
+        let client = AutumnClient(baseURL: url)
+        do {
+            let status = try await client.disconnectIntegration(id: entry.id)
+            integrationStatuses[entry.id] = status
+        } catch {
+            integrationErrors[entry.id] = error.localizedDescription
         }
     }
 
@@ -913,7 +1017,7 @@ private struct TabPill: View {
     }
 }
 
-// MARK: - Memory area card
+// MARK: - 4D runtime row
 
 private struct FourDRuntimeRow: View {
     let title: String
@@ -953,6 +1057,130 @@ private struct FourDRuntimeRow: View {
         .padding(.vertical, 3)
     }
 }
+
+// MARK: - Integration row
+
+private struct IntegrationRow: View {
+    let entry: IntegrationCatalogEntry
+    @ObservedObject var settings: AppSettings
+    let status: IntegrationStatus?
+    let isBusy: Bool
+    let errorMessage: String?
+    let onConnect: () -> Void
+    let onDisconnect: () -> Void
+
+    private var connected: Bool { status?.connected == true }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            header
+            ForEach(entry.fields) { field in
+                fieldEditor(field)
+            }
+            if let msg = displayedError, !msg.isEmpty {
+                Label(msg, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(Autumn.colors.danger)
+                    .lineLimit(2)
+            }
+            actions
+        }
+        .padding(.vertical, Autumn.spacing.xs)
+    }
+
+    private var header: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(connected ? Autumn.colors.success : Autumn.colors.muted)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                        .fill((connected ? Autumn.colors.success : Autumn.colors.muted).opacity(0.12))
+                )
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.name).font(Autumn.typography.bodyMedium)
+                Text(entry.description)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if connected {
+                AutumnBadge("已连接 · \(status?.toolCount ?? 0) 工具",
+                            icon: "checkmark.circle.fill", tone: .success)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fieldEditor(_ field: IntegrationField) -> some View {
+        if field.secret {
+            SecureField(field.label, text: binding(for: field.key))
+                .textFieldStyle(.roundedBorder)
+        } else {
+            TextField(field.label, text: binding(for: field.key))
+                .textFieldStyle(.roundedBorder)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            if connected {
+                Button(role: .destructive, action: onDisconnect) {
+                    Text("断开")
+                }
+                .disabled(isBusy)
+            }
+            Spacer()
+            Button(action: onConnect) {
+                if isBusy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(connected ? "更新凭据" : "连接")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isBusy || !hasRequiredFields)
+        }
+    }
+
+    private var displayedError: String? {
+        errorMessage ?? status?.error
+    }
+
+    private var hasRequiredFields: Bool {
+        entry.fields.filter { !$0.optional }.allSatisfy { field in
+            !settings.integrationValue(entry.id, field.key)
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func binding(for key: String) -> Binding<String> {
+        Binding(
+            get: { settings.integrationValue(entry.id, key) },
+            set: { settings.setIntegrationValue(entry.id, key, $0) }
+        )
+    }
+
+    private var iconName: String {
+        switch entry.id {
+        case "github":       return "chevron.left.forwardslash.chevron.right"
+        case "gitlab":       return "arrow.triangle.branch"
+        case "slack":        return "number"
+        case "brave_search": return "magnifyingglass"
+        case "google_maps":  return "map.fill"
+        case "postgres":     return "cylinder.split.1x2"
+        default:             return "key.fill"
+        }
+    }
+}
+
+// MARK: - Memory area card
 
 private struct MemoryAreaCard: View {
     let code: String

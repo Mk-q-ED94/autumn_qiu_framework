@@ -16,6 +16,7 @@ from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
 from ..core.memory.project import project_context, reset_current_project, set_current_project
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
+from . import integrations as integrations_mod
 
 # How long an SSE stream can sit idle before we emit an `: ping` comment.
 # Most corporate proxies kill idle SSE connections at 30–60s; 15s is safe.
@@ -316,6 +317,33 @@ class AccessLogResponse(BaseModel):
     total: int
 
 
+class IntegrationField(BaseModel):
+    key: str
+    label: str
+    secret: bool = False
+    optional: bool = False
+
+
+class IntegrationCatalogEntry(BaseModel):
+    id: str
+    name: str
+    description: str
+    fields: list[IntegrationField]
+
+
+class IntegrationStatusEntry(BaseModel):
+    id: str
+    name: str
+    connected: bool
+    tool_count: int = 0
+    error: str | None = None
+
+
+class IntegrationConnectRequest(BaseModel):
+    id: str
+    args: dict[str, str] = Field(default_factory=dict)
+
+
 class OllamaTarget(BaseModel):
     base_url: str = "http://127.0.0.1:11434"
 
@@ -447,11 +475,53 @@ async def lifespan(app: FastAPI):
     # /config/apply calls can't leak an Autumn instance whose close() never runs.
     app.state.apply_lock = asyncio.Lock()
     app.state.last_error = None
+    # Platform integrations: desired credentials, live runtime handles, and the
+    # last connect error per id. integration_lock serialises connect/disconnect.
+    app.state.integrations = {}            # id -> args dict (the saved credential)
+    app.state.integration_runtime = {}     # id -> integrations_mod.IntegrationRuntime
+    app.state.integration_errors = {}      # id -> str
+    app.state.integration_lock = asyncio.Lock()
     try:
         yield
     finally:
         if app.state.autumn is not None:
             await app.state.autumn.close()
+
+
+async def _reapply_integrations(app: FastAPI, autumn: Autumn) -> None:
+    """Reconnect every saved integration onto a freshly built Autumn instance.
+
+    Called after /config/apply swaps the framework out: the old instance's
+    close() disconnects the previous MCP clients, so we rebuild the runtime map
+    from the persisted credentials. Best-effort — a platform that fails to start
+    records its error instead of breaking the whole config apply.
+    """
+    runtime: dict = {}
+    errors: dict = {}
+    for integration_id, args in list(app.state.integrations.items()):
+        try:
+            runtime[integration_id] = await integrations_mod.connect(autumn, integration_id, args)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the client as status
+            errors[integration_id] = str(exc)
+    app.state.integration_runtime = runtime
+    app.state.integration_errors = errors
+
+
+def _integration_status_list(app: FastAPI) -> list[IntegrationStatusEntry]:
+    runtime: dict = app.state.integration_runtime
+    errors: dict = app.state.integration_errors
+    out: list[IntegrationStatusEntry] = []
+    for entry in integrations_mod.INTEGRATIONS:
+        rid = entry["id"]
+        handle = runtime.get(rid)
+        out.append(IntegrationStatusEntry(
+            id=rid,
+            name=entry["name"],
+            connected=handle is not None,
+            tool_count=handle.tool_count if handle is not None else 0,
+            error=errors.get(rid),
+        ))
+    return out
 
 
 def _autumn_or_503(request: Request) -> Autumn:
@@ -601,6 +671,9 @@ def create_app() -> FastAPI:
             request.app.state.last_error = None
             if old is not None:
                 await old.close()
+            # Re-establish saved platform integrations on the new instance —
+            # old.close() disconnected the previous MCP clients.
+            await _reapply_integrations(request.app, new_autumn)
         return ApplyConfigResponse(status="ok", configured=True)
 
     @app.post("/process", response_model=ProcessResponse)
@@ -769,6 +842,75 @@ def create_app() -> FastAPI:
         show what's available before any model is wired up."""
         from ..builtin import KNOWN_MCPS
         return KNOWN_MCPS
+
+    @app.get("/integrations/catalog", response_model=list[IntegrationCatalogEntry])
+    async def integrations_catalog():
+        """The credentialed platforms the agent can be granted access to. Static,
+        secret-free — drives the Settings input forms before anything is wired."""
+        return integrations_mod.catalog()
+
+    @app.get("/integrations/status", response_model=list[IntegrationStatusEntry])
+    async def integrations_status(request: Request):
+        """Per-platform connection state: connected?, how many tools it exposed,
+        and the last connect error (never the credential itself)."""
+        return _integration_status_list(request.app)
+
+    @app.post("/integrations/connect", response_model=IntegrationStatusEntry)
+    async def integrations_connect(req: IntegrationConnectRequest, request: Request):
+        """Save a platform credential and bring its tools online for the agent.
+
+        Reconnecting an already-connected platform tears the old session down
+        first, so rotating a token just works. The agent picks up the tools
+        immediately — no restart, no per-request plumbing."""
+        autumn = _autumn_or_503(request)
+        if not integrations_mod.is_known(req.id):
+            raise HTTPException(status_code=404, detail=f"未知集成: {req.id}")
+        async with request.app.state.integration_lock:
+            existing = request.app.state.integration_runtime.pop(req.id, None)
+            if existing is not None:
+                await integrations_mod.disconnect(autumn, existing)
+            try:
+                runtime = await integrations_mod.connect(autumn, req.id, req.args)
+            except ValueError as exc:
+                request.app.state.integration_errors[req.id] = str(exc)
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
+                request.app.state.integration_errors[req.id] = str(exc)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"{integrations_mod.display_name(req.id)} 连接失败: {exc}",
+                ) from exc
+            request.app.state.integration_runtime[req.id] = runtime
+            request.app.state.integrations[req.id] = dict(req.args)
+            request.app.state.integration_errors.pop(req.id, None)
+        return IntegrationStatusEntry(
+            id=req.id,
+            name=integrations_mod.display_name(req.id),
+            connected=True,
+            tool_count=runtime.tool_count,
+            error=None,
+        )
+
+    @app.delete("/integrations/{integration_id}", response_model=IntegrationStatusEntry)
+    async def integrations_disconnect(integration_id: str, request: Request):
+        """Revoke a platform: disconnect its MCP server and forget the credential.
+        Effective immediately — the agent loses those tools on the next turn."""
+        autumn = _autumn_or_503(request)
+        if not integrations_mod.is_known(integration_id):
+            raise HTTPException(status_code=404, detail=f"未知集成: {integration_id}")
+        async with request.app.state.integration_lock:
+            existing = request.app.state.integration_runtime.pop(integration_id, None)
+            if existing is not None:
+                await integrations_mod.disconnect(autumn, existing)
+            request.app.state.integrations.pop(integration_id, None)
+            request.app.state.integration_errors.pop(integration_id, None)
+        return IntegrationStatusEntry(
+            id=integration_id,
+            name=integrations_mod.display_name(integration_id),
+            connected=False,
+            tool_count=0,
+            error=None,
+        )
 
     @app.get("/memory/{area}/history")
     async def get_history(
