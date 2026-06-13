@@ -25,6 +25,14 @@ struct SettingsView: View {
     @State private var ollamaPullProgress: String?
     @State private var ollamaError: String?
 
+    // 4D memory runtime switches (read from / written to the server live).
+    @State private var fourdMemoryEnabled = false
+    @State private var fourdPushOnTurn = false
+    @State private var mom1AccessEnabled = true
+    @State private var fourdLoaded = false
+    @State private var fourdApplying = false
+    @State private var fourdError: String?
+
     enum ConnectionState {
         case unknown
         case ok(configured: Bool)
@@ -64,6 +72,7 @@ struct SettingsView: View {
         .navigationTitle("设置")
         .onAppear {
             Task { await checkConnection() }
+            Task { await loadFourD() }
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
@@ -291,6 +300,44 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("4D 激活排序", isOn: Binding(
+                    get: { fourdMemoryEnabled },
+                    set: { fourdMemoryEnabled = $0; Task { await applyFourD() } }
+                ))
+                Toggle("每轮推送（CONSTRAIN / REMIND 自动注入）", isOn: Binding(
+                    get: { fourdPushOnTurn },
+                    set: { fourdPushOnTurn = $0; Task { await applyFourD() } }
+                ))
+                Toggle("Mom1 受治理访问通道", isOn: Binding(
+                    get: { mom1AccessEnabled },
+                    set: { mom1AccessEnabled = $0; Task { await applyFourD() } }
+                ))
+                HStack(spacing: Autumn.spacing.sm) {
+                    if fourdApplying {
+                        ProgressView().controlSize(.small)
+                    }
+                    if let fourdError {
+                        Label(fourdError, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Autumn.colors.danger)
+                            .lineLimit(1)
+                    } else if fourdLoaded {
+                        Label("已同步到运行中的服务", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("刷新") { Task { await loadFourD() } }
+                        .controlSize(.small)
+                }
+            } header: {
+                Text("4D 记忆引擎")
+            } footer: {
+                Text("运行时开关，立即对服务器生效（不写回 .env）。排序：回忆/淘汰按四维激活打分；推送：每轮开始自动注入约束/提醒记忆；Mom1 通道：允许 Mom2/Mom3 经 A1 裁决申请读取 Mom1。重启服务后回到 .env 的默认值。")
+                    .font(.caption)
+            }
+
+            Section {
                 MemoryAreaCard(
                     code: "Mom1",
                     title: "顶层会话日志",
@@ -407,6 +454,40 @@ struct SettingsView: View {
         } else {
             serverLastError = nil
             connectionState = .failed("无法连接到服务器")
+        }
+    }
+
+    // ── 4D runtime switches ─────────────────────────────────────────────────────
+
+    private func loadFourD() async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        guard let status = try? await AutumnClient(baseURL: url).fetch4DStatus() else { return }
+        // Assign the @State directly (not via the toggles' bindings) so syncing
+        // from the server does not trigger an apply round-trip.
+        fourdMemoryEnabled = status.fourdMemoryEnabled
+        fourdPushOnTurn = status.fourdPushOnTurn
+        mom1AccessEnabled = status.mom1AccessEnabled
+        fourdError = nil
+        fourdLoaded = true
+    }
+
+    private func applyFourD() async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        fourdApplying = true
+        defer { fourdApplying = false }
+        do {
+            let status = try await AutumnClient(baseURL: url).update4DConfig(
+                memoryEnabled: fourdMemoryEnabled,
+                pushOnTurn: fourdPushOnTurn,
+                mom1AccessEnabled: mom1AccessEnabled
+            )
+            fourdMemoryEnabled = status.fourdMemoryEnabled
+            fourdPushOnTurn = status.fourdPushOnTurn
+            mom1AccessEnabled = status.mom1AccessEnabled
+            fourdError = nil
+            fourdLoaded = true
+        } catch {
+            fourdError = error.localizedDescription
         }
     }
 

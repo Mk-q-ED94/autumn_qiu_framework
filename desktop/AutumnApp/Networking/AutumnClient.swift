@@ -284,6 +284,25 @@ final class AutumnClient {
         return try JSONDecoder().decode(FourDStatus.self, from: data)
     }
 
+    func update4DConfig(
+        memoryEnabled: Bool, pushOnTurn: Bool, mom1AccessEnabled: Bool
+    ) async throws -> FourDStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/4d/config"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            FourDConfigBody(
+                fourdMemoryEnabled: memoryEnabled,
+                fourdPushOnTurn: pushOnTurn,
+                mom1AccessEnabled: mom1AccessEnabled
+            )
+        )
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(FourDStatus.self, from: data)
+    }
+
     func pushPreview(area: MemoryArea, query: String) async throws -> PushPreviewResponse {
         var request = URLRequest(url: baseURL.appendingPathComponent("memory/push/preview"))
         request.httpMethod = "POST"

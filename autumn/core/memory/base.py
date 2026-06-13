@@ -287,6 +287,19 @@ class MemoryArea:
         self._history_lock = asyncio.Lock()
 
     @property
+    def fourd_enabled(self) -> bool:
+        """Whether recall/eviction currently rank by 4D activation score."""
+        return self._fourd_enabled
+
+    def set_fourd_enabled(self, enabled: bool) -> None:
+        """Toggle 4D activation ranking at runtime.
+
+        recall() and eviction read ``_fourd_enabled`` live, so flipping it takes
+        effect on the next operation — no rebuild needed.
+        """
+        self._fourd_enabled = enabled
+
+    @property
     def has_vector(self) -> bool:
         return self._vector is not None
 

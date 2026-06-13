@@ -405,6 +405,18 @@ struct PushPreviewRequestBody: Encodable {
     let k: Int
 }
 
+struct FourDConfigBody: Encodable {
+    let fourdMemoryEnabled: Bool
+    let fourdPushOnTurn: Bool
+    let mom1AccessEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case fourdMemoryEnabled = "fourd_memory_enabled"
+        case fourdPushOnTurn = "fourd_push_on_turn"
+        case mom1AccessEnabled = "mom1_access_enabled"
+    }
+}
+
 struct AnnotateRequestBody: Encodable {
     let entryId: String
     let mode: String?

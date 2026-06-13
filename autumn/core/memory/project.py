@@ -304,6 +304,12 @@ class ProjectMemory:
             )
         return self._zones[safe]
 
+    def set_fourd_enabled(self, enabled: bool) -> None:
+        """Toggle 4D ranking for future project zones and every cached one."""
+        self._fourd_enabled = enabled
+        for zone in self._zones.values():
+            zone.set_fourd_enabled(enabled)
+
     def current(self) -> ProjectZone:
         """Return the zone for the context-active project (or the default)."""
         return self.zone(get_current_project())

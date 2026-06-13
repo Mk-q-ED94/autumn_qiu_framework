@@ -156,6 +156,13 @@ class WP4Mem(WorkspaceBase):
             names.append("project")
         return names
 
+    def set_fourd_enabled(self, enabled: bool) -> None:
+        """Propagate the 4D ranking toggle to every zone this curator manages."""
+        for zone in self._zones.values():
+            zone.set_fourd_enabled(enabled)
+        if self._projects is not None:
+            self._projects.set_fourd_enabled(enabled)
+
     def _resolve(self, area: str) -> MemoryArea:
         """Resolve a zone name to a live :class:`MemoryArea`.
 

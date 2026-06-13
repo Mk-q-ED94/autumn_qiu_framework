@@ -174,6 +174,13 @@ fragment that would be injected. The macOS Memory view surfaces all of it: 4D
 status badges, one-tap auto-annotate, per-entry annotation controls, a
 push-preview mode, and a Mom1 access-audit panel.
 
+**Runtime control** — the three switches above are normally env-set, but
+`autumn.configure_4d(memory_enabled=…, push_on_turn=…, mom1_access_enabled=…)`
+flips them live (propagating the ranking toggle to every zone, including cached
+project zones). Over HTTP: `POST /memory/4d/config`; in the macOS client:
+**Settings → 记忆 → 4D 记忆引擎**. Changes apply immediately and reset to the
+`.env` defaults on restart.
+
 ## Quick start
 
 ```bash
@@ -490,6 +497,10 @@ minor versions add features and may adjust APIs.
   make the engine inspectable (the preview dry-runs push without reinforcing);
   the macOS Memory view adds 4D status badges, one-tap auto-annotate, per-entry
   annotation controls, a push-preview mode, and a Mom1 access-audit panel.
+- **Runtime 4D control** — `Autumn.configure_4d()` / `POST /memory/4d/config`
+  flip 4D ranking, turn-push and the Mom1 channel without an env edit or
+  restart (the ranking toggle propagates to every zone, cached project zones
+  included); the macOS Settings → 记忆 tab exposes the three switches live.
 - **Trace & pipeline strip** — fired pushes surface as a `wp4.push` stage in
   the workflow trace; the pipeline strip gains a purple 4D brain chip, and the
   collapsed trace summary leads with "4D 推入" whenever the engine fired.

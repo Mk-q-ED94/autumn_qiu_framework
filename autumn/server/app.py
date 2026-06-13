@@ -266,6 +266,14 @@ class FourDStatusResponse(BaseModel):
     mom1_access_enabled: bool
 
 
+class FourDConfigRequest(BaseModel):
+    """Runtime override for the 4D switches. Omitted fields are left unchanged."""
+
+    fourd_memory_enabled: bool | None = None
+    fourd_push_on_turn: bool | None = None
+    mom1_access_enabled: bool | None = None
+
+
 class PushPreviewRequest(BaseModel):
     """Dry-run the turn-start push engine against a hypothetical context."""
 
@@ -864,6 +872,26 @@ def create_app() -> FastAPI:
             fourd_push_on_turn=bool(getattr(b, "fourd_push_on_turn", False)),
             mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
         )
+
+    @app.post("/memory/4d/config", response_model=FourDStatusResponse)
+    async def set_fourd_config(req: FourDConfigRequest, request: Request):
+        """Flip the 4D switches at runtime (env-set otherwise). Returns new state.
+
+        501 on builds whose Autumn predates runtime 4D config.
+        """
+        autumn = _autumn_or_503(request)
+        configure = getattr(autumn, "configure_4d", None)
+        if configure is None:
+            raise HTTPException(
+                status_code=501,
+                detail="Runtime 4D configuration is not available on this server.",
+            )
+        result = configure(
+            memory_enabled=req.fourd_memory_enabled,
+            push_on_turn=req.fourd_push_on_turn,
+            mom1_access_enabled=req.mom1_access_enabled,
+        )
+        return FourDStatusResponse(**result)
 
     @app.post("/memory/push/preview", response_model=PushPreviewResponse)
     async def push_preview(req: PushPreviewRequest, request: Request):

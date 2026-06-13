@@ -143,3 +143,81 @@ def test_push_preview_unconfigured_503():
     with TestClient(app) as client:
         r = client.post("/memory/push/preview", json={"area": "mom1", "query": "x"})
     assert r.status_code == 503
+
+
+# ── POST /memory/4d/config (runtime toggle) ─────────────────────────────────────
+
+
+class _ConfigurableBehavior(_Behavior):
+    pass
+
+
+def _autumn_with_configure():
+    """An Autumn-shaped stub exposing configure_4d over a mutable behavior."""
+    behavior = _Behavior(mem=False, push=False, mom1=True)
+
+    class _Autumn:
+        def __init__(self):
+            self.config = _Config(behavior)
+            self.calls = []
+        def configure_4d(self, *, memory_enabled=None, push_on_turn=None, mom1_access_enabled=None):
+            self.calls.append((memory_enabled, push_on_turn, mom1_access_enabled))
+            if memory_enabled is not None:
+                behavior.fourd_memory_enabled = memory_enabled
+            if push_on_turn is not None:
+                behavior.fourd_push_on_turn = push_on_turn
+            if mom1_access_enabled is not None:
+                behavior.mom1_access_enabled = mom1_access_enabled
+            return {
+                "fourd_memory_enabled": behavior.fourd_memory_enabled,
+                "fourd_push_on_turn": behavior.fourd_push_on_turn,
+                "mom1_access_enabled": behavior.mom1_access_enabled,
+            }
+        async def close(self): pass
+
+    return _Autumn()
+
+
+def test_config_applies_and_returns_state():
+    app = create_app()
+    autumn = _autumn_with_configure()
+    with TestClient(app) as client:
+        app.state.autumn = autumn
+        r = client.post("/memory/4d/config", json={
+            "fourd_memory_enabled": True, "fourd_push_on_turn": True,
+        })
+        assert r.status_code == 200
+        body = r.json()
+        assert body["fourd_memory_enabled"] is True
+        assert body["fourd_push_on_turn"] is True
+        assert body["mom1_access_enabled"] is True  # untouched
+        assert autumn.calls == [(True, True, None)]
+
+
+def test_config_partial_update():
+    app = create_app()
+    autumn = _autumn_with_configure()
+    with TestClient(app) as client:
+        app.state.autumn = autumn
+        r = client.post("/memory/4d/config", json={"mom1_access_enabled": False})
+        assert r.json()["mom1_access_enabled"] is False
+        assert autumn.calls == [(None, None, False)]
+
+
+def test_config_not_supported_501():
+    app = create_app()
+
+    class _Old:
+        async def close(self): pass
+
+    with TestClient(app) as client:
+        app.state.autumn = _Old()  # no configure_4d
+        r = client.post("/memory/4d/config", json={"fourd_push_on_turn": True})
+    assert r.status_code == 501
+
+
+def test_config_unconfigured_503():
+    app = create_app()
+    with TestClient(app) as client:
+        r = client.post("/memory/4d/config", json={"fourd_push_on_turn": True})
+    assert r.status_code == 503

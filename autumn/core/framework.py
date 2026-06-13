@@ -472,6 +472,40 @@ class Autumn:
             )
         self.register_skill(make_mom1_access_skill(requester))
 
+    def configure_4d(
+        self,
+        *,
+        memory_enabled: bool | None = None,
+        push_on_turn: bool | None = None,
+        mom1_access_enabled: bool | None = None,
+    ) -> dict[str, bool]:
+        """Flip the 4D-memory switches at runtime; returns the resulting state.
+
+        These otherwise come only from the environment at construction. Each
+        argument left ``None`` is unchanged. The changes take effect immediately:
+
+        - ``memory_enabled`` propagates to every managed zone's recall/eviction
+          ranking (``MemoryArea.set_fourd_enabled``), including cached project
+          zones.
+        - ``push_on_turn`` is read live each turn from ``config.behavior``, so
+          mutating it is enough.
+        - ``mom1_access_enabled`` flips the broker's gate in place.
+        """
+        b = self.config.behavior
+        if memory_enabled is not None:
+            b.fourd_memory_enabled = memory_enabled
+            self.wp4.set_fourd_enabled(memory_enabled)
+        if push_on_turn is not None:
+            b.fourd_push_on_turn = push_on_turn
+        if mom1_access_enabled is not None:
+            b.mom1_access_enabled = mom1_access_enabled
+            self.mom1_access.enabled = mom1_access_enabled
+        return {
+            "fourd_memory_enabled": b.fourd_memory_enabled,
+            "fourd_push_on_turn": b.fourd_push_on_turn,
+            "mom1_access_enabled": b.mom1_access_enabled,
+        }
+
     def project_zone(self, project_id: str | None = None) -> ProjectZone:
         """Return the dedicated shared memory zone for a project.
 
