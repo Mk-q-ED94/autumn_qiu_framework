@@ -227,6 +227,37 @@ class AddFileRequest(BaseModel):
     path: str
 
 
+class AnnotateRequest(BaseModel):
+    """Set/merge 4D dimensions on one history entry. Omitted fields are left as-is."""
+
+    entry_id: str
+    mode: str | None = None          # constrain | remind | summarize | context
+    intent: str | None = None
+    goal_ref: str | None = None
+    scope: list[str] | None = None
+    cues: list[str] | None = None
+    half_life: float | None = None
+
+
+class AnnotateResponse(BaseModel):
+    status: str
+    entry_id: str
+    found: bool
+
+
+class AutoAnnotateRequest(BaseModel):
+    """Tuning for an A4-inferred annotation pass."""
+
+    n: int = 10
+    only_unannotated: bool = True
+
+
+class AutoAnnotateResponse(BaseModel):
+    status: str
+    annotated: int
+    scanned: int
+
+
 class AccessLogEntry(BaseModel):
     id: str
     timestamp: float
@@ -737,6 +768,54 @@ def create_app() -> FastAPI:
         if summary is None:
             return {"status": "noop", "summary": None}
         return {"status": "ok", "summary": summary.to_dict()}
+
+    @app.post("/memory/{area}/annotate", response_model=AnnotateResponse)
+    async def annotate_memory_entry(
+        area: MemoryArea, req: AnnotateRequest, request: Request,
+    ):
+        """Attach 4D dimensions to one history entry (the user/UI producer path).
+
+        Mirrors the agent-facing ``annotate_memory`` skill: declare how a memory
+        should be applied (mode), why it matters (intent), and what triggers it
+        (scope/cues). Usage stats are preserved.
+        """
+        autumn = _autumn_or_503(request)
+        zone = _memory_curator(autumn)._resolve(area)
+        found = await zone.annotate(
+            req.entry_id,
+            mode=req.mode,
+            intent=req.intent,
+            goal_ref=req.goal_ref,
+            scope=req.scope,
+            cues=req.cues,
+            half_life=req.half_life,
+        )
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Entry {req.entry_id!r} not found in {area} history.",
+            )
+        return AnnotateResponse(status="ok", entry_id=req.entry_id, found=True)
+
+    @app.post("/memory/{area}/auto-annotate", response_model=AutoAnnotateResponse)
+    async def auto_annotate(
+        area: MemoryArea, request: Request,
+        req: AutoAnnotateRequest = AutoAnnotateRequest(),
+    ):
+        """Run A4 over recent entries to infer and write their 4D dimensions.
+
+        Needs the A4 model slot (400 if unconfigured). Returns how many entries
+        were annotated and scanned.
+        """
+        autumn = _autumn_or_503(request)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            result = await wp4.annotate_recent(
+                area, n=req.n, only_unannotated=req.only_unannotated,
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return AutoAnnotateResponse(status="ok", **result)
 
     @app.get("/memory/audit/access_log", response_model=AccessLogResponse)
     async def get_access_log(

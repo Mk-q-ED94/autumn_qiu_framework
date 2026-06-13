@@ -4,10 +4,11 @@ Call ``make_memory_skills(memory, api=None)`` to get a list of Skills that can
 be registered with an Agent or via ``Autumn.add_memory_skills()``.
 
 Returned skills (in order):
-  [0] recall       -- unified retrieval: exact key → tag filter → semantic search
-  [1] remember     -- persist a fact; auto-indexes into vector store when available
-  [2] list_recent  -- list the n most recent history entries
-  [3] pin_memory   -- raise an entry's importance so it survives eviction
+  [0] recall          -- unified retrieval: exact key → tag filter → semantic search
+  [1] remember        -- persist a fact; auto-indexes into vector store when available
+  [2] list_recent     -- list the n most recent history entries
+  [3] pin_memory      -- raise an entry's importance so it survives eviction
+  [4] annotate_memory -- attach 4D dimensions (mode/intent/cues) to an entry
 
 When *api* is supplied (the optional A4 slot), vector-search results are
 synthesised by the model rather than returned as raw snippets.
@@ -156,6 +157,32 @@ def _build_memory_skills(
             else f"[entry '{entry_id}' not found in history]"
         )
 
+    async def annotate_memory(
+        entry_id: str,
+        mode: str = "",
+        intent: str = "",
+        cues: str = "",
+    ) -> str:
+        """Attach 4D dimensions to an existing history entry.
+
+        ``mode`` declares how the memory should be applied (constrain / remind /
+        summarize / context); ``cues`` is a comma-separated trigger list. Find
+        ids via list_recent or recall.
+        """
+        memory = resolve()
+        cue_list = [c.strip() for c in cues.split(",") if c.strip()] or None
+        ok = await memory.annotate(
+            entry_id,
+            mode=mode or None,
+            intent=intent or None,
+            cues=cue_list,
+        )
+        return (
+            f"[annotated '{entry_id}']"
+            if ok
+            else f"[entry '{entry_id}' not found in history]"
+        )
+
     return [
         Skill(
             name="recall",
@@ -208,6 +235,37 @@ def _build_memory_skills(
             handler=pin_memory,
             parameters=[
                 ToolParameter("entry_id", "string", "The id of the entry to pin."),
+            ],
+        ),
+        Skill(
+            name="annotate_memory",
+            description=(
+                "Declare how a stored memory should be applied by tagging it with "
+                "4D dimensions. Set mode to 'constrain' for a hard rule the "
+                "assistant must always follow, 'remind' for something to resurface "
+                "proactively, 'summarize' for a consolidation candidate, or "
+                "'context' for ordinary background. Optionally give a short intent "
+                "and comma-separated trigger cues. Find entry IDs via list_recent "
+                "or recall."
+            ),
+            handler=annotate_memory,
+            parameters=[
+                ToolParameter("entry_id", "string", "The id of the entry to annotate."),
+                ToolParameter(
+                    "mode", "string",
+                    "How to apply it: constrain | remind | summarize | context.",
+                    required=False,
+                ),
+                ToolParameter(
+                    "intent", "string",
+                    "Short phrase naming why this memory matters.",
+                    required=False,
+                ),
+                ToolParameter(
+                    "cues", "string",
+                    "Comma-separated keywords that should trigger this memory.",
+                    required=False,
+                ),
             ],
         ),
     ]

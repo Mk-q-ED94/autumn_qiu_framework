@@ -253,3 +253,56 @@ async def test_pin_memory_survives_eviction():
     await mem.append_history("fill 2")
     history = await mem.get_history()
     assert any(e.id == entry.id for e in history)
+
+
+# ── annotate_memory (4D producer) ───────────────────────────────────────────────
+
+
+def _annotate_skill(mem):
+    """The 5th skill in the list is annotate_memory."""
+    return make_memory_skills(mem)[4]
+
+
+async def test_annotate_memory_skill_shape():
+    skill = _annotate_skill(_make_memory())
+    assert skill.name == "annotate_memory"
+    names = [p.name for p in skill.parameters]
+    assert names == ["entry_id", "mode", "intent", "cues"]
+    required = {p.name: p.required for p in skill.parameters}
+    assert required["entry_id"]
+    assert not required["mode"] and not required["intent"] and not required["cues"]
+
+
+async def test_annotate_memory_sets_mode_and_cues():
+    from autumn.core.memory.dimensions import UseMode
+    mem = _make_memory()
+    entry = await mem.append_history("never log secrets")
+    skill = _annotate_skill(mem)
+
+    out = await skill.execute(
+        entry_id=entry.id, mode="constrain", intent="safety", cues="secret, password",
+    )
+    assert "annotated" in out
+    stored = (await mem.get_history())[-1]
+    assert stored.use.mode == UseMode.CONSTRAIN
+    assert stored.aim.intent == "safety"
+    assert stored.trigger.cues == ["secret", "password"]
+
+
+async def test_annotate_memory_not_found():
+    skill = _annotate_skill(_make_memory())
+    out = await skill.execute(entry_id="nope", mode="remind")
+    assert "not found" in out
+
+
+async def test_annotate_memory_empty_mode_is_noop_field():
+    """Empty mode string must not crash or change the mode."""
+    from autumn.core.memory.dimensions import UseMode
+    mem = _make_memory()
+    entry = await mem.append_history("x")
+    skill = _annotate_skill(mem)
+    out = await skill.execute(entry_id=entry.id, intent="just intent")
+    assert "annotated" in out
+    stored = (await mem.get_history())[-1]
+    assert stored.use.mode == UseMode.CONTEXT  # unchanged
+    assert stored.aim.intent == "just intent"
