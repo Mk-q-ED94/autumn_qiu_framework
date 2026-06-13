@@ -1,0 +1,17 @@
+# .NET / Visual Studio build output
+bin/
+obj/
+.vs/
+*.user
+
+# Published / packaged output
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.pfx
+
+# Generated
+Generated Files/
