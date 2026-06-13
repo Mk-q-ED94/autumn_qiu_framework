@@ -26,11 +26,12 @@ struct EmptyStateView: View {
         VStack(spacing: Autumn.spacing.md) {
             ZStack {
                 Circle()
-                    .fill(Color.accentColor.opacity(0.12))
+                    .fill(Autumn.colors.brandGradient)
                     .frame(width: 72, height: 72)
+                    .opacity(0.92)
                 Image(systemName: icon)
                     .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(.white)
             }
             VStack(spacing: Autumn.spacing.xs) {
                 Text(title)

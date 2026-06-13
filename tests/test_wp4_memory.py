@@ -100,9 +100,9 @@ async def test_remember_routes_to_named_zone():
 
 # ── skills ─────────────────────────────────────────────────────────────────────
 
-def test_skills_returns_four_named_skills():
+def test_skills_returns_named_skills():
     names = {s.name for s in _wp4().skills("shared")}
-    assert names == {"recall", "remember", "list_recent", "pin_memory"}
+    assert names == {"recall", "remember", "list_recent", "pin_memory", "annotate_memory"}
 
 
 async def test_skills_bound_to_requested_zone():

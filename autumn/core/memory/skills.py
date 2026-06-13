@@ -4,10 +4,11 @@ Call ``make_memory_skills(memory, api=None)`` to get a list of Skills that can
 be registered with an Agent or via ``Autumn.add_memory_skills()``.
 
 Returned skills (in order):
-  [0] recall       -- unified retrieval: exact key → tag filter → semantic search
-  [1] remember     -- persist a fact; auto-indexes into vector store when available
-  [2] list_recent  -- list the n most recent history entries
-  [3] pin_memory   -- raise an entry's importance so it survives eviction
+  [0] recall          -- unified retrieval: exact key → tag filter → semantic search
+  [1] remember        -- persist a fact; auto-indexes into vector store when available
+  [2] list_recent     -- list the n most recent history entries
+  [3] pin_memory      -- raise an entry's importance so it survives eviction
+  [4] annotate_memory -- attach 4D dimensions (mode/intent/cues) to an entry
 
 When *api* is supplied (the optional A4 slot), vector-search results are
 synthesised by the model rather than returned as raw snippets.
@@ -19,20 +20,22 @@ time, so one registration transparently serves every project.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from ..components.skill import Skill
 from ..components.tool import ToolParameter
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
+    from .access import Mom1Requester
     from .base import MemoryArea
     from .project import ProjectMemory
 
 
 def make_memory_skills(
-    memory: "MemoryArea",
-    api: "ModelAPIInterface | None" = None,
+    memory: MemoryArea,
+    api: ModelAPIInterface | None = None,
 ) -> list[Skill]:
     """Return [recall, remember, list_recent, pin_memory] skills bound to *memory*.
 
@@ -43,13 +46,14 @@ def make_memory_skills(
     api:
         Optional inference model (A4) used to synthesise vector-search results
         into a concise answer.  When None, raw snippets are returned.
+
     """
     return _build_memory_skills(lambda: memory, api)
 
 
 def make_project_memory_skills(
-    projects: "ProjectMemory",
-    api: "ModelAPIInterface | None" = None,
+    projects: ProjectMemory,
+    api: ModelAPIInterface | None = None,
 ) -> list[Skill]:
     """Return memory skills bound to the *context-active project's* shared zone.
 
@@ -62,8 +66,8 @@ def make_project_memory_skills(
 
 
 def _build_memory_skills(
-    resolve: "Callable[[], MemoryArea]",
-    api: "ModelAPIInterface | None",
+    resolve: Callable[[], MemoryArea],
+    api: ModelAPIInterface | None,
 ) -> list[Skill]:
     """Construct the four memory skills, resolving the target area via *resolve*.
 
@@ -153,6 +157,32 @@ def _build_memory_skills(
             else f"[entry '{entry_id}' not found in history]"
         )
 
+    async def annotate_memory(
+        entry_id: str,
+        mode: str = "",
+        intent: str = "",
+        cues: str = "",
+    ) -> str:
+        """Attach 4D dimensions to an existing history entry.
+
+        ``mode`` declares how the memory should be applied (constrain / remind /
+        summarize / context); ``cues`` is a comma-separated trigger list. Find
+        ids via list_recent or recall.
+        """
+        memory = resolve()
+        cue_list = [c.strip() for c in cues.split(",") if c.strip()] or None
+        ok = await memory.annotate(
+            entry_id,
+            mode=mode or None,
+            intent=intent or None,
+            cues=cue_list,
+        )
+        return (
+            f"[annotated '{entry_id}']"
+            if ok
+            else f"[entry '{entry_id}' not found in history]"
+        )
+
     return [
         Skill(
             name="recall",
@@ -207,4 +237,109 @@ def _build_memory_skills(
                 ToolParameter("entry_id", "string", "The id of the entry to pin."),
             ],
         ),
+        Skill(
+            name="annotate_memory",
+            description=(
+                "Declare how a stored memory should be applied by tagging it with "
+                "4D dimensions. Set mode to 'constrain' for a hard rule the "
+                "assistant must always follow, 'remind' for something to resurface "
+                "proactively, 'summarize' for a consolidation candidate, or "
+                "'context' for ordinary background. Optionally give a short intent "
+                "and comma-separated trigger cues. Find entry IDs via list_recent "
+                "or recall."
+            ),
+            handler=annotate_memory,
+            parameters=[
+                ToolParameter("entry_id", "string", "The id of the entry to annotate."),
+                ToolParameter(
+                    "mode", "string",
+                    "How to apply it: constrain | remind | summarize | context.",
+                    required=False,
+                ),
+                ToolParameter(
+                    "intent", "string",
+                    "Short phrase naming why this memory matters.",
+                    required=False,
+                ),
+                ToolParameter(
+                    "cues", "string",
+                    "Comma-separated keywords that should trigger this memory.",
+                    required=False,
+                ),
+            ],
+        ),
     ]
+
+
+def make_mom1_access_skill(requester: Mom1Requester) -> Skill:
+    """Build the ``request_mom1_access`` skill bound to a Mom2/Mom3 zone.
+
+    This is the *agent-facing* trigger for the governed upward channel
+    (:mod:`autumn.core.memory.access`). A task/mission agent that needs a fact
+    living only in Mom1 calls this skill; A1 adjudicates, A4 mediates a
+    restricted answer, and the result — granted or denied — comes back as text
+    in the ReAct trace. The agent never reads Mom1 directly.
+
+    The skill is only useful once a broker has been attached to *requester*
+    (``Autumn`` does this at construction); without one the handler returns a
+    clear unavailable message rather than raising into the agent loop.
+    """
+
+    async def request_mom1_access(
+        query: str,
+        reason: str,
+        scope: str = "",
+        max_entries: str = "5",
+    ) -> str:
+        scope_list = [s.strip() for s in scope.split(",") if s.strip()] or None
+        try:
+            n = max(1, min(int(max_entries), 20))
+        except (ValueError, TypeError):
+            n = 5
+        try:
+            grant = await requester.request_mom1(
+                query=query, reason=reason, scope=scope_list, max_entries=n,
+            )
+        except RuntimeError as exc:
+            return f"[mom1 access unavailable: {exc}]"
+        if not grant.approved:
+            return f"[mom1 access denied] {grant.decision.reason}".rstrip()
+        header = (
+            f"[mom1 access granted · {len(grant.entries)} entr"
+            f"{'y' if len(grant.entries) == 1 else 'ies'} · via {grant.mediated_by}]"
+        )
+        body = grant.content or "[no content returned]"
+        return f"{header}\n{body}"
+
+    return Skill(
+        name="request_mom1_access",
+        description=(
+            "Request read access to Mom1 — the Total workspace's private memory — "
+            "for a fact you cannot find in your own zone. State what you need "
+            "(query) and why (reason). A1 decides whether to grant it and A4 "
+            "returns a restricted, mediated answer; access is never guaranteed. "
+            "Use only when the task genuinely depends on Mom1-held information."
+        ),
+        handler=request_mom1_access,
+        parameters=[
+            ToolParameter(
+                "query", "string",
+                "Natural-language description of the Mom1 information you need.",
+            ),
+            ToolParameter(
+                "reason", "string",
+                "Why this task/mission needs it — A1 weighs this when adjudicating.",
+            ),
+            ToolParameter(
+                "scope", "string",
+                "Optional comma-separated Mom1 tags or entry ids to restrict the "
+                "request to. Leave empty to let A1 pick relevant entries.",
+                required=False,
+            ),
+            ToolParameter(
+                "max_entries", "string",
+                "Max Mom1 entries the answer may draw on (1–20, default 5).",
+                required=False,
+            ),
+        ],
+    )

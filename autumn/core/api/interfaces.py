@@ -1,7 +1,7 @@
-from .base import ModelAPIInterface
-from .hermes import HermesAPIInterface
 from ..config import ModelConfig
 from ..types import Protocol
+from .base import ModelAPIInterface
+from .hermes import HermesAPIInterface
 
 
 def _build_interface(config: ModelConfig) -> ModelAPIInterface:

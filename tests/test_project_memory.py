@@ -156,7 +156,7 @@ async def test_project_skills_default_when_no_context():
 def test_project_skills_have_expected_names():
     pm = ProjectMemory(DictBackend())
     names = {s.name for s in make_project_memory_skills(pm)}
-    assert names == {"recall", "remember", "list_recent", "pin_memory"}
+    assert names == {"recall", "remember", "list_recent", "pin_memory", "annotate_memory"}
 
 
 # ── lifecycle on project zones ───────────────────────────────────────────────────

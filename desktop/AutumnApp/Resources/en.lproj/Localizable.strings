@@ -27,9 +27,11 @@
 /* AppSection */
 "section.workspace.title" = "Workspace";
 "section.memory.title" = "Memory";
+"section.terrs.title" = "Capabilities";
 "section.settings.title" = "Settings";
 "section.workspace.subtitle" = "A1/A2/A3 workflow";
-"section.memory.subtitle" = "Mom1-3 history";
+"section.memory.subtitle" = "4D · audit · push";
+"section.terrs.subtitle" = "Terrs · tools & MCP";
 "section.settings.subtitle" = "Model & Server";
 
 /* MemoryArea */

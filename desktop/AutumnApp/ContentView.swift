@@ -40,6 +40,8 @@ struct ContentView: View {
         } detail: {
             NavigationStack {
                 detailView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AutumnPageBackground())
             }
         }
     }
@@ -51,6 +53,8 @@ struct ContentView: View {
             WorkspaceView()
         case .memory:
             MemoryView(settings: settings)
+        case .terrs:
+            TerrsView(settings: settings)
         case .settings:
             SettingsView()
         }
@@ -61,6 +65,7 @@ struct ContentView: View {
     ContentView()
         .environmentObject(AppSettings())
         .environmentObject(LocalServerManager())
+        .environmentObject(OllamaManager())
         .environmentObject(ConversationStore())
         .environmentObject(ProjectStore())
 }

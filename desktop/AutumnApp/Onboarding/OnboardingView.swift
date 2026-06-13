@@ -7,16 +7,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color.accentColor.opacity(0.08),
-                    Color.clear,
-                    Color.accentColor.opacity(0.04)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            AutumnPageBackground()
 
             VStack(spacing: Autumn.spacing.xl) {
                 hero
@@ -34,11 +25,11 @@ struct OnboardingView: View {
         VStack(spacing: Autumn.spacing.md) {
             ZStack {
                 Circle()
-                    .fill(Color.accentColor.opacity(0.14))
+                    .fill(Autumn.colors.gold.opacity(0.18))
                     .frame(width: 96, height: 96)
                 Image(systemName: "leaf.fill")
                     .font(.system(size: 42, weight: .medium))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Autumn.colors.brandGradient)
             }
 
             VStack(spacing: Autumn.spacing.xs) {

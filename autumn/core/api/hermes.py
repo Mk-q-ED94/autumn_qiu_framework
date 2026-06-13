@@ -79,6 +79,7 @@ class HermesAPIInterface(ModelAPIInterface):
     last_thinking : str
         The raw content of the most recent ``<thinking>`` block emitted by the
         model (empty string when none). Useful for debugging/logging.
+
     """
 
     def __init__(self, api_key: str, base_url: str, model: str):
@@ -142,7 +143,7 @@ class HermesAPIInterface(ModelAPIInterface):
             else:
                 patched.append(msg)
         if not inserted:
-            patched = [{"role": "system", "content": preamble}] + patched
+            patched = [{"role": "system", "content": preamble}, *patched]
         return patched
 
     # ── ModelAPIInterface overrides ────────────────────────────────────────────
@@ -190,7 +191,7 @@ class HermesAPIInterface(ModelAPIInterface):
         results: list[str],
     ) -> list[dict]:
         parts: list[str] = []
-        for tc, result in zip(tool_calls, results):
+        for tc, result in zip(tool_calls, results, strict=True):
             blob = json.dumps({"name": tc.name, "content": result}, ensure_ascii=False)
             parts.append(f"<tool_response>\n{blob}\n</tool_response>")
         return [{"role": "user", "content": "\n".join(parts)}]

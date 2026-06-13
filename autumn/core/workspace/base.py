@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 from ..api.base import ModelAPIInterface
 from ..memory.base import MemoryArea
 

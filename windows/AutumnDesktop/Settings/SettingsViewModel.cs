@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using AutumnDesktop.Models;
 using AutumnDesktop.Networking;
+using AutumnDesktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 

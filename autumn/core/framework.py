@@ -1,31 +1,35 @@
+import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator, Literal
+from typing import Literal
 
+from ..plugins.loader import PluginLoader
+from .api.embedding import EmbeddingInterface
+from .api.interfaces import A1, A2, A3, A4
+from .components.agent import Agent
+from .components.checker import Checker
+from .components.mcp import MCPClient
+from .components.mcp_bridge import mcp_to_tools
+from .components.skill import Skill
+from .components.terr import Terr
+from .components.tool import Tool
 from .config import AutumnConfig
 from .interaction import UserInteraction
-from .api.interfaces import A1, A2, A3, A4
-from .api.embedding import EmbeddingInterface
-from .memory.backends import SQLiteBackend, HybridBackend, SQLiteVectorStore
+from .memory.backends import HybridBackend, SQLiteBackend, SQLiteVectorStore
 from .memory.base import MemoryArea
-from .memory.shared import SharedZone
+from .memory.dimensions import ActivationContext
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
 from .memory.mom3 import Mom3
 from .memory.project import ProjectMemory, ProjectZone, project_context
+from .memory.access import Mom1AccessBroker
+from .memory.shared import SharedZone
+from .types import InputType, MissionRoute, TaskType, WorkflowRun
 from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
 from .workspace.wp4 import WP4Mem
-from .components.checker import Checker
-from .components.agent import Agent
-from .components.skill import Skill
-from .components.tool import Tool
-from .components.terr import Terr
-from .components.mcp import MCPClient
-from .components.mcp_bridge import mcp_to_tools
-from .types import InputType, MissionRoute, TaskType, WorkflowRun
-from ..plugins.loader import PluginLoader
 
 
 def _mark_terr_source(callable_obj, terr: Terr) -> None:
@@ -108,24 +112,25 @@ class Autumn:
         b = config.behavior
         hist = b.history_limit
         decay = b.memory_decay_half_life or None
+        fourd = b.fourd_memory_enabled
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
         self.shared = SharedZone(
             HybridBackend(SQLiteBackend(db + ".shared")),
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         self.mom2 = Mom2(
             HybridBackend(SQLiteBackend(db + ".mom2")), self.shared,
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom3 = Mom3(
             HybridBackend(SQLiteBackend(db + ".mom3")), self.shared,
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom1 = Mom1(
             HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3,
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         # Per-project shared memory: each project id gets its own isolated zone,
@@ -133,7 +138,7 @@ class Autumn:
         # Resolved per-request via project_scope()/the active-project contextvar.
         self.projects = ProjectMemory(
             HybridBackend(SQLiteBackend(db + ".projects")),
-            history_limit=hist, decay_half_life=decay,
+            history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         # WP4 (A4) — the dedicated memory-management workspace. It owns the A4
@@ -144,7 +149,7 @@ class Autumn:
             self.a4,
             MemoryArea(
                 "wp4", HybridBackend(SQLiteBackend(db + ".wp4")),
-                history_limit=hist, decay_half_life=decay,
+                history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
             ),
             zones={
                 "mom1": self.mom1,
@@ -154,6 +159,19 @@ class Autumn:
             },
             projects=self.projects,
         )
+
+        # Governed upward channel: Mom2/Mom3 may *request* a Mom1 read, A1
+        # adjudicates, A4 mediates a restricted answer, WP4's log audits it. The
+        # asymmetric default isolation is preserved — this only adds a gated path.
+        self.mom1_access = Mom1AccessBroker(
+            mom1=self.mom1,
+            adjudicator=self.a1,
+            mediator=self.a4,
+            audit=self.wp4.memory,
+            enabled=b.mom1_access_enabled,
+        )
+        self.mom2.attach_mom1_broker(self.mom1_access)
+        self.mom3.attach_mom1_broker(self.mom1_access)
 
         self._embedding: EmbeddingInterface | None = None
         if config.embedding is not None:
@@ -189,6 +207,25 @@ class Autumn:
 
     # ── public api ────────────────────────────────────────────────────────────
 
+    async def _compute_push(self, user_input: str) -> tuple[str, int, float]:
+        """Run the 4D push engine for the current turn.
+
+        Returns ``(fragment, fired_count, elapsed_ms)``. When push is disabled
+        or nothing fires, returns ``("", 0, 0.0)`` — callers can test the
+        fragment truthiness to skip the push stage entirely.
+        """
+        if not self.config.behavior.fourd_push_on_turn:
+            return "", 0, 0.0
+        from .workspace.wp4 import render_push_context
+
+        t = time.perf_counter()
+        turn_cues = [tok for tok in user_input.split() if tok]
+        ctx = ActivationContext(now=time.time(), query=user_input or None, cues=turn_cues)
+        fired = await self.wp4.activate_push(area="mom1", ctx=ctx)
+        fragment = render_push_context(fired)
+        ms = round((time.perf_counter() - t) * 1000, 1)
+        return fragment, len(fired), ms
+
     async def process(
         self,
         user_input: str,
@@ -197,12 +234,17 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> str:
         """Run the full pipeline and return the validated final output."""
-        return await self.wp1.process(
+        fragment, push_count, push_ms = await self._compute_push(user_input)
+        run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         )
+        return run.output
 
     async def process_with_trace(
         self,
@@ -212,11 +254,15 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
+        fragment, push_count, push_ms = await self._compute_push(user_input)
         run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         )
         return _annotate_costs(run, self.config)
 
@@ -251,13 +297,18 @@ class Autumn:
         convert path remains buffered because conversion is a non-streamed
         model call.
         """
-        async for chunk in self.wp1.stream(
+        fragment, push_count, push_ms = await self._compute_push(user_input)
+        async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         ):
-            yield chunk
+            if isinstance(event, str):
+                yield event
 
     async def stream_with_trace(
         self,
@@ -267,11 +318,15 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the WorkflowRun produced by the same turn."""
+        fragment, push_count, push_ms = await self._compute_push(user_input)
         async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
+            push_context=fragment,
+            push_count=push_count,
+            push_ms=push_ms,
         ):
             if isinstance(event, WorkflowRun):
                 yield _annotate_costs(event, self.config)
@@ -280,9 +335,8 @@ class Autumn:
 
     def describe_terrs(self) -> list[dict]:
         """Return serializable Terr summaries for desktop/debug UI."""
-        summaries: list[dict] = []
-        for terr in self.plugins.all_terrs().values():
-            summaries.append({
+        return [
+            {
                 "name": terr.name,
                 "description": terr.description,
                 "enabled": self.plugins.is_terr_enabled(terr.name),
@@ -309,8 +363,42 @@ class Autumn:
                     }
                     for client in terr.mcps
                 ],
-            })
-        return summaries
+            }
+            for terr in self.plugins.all_terrs().values()
+        ]
+
+    async def active_context(
+        self,
+        text: str = "",
+        cues: list[str] | None = None,
+        goal: str | None = None,
+        area: str = "mom1",
+        k: int = 5,
+        reinforce: bool = False,
+    ) -> str:
+        """Push-activate a zone for the current turn → an injectable prompt fragment.
+
+        Scans *area* for CONSTRAIN/REMIND memories whose ``trigger``/``aim`` gates
+        open against the turn context (``cues``/``goal``, plus naive tokens from
+        ``text``), and renders them as a constraints+reminders block ready to
+        prepend to a system prompt. Returns "" when push is disabled or nothing
+        fires, so callers can use it unconditionally.
+
+        Opt-in: gated by ``behavior.fourd_push_on_turn`` (default off). This is
+        the public seam for wiring push into a turn; the core workflow does not
+        call it automatically yet.
+        """
+        if not self.config.behavior.fourd_push_on_turn:
+            return ""
+        from .workspace.wp4 import render_push_context
+
+        turn_cues = list(cues or [])
+        turn_cues += [t for t in text.split() if t]  # naive; explicit cues preferred
+        ctx = ActivationContext(
+            now=time.time(), query=text or None, goal=goal, cues=turn_cues,
+        )
+        fired = await self.wp4.activate_push(area=area, ctx=ctx, k=k, reinforce=reinforce)
+        return render_push_context(fired)
 
     # ── plugin & extension api ────────────────────────────────────────────────
 
@@ -353,9 +441,70 @@ class Autumn:
 
         The skills are built by WP4, the memory-management workspace, so they
         share the A4 model and zone resolution WP4 uses everywhere else.
+
         """
         for skill in self.wp4.skills(area):
             self.register_skill(skill)
+
+    def add_mom1_access_skill(self, area: str = "mom2") -> None:
+        """Register the ``request_mom1_access`` skill for a task/mission zone.
+
+        Exposes the governed upward channel (:attr:`mom1_access`) to the agent
+        ReAct loop: a WP2/WP3 agent can file an adjudicated, A4-mediated request
+        to read Mom1 instead of being hard-walled off from it. Every request is
+        adjudicated by A1 and audited in WP4's log, so the asymmetric isolation
+        is preserved — this only makes the gated path *reachable*.
+
+        Parameters
+        ----------
+        area:
+            Which requester zone files the request — ``"mom2"`` (task, default)
+            or ``"mom3"`` (mission). Determines the audit log's requester field.
+
+        No-op-safe: if the broker was disabled (``MOM1_ACCESS_ENABLED=0``) the
+        skill still registers but every request returns a denial.
+        """
+        from .memory.skills import make_mom1_access_skill
+        requester = {"mom2": self.mom2, "mom3": self.mom3}.get(area)
+        if requester is None:
+            raise ValueError(
+                f"add_mom1_access_skill area must be 'mom2' or 'mom3', not {area!r}.",
+            )
+        self.register_skill(make_mom1_access_skill(requester))
+
+    def configure_4d(
+        self,
+        *,
+        memory_enabled: bool | None = None,
+        push_on_turn: bool | None = None,
+        mom1_access_enabled: bool | None = None,
+    ) -> dict[str, bool]:
+        """Flip the 4D-memory switches at runtime; returns the resulting state.
+
+        These otherwise come only from the environment at construction. Each
+        argument left ``None`` is unchanged. The changes take effect immediately:
+
+        - ``memory_enabled`` propagates to every managed zone's recall/eviction
+          ranking (``MemoryArea.set_fourd_enabled``), including cached project
+          zones.
+        - ``push_on_turn`` is read live each turn from ``config.behavior``, so
+          mutating it is enough.
+        - ``mom1_access_enabled`` flips the broker's gate in place.
+        """
+        b = self.config.behavior
+        if memory_enabled is not None:
+            b.fourd_memory_enabled = memory_enabled
+            self.wp4.set_fourd_enabled(memory_enabled)
+        if push_on_turn is not None:
+            b.fourd_push_on_turn = push_on_turn
+        if mom1_access_enabled is not None:
+            b.mom1_access_enabled = mom1_access_enabled
+            self.mom1_access.enabled = mom1_access_enabled
+        return {
+            "fourd_memory_enabled": b.fourd_memory_enabled,
+            "fourd_push_on_turn": b.fourd_push_on_turn,
+            "mom1_access_enabled": b.mom1_access_enabled,
+        }
 
     def project_zone(self, project_id: str | None = None) -> ProjectZone:
         """Return the dedicated shared memory zone for a project.

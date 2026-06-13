@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autumn"
-version = "0.2.0"
+version = "0.2.1"
 description = "秋/Autumn — A Multi-Model Collaborative Workflow Framework"
 license = "MIT"
 requires-python = ">=3.11"
@@ -15,15 +15,15 @@ dependencies = [
 [project.optional-dependencies]
 vector = []
 server = [
-    "fastapi>=0.110,<0.111",
-    "pydantic>=1.10,<2",
+    "fastapi>=0.110",
+    "pydantic>=2,<3",
     "uvicorn[standard]>=0.27",
 ]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
-    "fastapi>=0.110,<0.111",
-    "pydantic>=1.10,<2",
+    "fastapi>=0.110",
+    "pydantic>=2,<3",
 ]
 
 [project.scripts]

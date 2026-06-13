@@ -7,7 +7,7 @@ agent author from re-implementing them.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.components.skill import Skill
@@ -22,7 +22,7 @@ def _parse_iso(s: str) -> datetime:
 
 async def _now(timezone_name: str = "UTC", fmt: str = "iso") -> str:
     if timezone_name.upper() == "UTC":
-        tz = timezone.utc
+        tz = UTC
     else:
         # Lazy import: zoneinfo only needed for non-UTC zones.
         from zoneinfo import ZoneInfo
@@ -43,7 +43,7 @@ async def _now(timezone_name: str = "UTC", fmt: str = "iso") -> str:
 
 async def _parse_time(value: str, fmt: str = "iso") -> str:
     if fmt == "unix":
-        dt = datetime.fromtimestamp(int(value), tz=timezone.utc)
+        dt = datetime.fromtimestamp(int(value), tz=UTC)
     elif fmt == "iso":
         dt = _parse_iso(value)
     else:
@@ -162,7 +162,7 @@ def time_terr() -> Terr:
 
 async def _time_today(timezone_name: str = "UTC") -> str:
     if timezone_name.upper() == "UTC":
-        tz = timezone.utc
+        tz = UTC
     else:
         from zoneinfo import ZoneInfo
         tz = ZoneInfo(timezone_name)

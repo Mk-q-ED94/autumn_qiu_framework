@@ -27,13 +27,55 @@ enum MemoryArea: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// The four `use.mode` values of the 4D memory system, with display metadata.
+/// Mirrors `UseMode` in `autumn/core/memory/dimensions.py`.
+enum FourDUseMode: String, CaseIterable, Identifiable {
+    case constrain
+    case remind
+    case context
+    case summarize
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .constrain: return "约束"
+        case .remind:    return "提醒"
+        case .context:   return "上下文"
+        case .summarize: return "摘要"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .constrain: return "lock.fill"
+        case .remind:    return "bell.fill"
+        case .context:   return "text.alignleft"
+        case .summarize: return "doc.text.fill"
+        }
+    }
+
+    var tone: AutumnBadge.Tone {
+        switch self {
+        case .constrain: return .danger
+        case .remind:    return .warning
+        case .context:   return .neutral
+        case .summarize: return .info
+        }
+    }
+}
+
 struct MemoryEntry: Identifiable, Equatable {
     let id = UUID()
     let area: MemoryArea
     let values: [String: JSONValue]
 
     var title: String {
-        firstString(for: ["route", "type", "role", "turn"]) ?? area.title
+        // v1 records keep route/type at the top level; v2 records nest the
+        // original payload under `content`. Check both before falling back.
+        firstString(for: ["route", "type", "role", "turn"])
+            ?? nestedString(for: ["route", "type", "role", "turn"])
+            ?? area.title
     }
 
     var preview: String {
@@ -46,6 +88,101 @@ struct MemoryEntry: Identifiable, Equatable {
         values.keys.sorted()
     }
 
+    /// The server-side entry id (from the payload), distinct from the local
+    /// `id` UUID used for SwiftUI identity. Needed to annotate the entry.
+    var entryID: String? {
+        if case .string(let s)? = values["id"], !s.isEmpty { return s }
+        return nil
+    }
+
+    // ── entry metadata accessors ────────────────────────────────────────────
+
+    var importance: Double? {
+        guard case .number(let value)? = values["importance"] else { return nil }
+        return value
+    }
+
+    /// Mirrors `MemoryEntry.PIN_THRESHOLD` (1.5) in `autumn/core/memory/base.py`.
+    var isPinned: Bool {
+        (importance ?? 1.0) >= 1.5
+    }
+
+    var timestamp: Date? {
+        guard case .number(let epoch)? = values["timestamp"], epoch > 0 else { return nil }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    var relativeTime: String? {
+        guard let timestamp else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: timestamp, relativeTo: Date())
+    }
+
+    var tags: [String] {
+        guard case .array(let raw)? = values["tags"] else { return [] }
+        return raw.compactMap {
+            if case .string(let s) = $0 { return s } else { return nil }
+        }
+    }
+
+    // ── 4D dimension accessors ──────────────────────────────────────────────
+
+    var useMode: String? {
+        guard case .object(let use)? = values["use"],
+              case .string(let mode)? = use["mode"] else { return nil }
+        return mode
+    }
+
+    var fourdMode: FourDUseMode? {
+        useMode.flatMap(FourDUseMode.init(rawValue:))
+    }
+
+    var useModeLabel: String {
+        fourdMode?.label ?? useMode ?? "—"
+    }
+
+    var useCount: Int? {
+        guard case .object(let use)? = values["use"],
+              case .object(let stats)? = use["stats"],
+              case .number(let count)? = stats["count"] else { return nil }
+        return Int(count)
+    }
+
+    var aimIntent: String? {
+        guard case .object(let aim)? = values["aim"],
+              case .string(let intent)? = aim["intent"],
+              !intent.isEmpty else { return nil }
+        return intent
+    }
+
+    var aimScope: [String] {
+        guard case .object(let aim)? = values["aim"],
+              case .array(let scope)? = aim["scope"] else { return [] }
+        return scope.compactMap {
+            if case .string(let s) = $0 { return s } else { return nil }
+        }
+    }
+
+    var triggerCues: [String] {
+        guard case .object(let trigger)? = values["trigger"],
+              case .array(let cues)? = trigger["cues"] else { return [] }
+        return cues.compactMap {
+            if case .string(let s) = $0 { return s } else { return nil }
+        }
+    }
+
+    /// True when the entry carries *meaningful* 4D annotation. Every v2 record
+    /// serializes `use.mode = "context"` by default, so a bare default mode with
+    /// no usage, aim, or cues is just the schema default — not an annotation.
+    var has4DData: Bool {
+        if let mode = fourdMode, mode != .context { return true }
+        return (useCount ?? 0) > 0
+            || aimIntent != nil
+            || !aimScope.isEmpty
+            || !triggerCues.isEmpty
+    }
+
     private func firstString(for keys: [String]) -> String? {
         for key in keys {
             guard let value = values[key]?.summary, !value.isEmpty else { continue }
@@ -54,10 +191,19 @@ struct MemoryEntry: Identifiable, Equatable {
         return nil
     }
 
-    private func contentString(for keys: [String]) -> String? {
+    /// Strict lookup inside the v2 `content` payload — nil when absent.
+    private func nestedString(for keys: [String]) -> String? {
         guard case .object(let content)? = values["content"] else { return nil }
         for key in keys {
             guard let value = content[key]?.summary, !value.isEmpty else { continue }
+            return value
+        }
+        return nil
+    }
+
+    private func contentString(for keys: [String]) -> String? {
+        guard case .object(let content)? = values["content"] else { return nil }
+        if let value = nestedString(for: keys) {
             return value
         }
         return content.isEmpty ? nil : content.keys.sorted().joined(separator: ", ")
@@ -95,6 +241,88 @@ struct MemoryStatsOverview: Decodable, Equatable {
 struct ConsolidateResponse: Decodable, Equatable {
     let status: String
     let summary: [String: JSONValue]?
+}
+
+struct AccessLogEntry: Identifiable, Decodable, Equatable {
+    let id: String
+    let timestamp: Double
+    let action: String
+    let requester: String
+    let query: String
+    let reason: String
+    let decisionReason: String
+    let redact: Bool
+    let entryIds: [String]
+    let mediatedBy: String?
+
+    var date: Date { Date(timeIntervalSince1970: timestamp) }
+    var isGranted: Bool { action == "mom1_access_granted" }
+
+    var relativeTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, action, requester, query, reason, redact
+        case decisionReason = "decision_reason"
+        case entryIds = "entry_ids"
+        case mediatedBy = "mediated_by"
+    }
+}
+
+struct AccessLogResponse: Decodable {
+    let entries: [AccessLogEntry]
+    let total: Int
+}
+
+// ── 4D memory observability ─────────────────────────────────────────────────────
+
+struct FourDStatus: Decodable, Equatable {
+    let fourdMemoryEnabled: Bool
+    let fourdPushOnTurn: Bool
+    let mom1AccessEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case fourdMemoryEnabled = "fourd_memory_enabled"
+        case fourdPushOnTurn = "fourd_push_on_turn"
+        case mom1AccessEnabled = "mom1_access_enabled"
+    }
+}
+
+struct PushPreviewEntry: Identifiable, Decodable, Equatable {
+    let id: String
+    let text: String
+    let mode: String
+    let intent: String
+    let cues: [String]
+    let score: Double
+
+    var fourdMode: FourDUseMode? { FourDUseMode(rawValue: mode) }
+}
+
+struct PushPreviewResponse: Decodable {
+    let fired: [PushPreviewEntry]
+    let fragment: String
+    let enabled: Bool
+}
+
+struct AnnotateResult: Decodable {
+    let status: String
+    let entryId: String
+    let found: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case status, found
+        case entryId = "entry_id"
+    }
+}
+
+struct AutoAnnotateResult: Decodable {
+    let status: String
+    let annotated: Int
+    let scanned: Int
 }
 
 enum JSONValue: Codable, Equatable {

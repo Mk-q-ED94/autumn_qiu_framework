@@ -118,6 +118,11 @@ struct WorkflowTrace: Decodable, Equatable {
         agentStageCount > 0 || toolStageCount > 0
     }
 
+    /// The wp4.push stage when the 4D push engine fired this turn.
+    var pushStage: WorkflowStage? {
+        stages.first { $0.kind == "push" }
+    }
+
     var sourceTerrNames: [String] {
         Array(Set(stages.compactMap(\.sourceTerr))).sorted()
     }
@@ -306,6 +311,24 @@ struct TerrMCP: Decodable, Identifiable, Equatable {
     var id: String { name }
 }
 
+/// An entry from the server's built-in MCP catalog (`GET /mcps/catalog`) — an
+/// official MCP server the framework knows how to launch, with the arguments it
+/// needs. Browsing aid; not the same as a registered TerrMCP.
+struct KnownMCP: Decodable, Identifiable, Equatable {
+    let id: String
+    let name: String
+    let description: String
+    let factory: String
+    let requiredArgs: [String]
+
+    var needsCredentials: Bool { !requiredArgs.isEmpty }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, factory
+        case requiredArgs = "required_args"
+    }
+}
+
 struct StreamPayload: Decodable {
     let chunk: String?
     let trace: WorkflowTrace?
@@ -372,4 +395,46 @@ struct ModelsResponse: Decodable {
 
 struct TerrToggleRequest: Encodable {
     let enabled: Bool
+}
+
+// ── 4D memory: push preview + annotation ────────────────────────────────────────
+
+struct PushPreviewRequestBody: Encodable {
+    let area: String
+    let query: String
+    let k: Int
+}
+
+struct FourDConfigBody: Encodable {
+    let fourdMemoryEnabled: Bool
+    let fourdPushOnTurn: Bool
+    let mom1AccessEnabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case fourdMemoryEnabled = "fourd_memory_enabled"
+        case fourdPushOnTurn = "fourd_push_on_turn"
+        case mom1AccessEnabled = "mom1_access_enabled"
+    }
+}
+
+struct AnnotateRequestBody: Encodable {
+    let entryId: String
+    let mode: String?
+    let intent: String?
+    let cues: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case mode, intent, cues
+        case entryId = "entry_id"
+    }
+}
+
+struct AutoAnnotateRequestBody: Encodable {
+    let n: Int
+    let onlyUnannotated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case n
+        case onlyUnannotated = "only_unannotated"
+    }
 }

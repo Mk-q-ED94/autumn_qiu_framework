@@ -33,6 +33,11 @@ final class AppSettings: ObservableObject {
     @Published private(set) var a4ModelState: ModelConnectionState = .unconfigured
     @Published var activeRouteOverride: String? = nil
 
+    /// Platform-integration credentials, keyed `"<integration_id>.<field_key>"`
+    /// (e.g. `"github.token"`). Stored locally; pushed to the server only when
+    /// the user connects a platform.
+    @Published var integrationCredentials: [String: String] { didSet { _schedulePersist() } }
+
     private static let serverURLKey  = "AutumnDesktop.serverURL"
     private static let routeModeKey  = "AutumnDesktop.routeMode"
     private static let a1APIKeyKey   = "AutumnDesktop.a1APIKey"
@@ -52,10 +57,11 @@ final class AppSettings: ObservableObject {
     private static let a4BaseURLKey  = "AutumnDesktop.a4BaseURL"
     private static let a4ProtocolKey = "AutumnDesktop.a4Protocol"
     private static let a4ModelKey    = "AutumnDesktop.a4Model"
+    private static let integrationCredentialsKey = "AutumnDesktop.integrationCredentials"
     private static let defaultServerURL  = "http://127.0.0.1:8765"
     private static let openAIBaseURL     = "https://api.openai.com"
     private static let anthropicBaseURL  = "https://api.anthropic.com"
-    private static let ollamaBaseURL     = "http://localhost:11434"
+    private static let ollamaBaseURL     = "http://127.0.0.1:11434"
 
     private var _persistTask: Task<Void, Never>?
 
@@ -76,10 +82,40 @@ final class AppSettings: ObservableObject {
         self.a3Model    = UserDefaults.standard.string(forKey: Self.a3ModelKey)   ?? "gpt-4o"
         self.a4Enabled  = UserDefaults.standard.bool(forKey: Self.a4EnabledKey)
         self.a4APIKey   = UserDefaults.standard.string(forKey: Self.a4APIKeyKey)  ?? ""
-        self.a4BaseURL  = UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
+        self.a4BaseURL  = Self.normalizedLocalOllamaBaseURL(
+            UserDefaults.standard.string(forKey: Self.a4BaseURLKey) ?? Self.ollamaBaseURL
+        )
         self.a4Protocol = UserDefaults.standard.string(forKey: Self.a4ProtocolKey) ?? "openai"
         self.a4Model    = UserDefaults.standard.string(forKey: Self.a4ModelKey)   ?? ""
+        self.integrationCredentials = Self.loadIntegrationCredentials()
         refreshInitialModelStates()
+    }
+
+    // ── platform-integration credentials ───────────────────────────────────────
+
+    func integrationValue(_ integrationID: String, _ fieldKey: String) -> String {
+        integrationCredentials["\(integrationID).\(fieldKey)"] ?? ""
+    }
+
+    func setIntegrationValue(_ integrationID: String, _ fieldKey: String, _ value: String) {
+        integrationCredentials["\(integrationID).\(fieldKey)"] = value
+    }
+
+    /// Collect the saved `{field_key: value}` map for a platform, dropping empties.
+    func integrationArgs(for entry: IntegrationCatalogEntry) -> [String: String] {
+        var args: [String: String] = [:]
+        for field in entry.fields {
+            let value = integrationValue(entry.id, field.key).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { args[field.key] = value }
+        }
+        return args
+    }
+
+    private static func loadIntegrationCredentials() -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: integrationCredentialsKey),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return decoded
     }
 
     func providerConfig(for slot: ModelSlot) -> ProviderConfigRequest {
@@ -198,6 +234,35 @@ final class AppSettings: ObservableObject {
         ud.set(a4BaseURL,  forKey: Self.a4BaseURLKey)
         ud.set(a4Protocol, forKey: Self.a4ProtocolKey)
         ud.set(a4Model,    forKey: Self.a4ModelKey)
+        if let data = try? JSONEncoder().encode(integrationCredentials) {
+            ud.set(data, forKey: Self.integrationCredentialsKey)
+        }
+    }
+
+    private static func normalizedLocalOllamaBaseURL(_ rawValue: String) -> String {
+        let original = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = original
+        if value.isEmpty {
+            value = Self.ollamaBaseURL
+        }
+        if !value.contains("://") {
+            value = "http://\(value)"
+        }
+        guard var components = URLComponents(string: value) else {
+            return rawValue
+        }
+        let host = components.host?.lowercased()
+        guard host == "localhost" || host == "127.0.0.1" || host == "::1" else {
+            return original.isEmpty ? Self.ollamaBaseURL : original
+        }
+        if components.path == "/v1" || components.path == "/api" {
+            components.path = ""
+        }
+        if host == "localhost" || host == "::1" {
+            components.host = "127.0.0.1"
+        }
+        return components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            ?? rawValue
     }
 }
 

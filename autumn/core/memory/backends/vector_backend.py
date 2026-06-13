@@ -1,11 +1,14 @@
 import asyncio
-from array import array
 import heapq
 import json
 import math
+import re
 import sqlite3
+from array import array
 
 from ...types import SearchResult
+
+_TABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _vector_to_blob(vector: list) -> bytes:
@@ -36,6 +39,8 @@ class SQLiteVectorStore:
     """Stores text embeddings as float32 blobs in SQLite."""
 
     def __init__(self, db_path: str, table: str = "vectors"):
+        if not _TABLE_NAME_RE.match(table):
+            raise ValueError(f"Invalid vector table name: {table!r}. Use [A-Za-z_][A-Za-z0-9_]*.")
         self._db_path = db_path
         self._table = table
         self._conn: sqlite3.Connection | None = None
@@ -51,7 +56,7 @@ class SQLiteVectorStore:
                     text   TEXT NOT NULL,
                     vector BLOB NOT NULL,
                     meta   TEXT NOT NULL DEFAULT '{{}}'
-                )"""
+                )""",
             )
             self._conn.commit()
         return self._conn
@@ -68,7 +73,7 @@ class SQLiteVectorStore:
     def _sync_search(self, query_vector: list, k: int) -> list:
         conn = self._ensure_conn()
         rows = conn.execute(
-            f"SELECT id, text, vector, meta FROM {self._table}"
+            f"SELECT id, text, vector, meta FROM {self._table}",
         ).fetchall()
         if not rows:
             return []
@@ -122,11 +127,11 @@ class SQLiteVectorStore:
     # ── async public api ──────────────────────────────────────────────────────
 
     async def store(
-        self, id: str, text: str, vector: list, metadata: dict | None = None
+        self, id: str, text: str, vector: list, metadata: dict | None = None,
     ) -> None:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, self._sync_store, id, text, vector, metadata or {}
+            None, self._sync_store, id, text, vector, metadata or {},
         )
 
     async def search(self, query_vector: list, k: int = 5) -> list[SearchResult]:

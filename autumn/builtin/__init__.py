@@ -30,10 +30,6 @@ from .data_terr import data_terr
 from .encoding_terr import encoding_terr
 from .fs_terr import fs_terr
 from .math_terr import math_terr
-from .memory_terr import memory_terr, project_memory_terr
-from .text_terr import text_terr
-from .time_terr import time_terr
-from .web_terr import web_terr
 from .mcp_catalog import (
     KNOWN_MCPS,
     mcp_brave_search,
@@ -52,6 +48,10 @@ from .mcp_catalog import (
     mcp_sqlite,
     mcp_time,
 )
+from .memory_terr import memory_terr, project_memory_terr
+from .text_terr import text_terr
+from .time_terr import time_terr
+from .web_terr import web_terr
 
 if TYPE_CHECKING:
     from ..core.framework import Autumn
@@ -65,7 +65,7 @@ SAFE_TERR_FACTORIES = (
 )
 
 
-def register_safe_builtins(autumn: "Autumn") -> list[str]:
+def register_safe_builtins(autumn: Autumn) -> list[str]:
     """Register the always-safe Terrs onto ``autumn``.
 
     Always safe = no network, no filesystem, no external setup. Returns the
@@ -80,7 +80,7 @@ def register_safe_builtins(autumn: "Autumn") -> list[str]:
 
 
 def register_builtins(
-    autumn: "Autumn",
+    autumn: Autumn,
     *,
     include_web: bool = False,
     fs_root: str | None = None,
@@ -106,6 +106,7 @@ def register_builtins(
         ``mom3``, or ``project``. ``project`` binds to the context-active
         project's shared zone (per-project isolated memory). Ignored unless
         ``include_memory`` is True.
+
     """
     names = register_safe_builtins(autumn)
     if include_web:

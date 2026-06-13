@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..types import SearchResult
+from .dimensions import ActivationContext, Aim, Trigger, Use, UseMode, activation_score
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -43,6 +44,12 @@ class MemoryEntry:
     tags: list[str] = field(default_factory=list)
     meta: dict = field(default_factory=dict)
     expires_at: float | None = None
+    # 4D memory dimensions (see autumn/core/memory/dimensions.py). All default to
+    # empty, so an entry carrying none of them behaves exactly as before. ``trigger``
+    # is the time 维 (named ``trigger`` to avoid shadowing the stdlib ``time`` module).
+    aim: Aim = field(default_factory=Aim)
+    use: Use = field(default_factory=Use)
+    trigger: Trigger = field(default_factory=Trigger)
 
     PIN_THRESHOLD: ClassVar[float] = _PIN_THRESHOLD
 
@@ -65,7 +72,7 @@ class MemoryEntry:
         return (now if now is not None else time.time()) >= self.expires_at
 
     def effective_importance(
-        self, now: float | None = None, half_life: float | None = None
+        self, now: float | None = None, half_life: float | None = None,
     ) -> float:
         """Importance after time-decay.
 
@@ -79,9 +86,42 @@ class MemoryEntry:
         age = max(0.0, now - self.timestamp)
         return self.importance * (0.5 ** (age / half_life))
 
+    def activation(
+        self, ctx: ActivationContext, half_life: float | None = None,
+    ) -> float:
+        """Query-time 4D activation score (see docs/rfc-4d-memory.md §5).
+
+        ``trigger`` gates and weights by time, ``aim`` gates by purpose, ``use``
+        boosts by past utility; the importance×decay base keeps the time factor
+        anchored to today's ranking. With empty dimensions this collapses to
+        ``effective_importance``, so enabling 4D scoring on un-annotated data
+        changes nothing (modulo decay). Returns 0 when the trigger or aim vetoes.
+        """
+        w = self.trigger.weight(self.timestamp, ctx.now, ctx, self.use.stats.last_used)
+        if w <= 0:
+            return 0.0
+        a = self.aim.align(ctx)
+        if a <= 0:
+            return 0.0
+        time_factor = w * self.effective_importance(ctx.now, half_life)
+        return activation_score(time_factor, a, self.use.utility())
+
+    def retention_score(
+        self, now: float | None = None, half_life: float | None = None,
+    ) -> float:
+        """Context-free value for eviction: importance×decay boosted by usage.
+
+        Deliberately ignores ``aim``/``trigger`` (those gate *when* a memory is
+        relevant, not whether it is worth keeping). Collapses to
+        ``effective_importance`` for never-used entries, so 4D eviction matches
+        today's on un-annotated data.
+        """
+        return self.effective_importance(now, half_life) * (1.0 + self.use.utility())
+
     def to_dict(self) -> dict:
         return {
             "_m": True,
+            "_v": 2,  # schema version: 2 adds the aim/use/trigger dimensions
             "id": self.id,
             "content": self.content,
             "timestamp": self.timestamp,
@@ -89,11 +129,18 @@ class MemoryEntry:
             "tags": self.tags,
             "meta": self.meta,
             "expires_at": self.expires_at,
+            "aim": self.aim.to_dict(),
+            "use": self.use.to_dict(),
+            "trigger": self.trigger.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, raw: dict) -> "MemoryEntry":
-        """Load from serialized form, or transparently upgrade a legacy raw dict."""
+    def from_dict(cls, raw: dict) -> MemoryEntry:
+        """Load from serialized form, or transparently upgrade a legacy raw dict.
+
+        v1 records (no ``_v``) simply lack the ``aim``/``use``/``trigger`` keys,
+        so each falls back to its empty default and the entry behaves as before.
+        """
         if raw.get("_m"):
             return cls(
                 id=raw["id"],
@@ -103,6 +150,9 @@ class MemoryEntry:
                 tags=raw.get("tags", []),
                 meta=raw.get("meta", {}),
                 expires_at=raw.get("expires_at"),
+                aim=Aim.from_dict(raw["aim"]) if raw.get("aim") else Aim(),
+                use=Use.from_dict(raw["use"]) if raw.get("use") else Use(),
+                trigger=Trigger.from_dict(raw["trigger"]) if raw.get("trigger") else Trigger(),
             )
         # Legacy workspace dict ({"ts": ..., "input": ..., "output": ...})
         return cls(
@@ -127,19 +177,25 @@ def _evict(
     limit: int,
     now: float | None = None,
     half_life: float | None = None,
+    fourd: bool = False,
 ) -> list[MemoryEntry]:
     """Trim history to at most *limit* entries.
 
     Pinned entries are kept unconditionally. Among normal entries, the highest
-    *effective* importance ones survive (time-decay applied when ``half_life`` is
-    set); recency breaks ties (newer wins). Returned in ascending timestamp order.
+    retention value survives; recency breaks ties (newer wins). Returned in
+    ascending timestamp order. ``fourd`` switches the retention metric from
+    ``effective_importance`` (time-decay only) to ``retention_score``
+    (decay boosted by use utility); the two coincide for un-annotated entries.
     """
     if len(history) <= limit:
         return history
     now = now if now is not None else time.time()
     pinned = [e for e in history if e.is_pinned]
     normal = [e for e in history if not e.is_pinned]
-    normal.sort(key=lambda e: (-e.effective_importance(now, half_life), -e.timestamp))
+    if fourd:
+        normal.sort(key=lambda e: (-e.retention_score(now, half_life), -e.timestamp))
+    else:
+        normal.sort(key=lambda e: (-e.effective_importance(now, half_life), -e.timestamp))
     keep_normal = max(0, limit - len(pinned))
     if len(pinned) > limit:
         kept = sorted(pinned, key=lambda e: -e.importance)[:limit]
@@ -177,8 +233,8 @@ class _VectorLayer:
 
     def __init__(
         self,
-        embedding: "EmbeddingInterface",
-        store: "SQLiteVectorStore",
+        embedding: EmbeddingInterface,
+        store: SQLiteVectorStore,
         auto_index: bool = False,
     ):
         self.embedding = embedding
@@ -213,6 +269,7 @@ class MemoryArea:
         backend: MemoryBackend,
         history_limit: int = _MAX_HISTORY,
         decay_half_life: float | None = None,
+        fourd_enabled: bool = False,
     ):
         self.name = name
         self._backend = backend
@@ -221,9 +278,26 @@ class MemoryArea:
         # When set, importance decays by half every this-many seconds of age,
         # influencing eviction priority. None disables decay (default).
         self._decay_half_life = decay_half_life or None
+        # When True, recall/evict rank by the 4D activation/retention score
+        # instead of raw importance; collapses to today's behavior for
+        # un-annotated entries. See docs/rfc-4d-memory.md.
+        self._fourd_enabled = fourd_enabled
         # Serialises the read-modify-write cycle in append_history so concurrent
         # turns cannot lose entries.
         self._history_lock = asyncio.Lock()
+
+    @property
+    def fourd_enabled(self) -> bool:
+        """Whether recall/eviction currently rank by 4D activation score."""
+        return self._fourd_enabled
+
+    def set_fourd_enabled(self, enabled: bool) -> None:
+        """Toggle 4D activation ranking at runtime.
+
+        recall() and eviction read ``_fourd_enabled`` live, so flipping it takes
+        effect on the next operation — no rebuild needed.
+        """
+        self._fourd_enabled = enabled
 
     @property
     def has_vector(self) -> bool:
@@ -231,8 +305,8 @@ class MemoryArea:
 
     def enable_vector(
         self,
-        embedding: "EmbeddingInterface",
-        store: "SQLiteVectorStore",
+        embedding: EmbeddingInterface,
+        store: SQLiteVectorStore,
         auto_index: bool = False,
     ) -> None:
         """Attach a vector layer for semantic search."""
@@ -284,12 +358,15 @@ class MemoryArea:
 
     async def append_history(
         self,
-        entry: "dict | str | MemoryEntry",
+        entry: dict | str | MemoryEntry,
         importance: float = 1.0,
         tags: list[str] | None = None,
         max_entries: int | None = None,
         ttl: float | None = None,
-    ) -> "MemoryEntry":
+        aim: Aim | None = None,
+        use: Use | None = None,
+        trigger: Trigger | None = None,
+    ) -> MemoryEntry:
         """Append a turn record. Returns the stored MemoryEntry.
 
         Accepts a raw dict or string (backward-compatible) or a MemoryEntry.
@@ -297,6 +374,11 @@ class MemoryArea:
         filtered from reads and purged here on the next append. When capacity is
         exceeded, lowest effective-importance non-pinned entries are removed
         first. Pinned entries (importance >= PIN_THRESHOLD) are never evicted.
+
+        ``aim`` / ``use`` / ``trigger`` attach the 4D-memory dimensions; when
+        omitted the entry keeps its existing (empty) defaults, so the call is
+        identical to before. They are purely stored here — no activation logic
+        runs yet (that arrives in a later phase).
         """
         limit = max_entries if max_entries is not None else self._history_limit
         now = time.time()
@@ -310,6 +392,13 @@ class MemoryArea:
                 importance=importance,
                 tags=tags or [],
             )
+        # Apply any explicitly-provided dimensions (override the entry's defaults).
+        if aim is not None:
+            entry.aim = aim
+        if use is not None:
+            entry.use = use
+        if trigger is not None:
+            entry.trigger = trigger
         if ttl is not None and entry.expires_at is None:
             entry.expires_at = now + ttl
 
@@ -317,7 +406,10 @@ class MemoryArea:
             history = _decode(await self.get(_HISTORY_KEY))
             history = [e for e in history if not e.is_expired(now)]  # purge expired
             history.append(entry)
-            history = _evict(history, limit, now=now, half_life=self._decay_half_life)
+            history = _evict(
+                history, limit, now=now,
+                half_life=self._decay_half_life, fourd=self._fourd_enabled,
+            )
             await self.set(_HISTORY_KEY, [e.to_dict() for e in history])
 
         if self._vector is not None and self._vector.auto_index:
@@ -333,7 +425,7 @@ class MemoryArea:
         tags: list[str] | None = None,
         since: float | None = None,
         include_expired: bool = False,
-    ) -> list["MemoryEntry"]:
+    ) -> list[MemoryEntry]:
         """Return history entries, optionally filtered.
 
         Args:
@@ -341,6 +433,7 @@ class MemoryArea:
             tags:  If given, only entries that have ALL listed tags are returned.
             since: If given, only entries with timestamp >= since are returned.
             include_expired: If True, do not filter out TTL-expired entries.
+
         """
         entries = _decode(await self.get(_HISTORY_KEY))
         if not include_expired:
@@ -355,7 +448,7 @@ class MemoryArea:
             entries = entries[-n:]
         return entries
 
-    async def recent(self, n: int = 5) -> list["MemoryEntry"]:
+    async def recent(self, n: int = 5) -> list[MemoryEntry]:
         """Return the n most recent (non-expired) history entries."""
         return await self.get_history(n=n)
 
@@ -364,7 +457,7 @@ class MemoryArea:
         query: str,
         k: int = 5,
         tags: list[str] | None = None,
-    ) -> list["MemoryEntry"]:
+    ) -> list[MemoryEntry]:
         """Unified retrieval combining three strategies, ranked by relevance.
 
         1. Exact key-value lookup on *query* as a key.
@@ -415,7 +508,17 @@ class MemoryArea:
             if e.id not in seen or e.importance > seen[e.id].importance:
                 seen[e.id] = e
 
-        ranked = sorted(seen.values(), key=lambda e: (-e.importance, -e.timestamp))
+        if self._fourd_enabled:
+            # Rank by 4D activation against the query (tags act as cues). KV/vector
+            # synthetic entries carry empty dimensions, so they fall back to their
+            # importance exactly as before; only annotated entries reorder.
+            ctx = ActivationContext(now=time.time(), query=query, cues=list(tags or []))
+            ranked = sorted(
+                seen.values(),
+                key=lambda e: (-e.activation(ctx, self._decay_half_life), -e.timestamp),
+            )
+        else:
+            ranked = sorted(seen.values(), key=lambda e: (-e.importance, -e.timestamp))
         return ranked[:k]
 
     # ── pin / unpin ───────────────────────────────────────────────────────────
@@ -441,6 +544,86 @@ class MemoryArea:
     async def unpin(self, entry_id: str) -> bool:
         """Reset an entry's importance to 1.0. Returns True if found."""
         return await self._reweight(entry_id, 1.0)
+
+    # ── use-dimension feedback ──────────────────────────────────────────────────
+
+    async def reinforce(self, ids: list[str], reward: float = 0.0) -> int:
+        """Record that the given history entries were used, persisting the update.
+
+        Touches each matching entry's ``use`` ledger (count + last_used, and
+        accumulates ``reward``), closing the 4D positive-feedback loop: entries
+        that keep proving useful gain utility and so rank higher in future recall
+        / survive eviction longer. Ids that don't match a history entry (e.g. the
+        synthetic ``kv:``/vector ids recall returns) are silently ignored, so it
+        is safe to pass a whole recall result. Returns the number updated.
+        """
+        id_set = {i for i in ids if i}
+        if not id_set:
+            return 0
+        now = time.time()
+        async with self._history_lock:
+            history = _decode(await self.get(_HISTORY_KEY))
+            updated = 0
+            for e in history:
+                if e.id in id_set:
+                    e.use.touch(now, reward)
+                    updated += 1
+            if updated:
+                await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
+        return updated
+
+    # ── 4D annotation ───────────────────────────────────────────────────────────
+
+    async def annotate(
+        self,
+        entry_id: str,
+        *,
+        mode: UseMode | str | None = None,
+        weight: float | None = None,
+        intent: str | None = None,
+        goal_ref: str | None = None,
+        scope: list[str] | None = None,
+        cues: list[str] | None = None,
+        half_life: float | None = None,
+    ) -> bool:
+        """Set/merge the 4D dimensions on an existing history entry, in place.
+
+        Each argument is applied only when provided, mutating the entry's living
+        ``aim`` / ``use`` / ``trigger`` objects — so ``use.stats`` (the usage
+        ledger) is preserved across annotation. This is the *producer* side of
+        the 4D engine: it gives a memory a purpose (``intent``/``scope``), an
+        application protocol (``mode``/``weight``), and time/cue triggers, which
+        the recall, eviction and push paths then score against.
+
+        ``mode`` accepts a :class:`UseMode` or its string value; an unknown
+        string is ignored (the entry keeps its current mode). Returns True if the
+        entry was found, False otherwise.
+        """
+        async with self._history_lock:
+            history = _decode(await self.get(_HISTORY_KEY))
+            for e in history:
+                if e.id != entry_id:
+                    continue
+                if mode is not None:
+                    try:
+                        e.use.mode = mode if isinstance(mode, UseMode) else UseMode(mode)
+                    except ValueError:
+                        pass  # unknown mode string → keep current
+                if weight is not None:
+                    e.use.weight = weight
+                if intent is not None:
+                    e.aim.intent = intent
+                if goal_ref is not None:
+                    e.aim.goal_ref = goal_ref
+                if scope is not None:
+                    e.aim.scope = list(scope)
+                if cues is not None:
+                    e.trigger.cues = list(cues)
+                if half_life is not None:
+                    e.trigger.half_life = half_life
+                await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
+                return True
+        return False
 
     # ── lifecycle: forget / consolidate / stats ────────────────────────────────
 
@@ -485,11 +668,11 @@ class MemoryArea:
 
     async def consolidate(
         self,
-        api: "ModelAPIInterface",
+        api: ModelAPIInterface,
         keep_recent: int = 10,
         min_candidates: int = 3,
         max_chars: int = 4000,
-    ) -> "MemoryEntry | None":
+    ) -> MemoryEntry | None:
         """Summarise older history into a single pinned entry to free space.
 
         The most recent ``keep_recent`` entries, plus all pinned entries and any
@@ -502,6 +685,7 @@ class MemoryArea:
             keep_recent: number of newest entries to leave untouched.
             min_candidates: minimum old entries required to bother summarising.
             max_chars: cap on the candidate text fed to the model.
+
         """
         async with self._history_lock:
             now = time.time()
@@ -539,8 +723,12 @@ class MemoryArea:
                 importance=_PIN_THRESHOLD,
                 tags=["summary"],
                 meta={"consolidated": len(candidates)},
+                # A consolidated digest is, by its nature, a summary-mode memory:
+                # this makes the 4D engine treat it as a consolidation priority
+                # rather than a plain context snippet.
+                use=Use(mode=UseMode.SUMMARIZE),
             )
-            new_history = preserved + [summary] + tail
+            new_history = [*preserved, summary, *tail]
             new_history.sort(key=lambda e: e.timestamp)
             await self.set(_HISTORY_KEY, [e.to_dict() for e in new_history])
 

@@ -3,7 +3,8 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -13,9 +14,9 @@ from pydantic import BaseModel, Field
 
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
-from ..core.memory.project import project_context, set_current_project, reset_current_project
+from ..core.memory.project import project_context, reset_current_project, set_current_project
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
-
+from . import integrations as integrations_mod
 
 # How long an SSE stream can sit idle before we emit an `: ping` comment.
 # Most corporate proxies kill idle SSE connections at 30–60s; 15s is safe.
@@ -151,6 +152,15 @@ class TerrToggleRequest(BaseModel):
     enabled: bool
 
 
+class KnownMCPResponse(BaseModel):
+    """A browsable entry from the built-in MCP catalog (autumn.builtin.KNOWN_MCPS)."""
+    id: str
+    name: str
+    description: str
+    factory: str
+    required_args: list[str] = []
+
+
 class ProviderConfigRequest(BaseModel):
     api_key: str
     base_url: str
@@ -185,12 +195,14 @@ class ModelsResponse(BaseModel):
 
 class ConsolidateRequest(BaseModel):
     """Tuning for a memory consolidation pass (all optional)."""
+
     keep_recent: int = 10
     min_candidates: int = 3
 
 
 class ProjectMetaUpdateRequest(BaseModel):
     """Partial update for project metadata. Omitted fields are unchanged."""
+
     project_type: str | None = None
     description: str | None = None
     goals: dict | None = None
@@ -200,21 +212,140 @@ class ProjectMetaUpdateRequest(BaseModel):
 
 class ProjectDescribeRequest(BaseModel):
     """Free-text input for AI-guided description generation."""
+
     input: str
 
 
 class ProjectGoalsRequest(BaseModel):
     """Free-text input for AI-guided goals structuring."""
+
     input: str
 
 
 class AddFileRequest(BaseModel):
     """A file path to append to the project's file list."""
+
     path: str
 
 
+class AnnotateRequest(BaseModel):
+    """Set/merge 4D dimensions on one history entry. Omitted fields are left as-is."""
+
+    entry_id: str
+    mode: str | None = None          # constrain | remind | summarize | context
+    intent: str | None = None
+    goal_ref: str | None = None
+    scope: list[str] | None = None
+    cues: list[str] | None = None
+    half_life: float | None = None
+
+
+class AnnotateResponse(BaseModel):
+    status: str
+    entry_id: str
+    found: bool
+
+
+class AutoAnnotateRequest(BaseModel):
+    """Tuning for an A4-inferred annotation pass."""
+
+    n: int = 10
+    only_unannotated: bool = True
+
+
+class AutoAnnotateResponse(BaseModel):
+    status: str
+    annotated: int
+    scanned: int
+
+
+class FourDStatusResponse(BaseModel):
+    """Whether the 4D activation engine is actually wired into live turns."""
+
+    fourd_memory_enabled: bool
+    fourd_push_on_turn: bool
+    mom1_access_enabled: bool
+
+
+class FourDConfigRequest(BaseModel):
+    """Runtime override for the 4D switches. Omitted fields are left unchanged."""
+
+    fourd_memory_enabled: bool | None = None
+    fourd_push_on_turn: bool | None = None
+    mom1_access_enabled: bool | None = None
+
+
+class PushPreviewRequest(BaseModel):
+    """Dry-run the turn-start push engine against a hypothetical context."""
+
+    area: MemoryArea = "mom1"
+    query: str = ""
+    cues: list[str] | None = None
+    k: int = 5
+
+
+class PushPreviewEntry(BaseModel):
+    id: str
+    text: str
+    mode: str
+    intent: str = ""
+    cues: list[str] = []
+    score: float
+
+
+class PushPreviewResponse(BaseModel):
+    fired: list[PushPreviewEntry]
+    fragment: str
+    enabled: bool       # whether push is actually active on live turns
+
+
+class AccessLogEntry(BaseModel):
+    id: str
+    timestamp: float
+    action: str
+    requester: str
+    query: str
+    reason: str
+    decision_reason: str = ""
+    redact: bool = False
+    entry_ids: list[str] = []
+    mediated_by: str | None = None
+
+
+class AccessLogResponse(BaseModel):
+    entries: list[AccessLogEntry]
+    total: int
+
+
+class IntegrationField(BaseModel):
+    key: str
+    label: str
+    secret: bool = False
+    optional: bool = False
+
+
+class IntegrationCatalogEntry(BaseModel):
+    id: str
+    name: str
+    description: str
+    fields: list[IntegrationField]
+
+
+class IntegrationStatusEntry(BaseModel):
+    id: str
+    name: str
+    connected: bool
+    tool_count: int = 0
+    error: str | None = None
+
+
+class IntegrationConnectRequest(BaseModel):
+    id: str
+    args: dict[str, str] = Field(default_factory=dict)
+
+
 class OllamaTarget(BaseModel):
-    base_url: str = "http://localhost:11434"
+    base_url: str = "http://127.0.0.1:11434"
 
 
 class OllamaDeleteRequest(OllamaTarget):
@@ -270,9 +401,32 @@ def _ollama_base(base_url: str) -> str:
     be reused here for model management.
     """
     root = (base_url or "").strip().rstrip("/")
-    if root.endswith("/v1"):
-        root = root[:-3].rstrip("/")
-    return root or "http://localhost:11434"
+    if not root:
+        root = "http://127.0.0.1:11434"
+    if "://" not in root:
+        root = f"http://{root}"
+
+    parsed = urlsplit(root)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[:-3].rstrip("/")
+    elif path.endswith("/api"):
+        path = path[:-4].rstrip("/")
+
+    host = parsed.hostname or "127.0.0.1"
+    if host in {"localhost", "::1"}:
+        host = "127.0.0.1"
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{host}{port}"
+    return urlunsplit((parsed.scheme or "http", netloc, path, "", ""))
+
+
+def _ollama_unavailable_detail(base: str, exc: Exception) -> str:
+    return (
+        f"Ollama 未响应（{base}）。请确认 Ollama 已启动，且 Autumn 服务器能访问该地址；"
+        "如果服务器运行在云端或容器里，localhost 指的是服务器环境而不是你的 Mac。"
+        f"原始错误: {exc}"
+    )
 
 
 def _headers_for(protocol: Protocol, api_key: str) -> dict[str, str]:
@@ -321,11 +475,53 @@ async def lifespan(app: FastAPI):
     # /config/apply calls can't leak an Autumn instance whose close() never runs.
     app.state.apply_lock = asyncio.Lock()
     app.state.last_error = None
+    # Platform integrations: desired credentials, live runtime handles, and the
+    # last connect error per id. integration_lock serialises connect/disconnect.
+    app.state.integrations = {}            # id -> args dict (the saved credential)
+    app.state.integration_runtime = {}     # id -> integrations_mod.IntegrationRuntime
+    app.state.integration_errors = {}      # id -> str
+    app.state.integration_lock = asyncio.Lock()
     try:
         yield
     finally:
         if app.state.autumn is not None:
             await app.state.autumn.close()
+
+
+async def _reapply_integrations(app: FastAPI, autumn: Autumn) -> None:
+    """Reconnect every saved integration onto a freshly built Autumn instance.
+
+    Called after /config/apply swaps the framework out: the old instance's
+    close() disconnects the previous MCP clients, so we rebuild the runtime map
+    from the persisted credentials. Best-effort — a platform that fails to start
+    records its error instead of breaking the whole config apply.
+    """
+    runtime: dict = {}
+    errors: dict = {}
+    for integration_id, args in list(app.state.integrations.items()):
+        try:
+            runtime[integration_id] = await integrations_mod.connect(autumn, integration_id, args)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the client as status
+            errors[integration_id] = str(exc)
+    app.state.integration_runtime = runtime
+    app.state.integration_errors = errors
+
+
+def _integration_status_list(app: FastAPI) -> list[IntegrationStatusEntry]:
+    runtime: dict = app.state.integration_runtime
+    errors: dict = app.state.integration_errors
+    out: list[IntegrationStatusEntry] = []
+    for entry in integrations_mod.INTEGRATIONS:
+        rid = entry["id"]
+        handle = runtime.get(rid)
+        out.append(IntegrationStatusEntry(
+            id=rid,
+            name=entry["name"],
+            connected=handle is not None,
+            tool_count=handle.tool_count if handle is not None else 0,
+            error=errors.get(rid),
+        ))
+    return out
 
 
 def _autumn_or_503(request: Request) -> Autumn:
@@ -352,7 +548,7 @@ def _projects_or_501(autumn: Autumn):
     projects = getattr(autumn, "projects", None)
     if projects is None:
         raise HTTPException(
-            status_code=501, detail="Per-project memory is not available on this server."
+            status_code=501, detail="Per-project memory is not available on this server.",
         )
     return projects
 
@@ -381,7 +577,8 @@ def _curator_with_model_or_400(autumn: Autumn):
 
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
     """Stash a short failure summary on app.state so /health can report it,
-    then return a 502 the caller can `raise from exc`."""
+    then return a 502 the caller can `raise from exc`.
+    """
     message = str(exc) or exc.__class__.__name__
     request.app.state.last_error = message
     return HTTPException(status_code=502, detail=message)
@@ -404,11 +601,11 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
 
 
 def _trace_payload(run: WorkflowRun) -> dict:
-    return json.loads(_trace_response(run).json())
+    return json.loads(_trace_response(run).model_dump_json())
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.1", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -474,6 +671,9 @@ def create_app() -> FastAPI:
             request.app.state.last_error = None
             if old is not None:
                 await old.close()
+            # Re-establish saved platform integrations on the new instance —
+            # old.close() disconnected the previous MCP clients.
+            await _reapply_integrations(request.app, new_autumn)
         return ApplyConfigResponse(status="ok", configured=True)
 
     @app.post("/process", response_model=ProcessResponse)
@@ -575,7 +775,7 @@ def create_app() -> FastAPI:
                     # call still gives us a chance to ping the proxy and to
                     # re-check the client connection.
                     done, _ = await asyncio.wait(
-                        [next_task], timeout=_SSE_HEARTBEAT_SECONDS
+                        [next_task], timeout=_SSE_HEARTBEAT_SECONDS,
                     )
                     if next_task not in done:
                         yield ": ping\n\n"
@@ -589,7 +789,7 @@ def create_app() -> FastAPI:
                         return
                     if isinstance(event, WorkflowRun):
                         payload = json.dumps(
-                            {"trace": _trace_payload(event)}, ensure_ascii=False
+                            {"trace": _trace_payload(event)}, ensure_ascii=False,
                         )
                     else:
                         payload = json.dumps({"chunk": event}, ensure_ascii=False)
@@ -635,12 +835,89 @@ def create_app() -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown Terr: {terr_name}") from exc
 
+    @app.get("/mcps/catalog", response_model=list[KnownMCPResponse])
+    async def mcps_catalog():
+        """Browse the built-in MCP catalog — the official servers the framework
+        knows how to launch. Static (no configured Autumn needed) so clients can
+        show what's available before any model is wired up."""
+        from ..builtin import KNOWN_MCPS
+        return KNOWN_MCPS
+
+    @app.get("/integrations/catalog", response_model=list[IntegrationCatalogEntry])
+    async def integrations_catalog():
+        """The credentialed platforms the agent can be granted access to. Static,
+        secret-free — drives the Settings input forms before anything is wired."""
+        return integrations_mod.catalog()
+
+    @app.get("/integrations/status", response_model=list[IntegrationStatusEntry])
+    async def integrations_status(request: Request):
+        """Per-platform connection state: connected?, how many tools it exposed,
+        and the last connect error (never the credential itself)."""
+        return _integration_status_list(request.app)
+
+    @app.post("/integrations/connect", response_model=IntegrationStatusEntry)
+    async def integrations_connect(req: IntegrationConnectRequest, request: Request):
+        """Save a platform credential and bring its tools online for the agent.
+
+        Reconnecting an already-connected platform tears the old session down
+        first, so rotating a token just works. The agent picks up the tools
+        immediately — no restart, no per-request plumbing."""
+        autumn = _autumn_or_503(request)
+        if not integrations_mod.is_known(req.id):
+            raise HTTPException(status_code=404, detail=f"未知集成: {req.id}")
+        async with request.app.state.integration_lock:
+            existing = request.app.state.integration_runtime.pop(req.id, None)
+            if existing is not None:
+                await integrations_mod.disconnect(autumn, existing)
+            try:
+                runtime = await integrations_mod.connect(autumn, req.id, req.args)
+            except ValueError as exc:
+                request.app.state.integration_errors[req.id] = str(exc)
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
+                request.app.state.integration_errors[req.id] = str(exc)
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"{integrations_mod.display_name(req.id)} 连接失败: {exc}",
+                ) from exc
+            request.app.state.integration_runtime[req.id] = runtime
+            request.app.state.integrations[req.id] = dict(req.args)
+            request.app.state.integration_errors.pop(req.id, None)
+        return IntegrationStatusEntry(
+            id=req.id,
+            name=integrations_mod.display_name(req.id),
+            connected=True,
+            tool_count=runtime.tool_count,
+            error=None,
+        )
+
+    @app.delete("/integrations/{integration_id}", response_model=IntegrationStatusEntry)
+    async def integrations_disconnect(integration_id: str, request: Request):
+        """Revoke a platform: disconnect its MCP server and forget the credential.
+        Effective immediately — the agent loses those tools on the next turn."""
+        autumn = _autumn_or_503(request)
+        if not integrations_mod.is_known(integration_id):
+            raise HTTPException(status_code=404, detail=f"未知集成: {integration_id}")
+        async with request.app.state.integration_lock:
+            existing = request.app.state.integration_runtime.pop(integration_id, None)
+            if existing is not None:
+                await integrations_mod.disconnect(autumn, existing)
+            request.app.state.integrations.pop(integration_id, None)
+            request.app.state.integration_errors.pop(integration_id, None)
+        return IntegrationStatusEntry(
+            id=integration_id,
+            name=integrations_mod.display_name(integration_id),
+            connected=False,
+            tool_count=0,
+            error=None,
+        )
+
     @app.get("/memory/{area}/history")
     async def get_history(
         area: MemoryArea,
         request: Request,
-        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
-        offset: int = Query(0, ge=0),
+        limit: Annotated[int, Query(ge=1, le=_HISTORY_PAGE_MAX)] = _HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
     ):
         autumn = _autumn_or_503(request)
         mom = _memory_curator(autumn)._resolve(area)
@@ -660,19 +937,184 @@ def create_app() -> FastAPI:
 
     @app.post("/memory/{area}/consolidate")
     async def memory_consolidate(
-        area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest()
+        area: MemoryArea, request: Request, req: ConsolidateRequest = ConsolidateRequest(),
     ):
         autumn = _autumn_or_503(request)
         wp4 = _curator_with_model_or_400(autumn)
         try:
             summary = await wp4.consolidate(
-                area, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+                area, keep_recent=req.keep_recent, min_candidates=req.min_candidates,
             )
         except Exception as exc:
             raise _record_failure(request, exc) from exc
         if summary is None:
             return {"status": "noop", "summary": None}
         return {"status": "ok", "summary": summary.to_dict()}
+
+    @app.post("/memory/{area}/annotate", response_model=AnnotateResponse)
+    async def annotate_memory_entry(
+        area: MemoryArea, req: AnnotateRequest, request: Request,
+    ):
+        """Attach 4D dimensions to one history entry (the user/UI producer path).
+
+        Mirrors the agent-facing ``annotate_memory`` skill: declare how a memory
+        should be applied (mode), why it matters (intent), and what triggers it
+        (scope/cues). Usage stats are preserved.
+        """
+        autumn = _autumn_or_503(request)
+        zone = _memory_curator(autumn)._resolve(area)
+        found = await zone.annotate(
+            req.entry_id,
+            mode=req.mode,
+            intent=req.intent,
+            goal_ref=req.goal_ref,
+            scope=req.scope,
+            cues=req.cues,
+            half_life=req.half_life,
+        )
+        if not found:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Entry {req.entry_id!r} not found in {area} history.",
+            )
+        return AnnotateResponse(status="ok", entry_id=req.entry_id, found=True)
+
+    @app.post("/memory/{area}/auto-annotate", response_model=AutoAnnotateResponse)
+    async def auto_annotate(
+        area: MemoryArea, request: Request,
+        req: AutoAnnotateRequest = AutoAnnotateRequest(),
+    ):
+        """Run A4 over recent entries to infer and write their 4D dimensions.
+
+        Needs the A4 model slot (400 if unconfigured). Returns how many entries
+        were annotated and scanned.
+        """
+        autumn = _autumn_or_503(request)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            result = await wp4.annotate_recent(
+                area, n=req.n, only_unannotated=req.only_unannotated,
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return AutoAnnotateResponse(status="ok", **result)
+
+    @app.get("/memory/4d/status", response_model=FourDStatusResponse)
+    async def fourd_status(request: Request):
+        """Report whether the 4D engine is enabled — so the client can show it.
+
+        The activation machinery is always present; these flags say whether it
+        actually drives recall/eviction ranking and turn-start push, or sits
+        dormant (collapsing to importance×recency).
+        """
+        autumn = _autumn_or_503(request)
+        b = getattr(getattr(autumn, "config", None), "behavior", None)
+        return FourDStatusResponse(
+            fourd_memory_enabled=bool(getattr(b, "fourd_memory_enabled", False)),
+            fourd_push_on_turn=bool(getattr(b, "fourd_push_on_turn", False)),
+            mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
+        )
+
+    @app.post("/memory/4d/config", response_model=FourDStatusResponse)
+    async def set_fourd_config(req: FourDConfigRequest, request: Request):
+        """Flip the 4D switches at runtime (env-set otherwise). Returns new state.
+
+        501 on builds whose Autumn predates runtime 4D config.
+        """
+        autumn = _autumn_or_503(request)
+        configure = getattr(autumn, "configure_4d", None)
+        if configure is None:
+            raise HTTPException(
+                status_code=501,
+                detail="Runtime 4D configuration is not available on this server.",
+            )
+        result = configure(
+            memory_enabled=req.fourd_memory_enabled,
+            push_on_turn=req.fourd_push_on_turn,
+            mom1_access_enabled=req.mom1_access_enabled,
+        )
+        return FourDStatusResponse(**result)
+
+    @app.post("/memory/push/preview", response_model=PushPreviewResponse)
+    async def push_preview(req: PushPreviewRequest, request: Request):
+        """Dry-run the push engine: what would auto-inject for this context.
+
+        Runs the same ``activate_push`` the turn pipeline uses, but never
+        reinforces — so inspecting the preview doesn't perturb usage stats. Only
+        CONSTRAIN/REMIND memories are candidates. Works regardless of whether
+        push is enabled on live turns (``enabled`` reports that separately).
+        """
+        import time as _t
+
+        from ..core.memory.dimensions import ActivationContext
+        from ..core.workspace.wp4 import render_push_context
+
+        autumn = _autumn_or_503(request)
+        wp4 = _memory_curator(autumn)
+        cues = req.cues if req.cues is not None else [t for t in req.query.split() if t]
+        ctx = ActivationContext(now=_t.time(), query=req.query or None, cues=cues)
+        try:
+            fired = await wp4.activate_push(area=req.area, ctx=ctx, k=req.k, reinforce=False)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        entries = [
+            PushPreviewEntry(
+                id=e.id,
+                text=e.text[:300],
+                mode=e.use.mode.value,
+                intent=e.aim.intent,
+                cues=list(e.trigger.cues),
+                score=round(e.activation(ctx), 4),
+            )
+            for e in fired
+        ]
+        b = getattr(getattr(autumn, "config", None), "behavior", None)
+        return PushPreviewResponse(
+            fired=entries,
+            fragment=render_push_context(fired),
+            enabled=bool(getattr(b, "fourd_push_on_turn", False)),
+        )
+
+    @app.get("/memory/audit/access_log", response_model=AccessLogResponse)
+    async def get_access_log(
+        request: Request,
+        limit: Annotated[int, Query(ge=1, le=_HISTORY_PAGE_MAX)] = _HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        verdict: str | None = None,
+    ):
+        """Mom1 access audit log from WP4 memory.
+
+        Each entry records one ``request_mom1_access`` invocation: the requester
+        (mom2/mom3), query, A1's verdict, redaction flag, and A4 mediator used.
+        ``verdict`` filters to ``"granted"`` or ``"denied"``; omit for all entries.
+        """
+        autumn = _autumn_or_503(request)
+        wp4 = _memory_curator(autumn)
+        history = await wp4.memory.get_history()
+        access_entries = [e for e in history if "access" in e.tags]
+        if verdict == "granted":
+            access_entries = [e for e in access_entries if "mom1_access_granted" in e.tags]
+        elif verdict == "denied":
+            access_entries = [e for e in access_entries if "mom1_access_denied" in e.tags]
+        access_entries.sort(key=lambda e: e.timestamp, reverse=True)
+        total = len(access_entries)
+        page = access_entries[offset:offset + limit]
+        entries = []
+        for e in page:
+            c = e.content if isinstance(e.content, dict) else {}
+            entries.append(AccessLogEntry(
+                id=e.id,
+                timestamp=e.timestamp,
+                action=c.get("action", ""),
+                requester=c.get("requester", ""),
+                query=c.get("query", ""),
+                reason=c.get("reason", ""),
+                decision_reason=c.get("decision_reason", ""),
+                redact=bool(c.get("redact", False)),
+                entry_ids=c.get("entries") or [],
+                mediated_by=c.get("mediated_by"),
+            ))
+        return AccessLogResponse(entries=entries, total=total)
 
     # ── Per-project shared memory ────────────────────────────────────────────
     # Each project id gets its own isolated shared memory zone. The zone is
@@ -690,8 +1132,8 @@ def create_app() -> FastAPI:
     async def project_memory(
         project_id: str,
         request: Request,
-        limit: int = Query(_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
-        offset: int = Query(0, ge=0),
+        limit: Annotated[int, Query(ge=1, le=_HISTORY_PAGE_MAX)] = _HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
     ):
         autumn = _autumn_or_503(request)
         projects = _projects_or_501(autumn)
@@ -715,7 +1157,7 @@ def create_app() -> FastAPI:
         wp4 = _curator_with_model_or_400(autumn)
         try:
             summary = await projects.zone(project_id).consolidate(
-                wp4.api, keep_recent=req.keep_recent, min_candidates=req.min_candidates
+                wp4.api, keep_recent=req.keep_recent, min_candidates=req.min_candidates,
             )
         except Exception as exc:
             raise _record_failure(request, exc) from exc
@@ -752,7 +1194,7 @@ def create_app() -> FastAPI:
         """Partially update a project's metadata. Omitted fields are unchanged."""
         autumn = _autumn_or_503(request)
         projects = _projects_or_501(autumn)
-        updates = {k: v for k, v in body.dict().items() if v is not None}
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
         meta = await projects.update_metadata(project_id, **updates)
         return meta.to_dict()
 
@@ -861,24 +1303,24 @@ def create_app() -> FastAPI:
     async def ollama_status(req: OllamaTarget):
         base = _ollama_base(req.base_url)
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
                 resp = await client.get(f"{base}/api/version")
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.HTTPError as exc:
-            return {"running": False, "base_url": base, "error": str(exc)}
+            return {"running": False, "base_url": base, "error": _ollama_unavailable_detail(base, exc)}
         return {"running": True, "base_url": base, "version": data.get("version")}
 
     @app.post("/ollama/models")
     async def ollama_models(req: OllamaTarget):
         base = _ollama_base(req.base_url)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 resp = await client.get(f"{base}/api/tags")
                 resp.raise_for_status()
                 payload = resp.json()
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"Ollama 未响应: {exc}") from exc
+            raise HTTPException(status_code=502, detail=_ollama_unavailable_detail(base, exc)) from exc
         models = []
         for item in payload.get("models", []):
             details = item.get("details") or {}
@@ -889,7 +1331,7 @@ def create_app() -> FastAPI:
                     "parameter_size": details.get("parameter_size"),
                     "family": details.get("family"),
                     "modified_at": item.get("modified_at"),
-                }
+                },
             )
         return {"models": models}
 
@@ -897,7 +1339,7 @@ def create_app() -> FastAPI:
     async def ollama_delete(req: OllamaDeleteRequest):
         base = _ollama_base(req.base_url)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
                 resp = await client.request(
                     "DELETE",
                     f"{base}/api/delete",
@@ -905,7 +1347,7 @@ def create_app() -> FastAPI:
                 )
                 resp.raise_for_status()
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"删除失败: {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"删除失败。{_ollama_unavailable_detail(base, exc)}") from exc
         return {"status": "ok", "name": req.name}
 
     @app.get("/ollama/recommended")
@@ -916,7 +1358,7 @@ def create_app() -> FastAPI:
     async def ollama_pull(
         name: str,
         request: Request,
-        base_url: str = "http://localhost:11434",
+        base_url: str = "http://127.0.0.1:11434",
     ):
         base = _ollama_base(base_url)
 
@@ -924,7 +1366,7 @@ def create_app() -> FastAPI:
             # No read timeout — a pull can take minutes — but bound the connect.
             timeout = httpx.Timeout(None, connect=5.0)
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream(
                         "POST",
                         f"{base}/api/pull",
@@ -933,7 +1375,7 @@ def create_app() -> FastAPI:
                         if resp.status_code != 200:
                             body = (await resp.aread()).decode("utf-8", "ignore")
                             err = json.dumps(
-                                {"error": f"HTTP {resp.status_code}: {body[:200]}"},
+                                {"error": f"Ollama 拉取失败（{base}）HTTP {resp.status_code}: {body[:200]}"},
                                 ensure_ascii=False,
                             )
                             yield f"data: {err}\n\n"
@@ -948,7 +1390,7 @@ def create_app() -> FastAPI:
                                 yield f"data: {line}\n\n"
                 yield "data: [DONE]\n\n"
             except httpx.HTTPError as exc:
-                err = json.dumps({"error": f"Ollama 未响应: {exc}"}, ensure_ascii=False)
+                err = json.dumps({"error": _ollama_unavailable_detail(base, exc)}, ensure_ascii=False)
                 yield f"data: {err}\n\n"
                 yield "data: [DONE]\n\n"
 

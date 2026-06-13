@@ -107,6 +107,9 @@ struct WorkflowTraceView: View {
 
     private var summary: String {
         var parts: [String] = []
+        if trace.pushStage != nil {
+            parts.append("4D 推入")
+        }
         if trace.hasAgentActivity {
             parts.append(trace.toolStageCount > 0 ? "Agent · \(trace.toolStageCount) 工具" : "Agent")
         }
@@ -135,6 +138,7 @@ private struct WorkflowStageRow: View {
 
     private var isTool: Bool { stage.kind == "tool" }
     private var isAgent: Bool { stage.kind == "agent" }
+    private var isPush: Bool { stage.kind == "push" }
     @State private var pulse = false
 
     var body: some View {
@@ -149,7 +153,7 @@ private struct WorkflowStageRow: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(stage.title)
-                        .font(isTool || isAgent
+                        .font(isTool || isAgent || isPush
                             ? .system(.caption, design: .monospaced).weight(.medium)
                             : Autumn.typography.captionMedium)
                     if let sourceTerr = stage.sourceTerr {
@@ -191,7 +195,14 @@ private struct WorkflowStageRow: View {
     private var indicator: some View {
         VStack(spacing: 2) {
             ZStack {
-                if isAgent {
+                if isPush {
+                    Circle()
+                        .fill(Autumn.colors.workspace("WP4").opacity(0.15))
+                        .frame(width: 14, height: 14)
+                    Image(systemName: "brain")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Autumn.colors.workspace("WP4"))
+                } else if isAgent {
                     Circle()
                         .fill(Autumn.colors.warning.opacity(0.16))
                         .frame(width: 14, height: 14)

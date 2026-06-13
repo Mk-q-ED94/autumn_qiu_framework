@@ -17,6 +17,7 @@
          mirroring how the macOS app launches without App Store packaging.
          Flip to true + provide a cert for MSIX distribution. -->
     <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <ApplicationIcon>Assets\autumn.ico</ApplicationIcon>
   </PropertyGroup>
 

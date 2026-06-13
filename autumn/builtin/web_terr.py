@@ -16,7 +16,6 @@ from ..core.components.skill import Skill
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
-
 _DEFAULT_TIMEOUT = 15.0
 _MAX_BYTES = 2_000_000  # 2MB cap per response
 

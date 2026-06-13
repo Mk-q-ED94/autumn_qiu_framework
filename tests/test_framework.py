@@ -155,6 +155,36 @@ def test_add_memory_skills_project_area(tmp_path):
     assert {"recall", "remember", "list_recent", "pin_memory"} <= names
 
 
+# ── add_mom1_access_skill ─────────────────────────────────────────────────────
+
+
+def test_add_mom1_access_skill_registers_skill(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    autumn.add_mom1_access_skill("mom2")
+    names = {name for name, obj in autumn.plugins.all().items() if isinstance(obj, Skill)}
+    assert "request_mom1_access" in names
+
+
+def test_add_mom1_access_skill_defaults_to_mom2(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    autumn.add_mom1_access_skill()
+    names = {name for name, obj in autumn.plugins.all().items() if isinstance(obj, Skill)}
+    assert "request_mom1_access" in names
+
+
+def test_add_mom1_access_skill_unknown_area_raises(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    with pytest.raises(ValueError, match="mom2.*mom3|area must be"):
+        autumn.add_mom1_access_skill("mom1")
+
+
+def test_mom1_broker_attached_to_task_and_mission_zones(tmp_path):
+    """The broker is wired at construction, so both zones can request upward."""
+    autumn = Autumn(_config(tmp_path))
+    assert autumn.mom2.can_request_mom1
+    assert autumn.mom3.can_request_mom1
+
+
 # ── per-project shared memory ───────────────────────────────────────────────────
 
 
@@ -222,3 +252,54 @@ async def test_end_session_tolerates_backend_without_clear_session(tmp_path):
     autumn.mom3._backend = _Bare()
     # No raise.
     await autumn.end_session()
+
+
+# ── configure_4d (runtime 4D switches) ──────────────────────────────────────────
+
+
+def test_configure_4d_propagates_memory_flag_to_all_zones(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    # default off
+    assert autumn.mom1.fourd_enabled is False
+    assert autumn.shared.fourd_enabled is False
+
+    state = autumn.configure_4d(memory_enabled=True)
+    assert state["fourd_memory_enabled"] is True
+    for zone in (autumn.mom1, autumn.mom2, autumn.mom3, autumn.shared):
+        assert zone.fourd_enabled is True
+    assert autumn.config.behavior.fourd_memory_enabled is True
+    # projects manager + any future project zone inherit it
+    assert autumn.project_zone("p").fourd_enabled is True
+
+
+def test_configure_4d_propagates_to_cached_project_zones(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    zone = autumn.project_zone("alpha")  # cached before the flip
+    assert zone.fourd_enabled is False
+    autumn.configure_4d(memory_enabled=True)
+    assert zone.fourd_enabled is True  # the already-cached zone was updated
+
+
+def test_configure_4d_push_flag_is_live(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    assert autumn.config.behavior.fourd_push_on_turn is False
+    autumn.configure_4d(push_on_turn=True)
+    assert autumn.config.behavior.fourd_push_on_turn is True
+
+
+def test_configure_4d_toggles_mom1_broker_gate(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    assert autumn.mom1_access.enabled is True
+    autumn.configure_4d(mom1_access_enabled=False)
+    assert autumn.mom1_access.enabled is False
+    assert autumn.config.behavior.mom1_access_enabled is False
+
+
+def test_configure_4d_none_leaves_unchanged(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    autumn.configure_4d(memory_enabled=True, push_on_turn=True)
+    # A second call touching only one flag must not reset the others.
+    state = autumn.configure_4d(mom1_access_enabled=False)
+    assert state["fourd_memory_enabled"] is True
+    assert state["fourd_push_on_turn"] is True
+    assert state["mom1_access_enabled"] is False

@@ -3,16 +3,17 @@ import SwiftUI
 /// Compact pill used for tags, status, route labels.
 struct AutumnBadge: View {
     enum Tone {
-        case neutral, accent, success, warning, danger, info
+        case neutral, accent, success, warning, danger, info, memory
 
         var foreground: Color {
             switch self {
             case .neutral: return .secondary
-            case .accent: return .accentColor
+            case .accent: return Autumn.colors.accent
             case .success: return Autumn.colors.success
             case .warning: return Autumn.colors.warning
             case .danger: return Autumn.colors.danger
             case .info: return Autumn.colors.info
+            case .memory: return Autumn.colors.memory
             }
         }
 

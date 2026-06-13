@@ -37,6 +37,9 @@ struct PipelineStripView: View {
                 }
                 .help(tooltipText(for: stage))
             }
+            if trace.pushStage != nil {
+                PushStatusChip()
+            }
             if agentCount > 0 {
                 AgentStatusChip()
             }
@@ -118,6 +121,10 @@ private struct StageCapsule: View {
     }
 
     private var width: CGFloat {
+        // Push stage is pre-pipeline; keep it compact so it doesn't dominate.
+        if stage.kind == "push" {
+            return 10
+        }
         // The first/last WP1 segments anchor the strip; route/convert mid-stages
         // get slightly shorter capsules so the visual rhythm reads end-to-end.
         if stage.id.hasSuffix(".select") || stage.id.hasSuffix(".final_check") {
@@ -140,6 +147,12 @@ private struct ToolCountChip: View {
 private struct AgentStatusChip: View {
     var body: some View {
         AutumnChip("Agent", icon: "cpu", color: Autumn.colors.warning, size: .compact)
+    }
+}
+
+private struct PushStatusChip: View {
+    var body: some View {
+        AutumnChip("4D", icon: "brain", color: Autumn.colors.memory, size: .compact)
     }
 }
 

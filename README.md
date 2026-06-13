@@ -44,6 +44,15 @@ A multi-model collaborative workflow framework. Three model API interfaces (A1, 
 - `Mom2` and `Mom3` share a public zone but cannot read `Mom1`.
 - Each layer has two tiers: short-term in-memory cache + persistent SQLite.
 
+**Governed upward channel** — the default isolation is asymmetric, but a *gated*
+path exists so a lower zone is not permanently walled off: `Mom2`/`Mom3` can
+**request** a `Mom1` read, which `A1` adjudicates (approve/deny + narrowed scope
++ redaction), `A4` mediates into a restricted answer, and `WP4` audits. It is
+exposed to the agent ReAct loop as the `request_mom1_access` skill, and every
+decision — granted or denied — is recorded to the access audit log
+(`GET /memory/audit/access_log`). Kill-switch: `MOM1_ACCESS_ENABLED=false`
+denies every request without ever consulting `A1`.
+
 **Per-project shared memory** — each project id gets its own isolated zone, but
 within a project the zone is *shared* across every workspace and turn:
 
@@ -93,6 +102,84 @@ Over HTTP the memory endpoints route through WP4: `GET /memory/stats` returns an
 all-zone overview, and `shared` joins `mom1/2/3` as an addressable area for
 `/memory/{area}/history|stats|consolidate`. Consolidation uses WP4's A4 slot, so
 it 400s cleanly when no A4 model is configured.
+
+**4D memory (active memory)** — beyond its content, every entry can optionally
+carry three more orthogonal dimensions, turning a passive record into a unit
+with its own activation policy (full design:
+[`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md)):
+
+| Dimension | Question it answers | Role |
+| --------- | ------------------- | ---- |
+| `aim`     | *why* does this memory exist | relevance gate — vetoes activation when misaligned with the turn's goal/cues |
+| content   | *what* is it                 | the payload (the existing entry body) |
+| `use`     | *how* to apply it — and how it has been used | processing mode (`CONTEXT`/`REMIND`/`CONSTRAIN`/`SUMMARIZE`) + usage ledger |
+| `trigger` | *when* should it fire        | scheduler — half-life, not-before/expiry, cooldown, cue matching |
+
+```python
+from autumn.core.memory import Aim, Use, UseMode, Trigger
+
+await autumn.mom1.append_history(
+    "never write to the prod database directly",
+    use=Use(mode=UseMode.CONSTRAIN),                    # how: inject as a hard rule
+    aim=Aim(intent="deploy safety", scope=["deploy"]),  # why: gate on alignment
+    trigger=Trigger(cues=["deploy", "release"]),        # when: boost on matching cues
+)
+```
+
+Recall ranks by `activation = trigger.weight × (importance × decay) × aim.align
+× (1 + use.utility)`. Eviction deliberately ignores `aim`/`trigger` and keeps
+what has proven useful (`retention = effective_importance × (1 + utility)`), so
+a high-value but currently-dormant memory is not evicted just because it is out
+of context.
+
+Two switches, both **off by default** — when off, behaviour is identical to the
+classic importance×recency model, and v1 records load unchanged (serialization
+is versioned, `_v=2`):
+
+- `FOURD_MEMORY_ENABLED` (`BehaviorConfig.fourd_memory_enabled`) — recall and
+  eviction switch to 4D activation scoring.
+- `FOURD_PUSH_ON_TURN` (`BehaviorConfig.fourd_push_on_turn`) — **push
+  activation**: at the start of every `process`/`stream` turn,
+  `CONSTRAIN`/`REMIND` memories whose trigger/aim gates open against the turn
+  fire automatically and are appended to the WP2/WP3 system prompts as an
+  "active constraints / reminders" block. The workflow trace gains a `wp4.push`
+  stage (WP4 purple in the desktop client) showing what fired.
+
+```python
+# pull: recall + use-ledger write-back, so useful memories rank higher over time
+hits = await autumn.wp4.activate("deploy target", area="shared")
+
+# push, manual seam (returns "" when the flag is off or nothing fires)
+frag = await autumn.active_context(text="deploying v2 now")
+```
+
+**Producing annotations** — the activation engine only discriminates once
+entries actually carry dimensions; un-annotated data scores exactly as
+importance×recency. Three ways to feed it:
+
+- **A4 inference** — `await autumn.wp4.annotate_recent("mom1")` scans
+  un-annotated entries and lets A4 classify each into a use-mode + purpose +
+  trigger cues. Over HTTP: `POST /memory/{area}/auto-annotate`.
+- **Agent-declared** — the `annotate_memory` skill lets a WP2/WP3 agent tag an
+  entry it just stored ("this is a constraint", "remind on deploy").
+- **User / UI** — `POST /memory/{area}/annotate` sets dimensions on one entry
+  (and `MemoryArea.annotate()` in code); consolidation digests are auto-marked
+  `SUMMARIZE`.
+
+**Observability** — `GET /memory/4d/status` reports whether ranking/push are
+actually enabled (vs. the dormant default), and `POST /memory/push/preview`
+dry-runs the push engine for a hypothetical turn *without* reinforcing,
+returning the fired memories, their activation scores, and the exact prompt
+fragment that would be injected. The macOS Memory view surfaces all of it: 4D
+status badges, one-tap auto-annotate, per-entry annotation controls, a
+push-preview mode, and a Mom1 access-audit panel.
+
+**Runtime control** — the three switches above are normally env-set, but
+`autumn.configure_4d(memory_enabled=…, push_on_turn=…, mom1_access_enabled=…)`
+flips them live (propagating the ranking toggle to every zone, including cached
+project zones). Over HTTP: `POST /memory/4d/config`; in the macOS client:
+**Settings → 记忆 → 4D 记忆引擎**. Changes apply immediately and reset to the
+`.env` defaults on restart.
 
 ## Quick start
 
@@ -263,6 +350,31 @@ Each factory returns an unconnected `StdioMCPClient`; pass it into a
 register the always-safe domains on server startup (default off). Use
 `AUTUMN_BUILTIN_TERRS=all` to also include `web`.
 
+## Platform integrations
+
+For the credentialed platforms above, the HTTP server turns a saved token into
+live agent capability — no code, no per-request plumbing. Save a credential
+once and the WP2 agent gains that platform's tools for the rest of the session:
+it reads and edits issues, PRs, files and messages on its own whenever a request
+calls for it.
+
+```text
+GET    /integrations/catalog       # connectable platforms + the fields each needs (secret-free)
+GET    /integrations/status        # per-platform: connected? how many tools? last error?
+POST   /integrations/connect       # { "id": "github", "args": { "token": "ghp_…" } }
+DELETE /integrations/{id}           # revoke: disconnect the MCP server, forget the token
+```
+
+`connect` starts the matching MCP server, bridges its tools, and registers them
+as a Terr (so they also show up in `/terrs` and can be toggled). Reconnecting an
+already-connected platform rotates the token cleanly. Credentials live only in
+the server process, survive a `/config/apply` rebuild, and **status never echoes
+the secret back**. Catalog: GitHub, GitLab, Slack, Brave Search, Google Maps,
+PostgreSQL. The server host needs `npx` / `uvx` to launch the MCP binaries.
+
+In the macOS client this is the **Settings → 集成** tab: a credential form per
+platform with connect / update / disconnect and live status.
+
 ## Plugins
 
 ```python
@@ -325,7 +437,7 @@ AutumnConfig(
 autumn/
 ├── core/
 │   ├── api/          # ModelAPIInterface, A1/A2/A3/A4
-│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, backends (Dict/SQLite/Hybrid)
+│   ├── memory/       # Mom1/2/3, SharedZone, ProjectMemory, dimensions (4D), backends (Dict/SQLite/Hybrid)
 │   ├── workspace/    # WP1Tot, WP2Tas, WP3Mis, WP4Mem
 │   ├── components/   # Agent, Skill, Tool, Selector, Checker, MCP*
 │   ├── config.py     # AutumnConfig, ModelConfig, WorkspacePrompts
@@ -375,8 +487,81 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.2.1**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.2.2**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### 0.2.2 — 2026-06-13 · 4D memory (active memory), client redesign, platform integrations & quality pass
+
+- **Platform integrations** — save a credential once (GitHub, GitLab, Slack,
+  Brave, Google Maps, Postgres) and the WP2 agent gains that platform's tools
+  for the session: it reads and edits issues, PRs, files and messages on its
+  own, with no per-request credential plumbing. The server starts the matching
+  MCP server and registers it as a Terr — `GET /integrations/catalog`,
+  `/integrations/status`, `POST /integrations/connect`,
+  `DELETE /integrations/{id}`. Credentials stay in the server process, survive a
+  `/config/apply` rebuild, and status never echoes the secret back. The macOS
+  Settings → 集成 tab drives connect / update / disconnect with live status.
+- **"Paper & Clay" client restyle** — the desktop visual language moves off the
+  warm orange ramp to a calm, neutral canvas carried by a single clay accent
+  (the restrained, single-accent direction of Claude / ChatGPT / Codex):
+  theme-adaptive surfaces, clean system-sans typography, flattened shadows and
+  hairline borders. Routed entirely through the design tokens, so every view
+  restyles at once.
+- **Four orthogonal dimensions** — `MemoryEntry` gains `aim` (why — relevance
+  gate), `use` (how — processing mode + usage ledger), and `trigger` (when —
+  weighted time-axis scheduler) alongside its content. Serialization is
+  versioned (`_v=2`) and fully backward-compatible; v1 records load unchanged.
+- **Activation scoring** — recall/eviction can rank by
+  `trigger.weight × decayed importance × aim.align × (1 + use.utility)` behind
+  the `FOURD_MEMORY_ENABLED` flag (default off → behaviour identical to before).
+- **Pull engine** — `WP4.activate(query)` closes the feedback loop: recall hits
+  are written back to their `use` ledger, so repeatedly useful memories rank
+  higher and survive eviction longer.
+- **Push engine & turn auto-injection** — behind `FOURD_PUSH_ON_TURN`,
+  `CONSTRAIN`/`REMIND` memories fire query-lessly at the start of every turn
+  and are appended to the WP2/WP3 system prompts as an "active constraints /
+  reminders" block; `Autumn.active_context()` exposes the same seam manually.
+  Push does not reinforce by default — auto-surfacing is not deliberate use.
+- **4D producer side** — the activation engine finally has something to score:
+  `MemoryArea.annotate()` merges dimensions onto an entry (preserving its usage
+  ledger), `WP4.annotate_recent()` runs A4 to infer them in bulk, the
+  `annotate_memory` skill lets an agent declare them, and consolidation digests
+  are auto-tagged `SUMMARIZE`. Endpoints: `POST /memory/{area}/annotate` and
+  `/auto-annotate`.
+- **Governed Mom1 access** — `Mom2`/`Mom3` keep their default isolation but gain
+  a gated upward channel: A1 adjudicates a requested `Mom1` read (narrowed scope
+  + redaction), A4 mediates a restricted answer, and WP4 audits every decision.
+  Surfaced as the `request_mom1_access` skill and `GET /memory/audit/access_log`;
+  kill-switch `MOM1_ACCESS_ENABLED=false`.
+- **4D observability** — `GET /memory/4d/status` and `POST /memory/push/preview`
+  make the engine inspectable (the preview dry-runs push without reinforcing);
+  the macOS Memory view adds 4D status badges, one-tap auto-annotate, per-entry
+  annotation controls, a push-preview mode, and a Mom1 access-audit panel.
+- **Runtime 4D control** — `Autumn.configure_4d()` / `POST /memory/4d/config`
+  flip 4D ranking, turn-push and the Mom1 channel without an env edit or
+  restart (the ranking toggle propagates to every zone, cached project zones
+  included); the macOS Settings → 记忆 tab exposes the three switches live.
+- **Trace & pipeline strip** — fired pushes surface as a `wp4.push` stage in
+  the workflow trace; the pipeline strip gains a purple 4D brain chip, and the
+  collapsed trace summary leads with "4D 推入" whenever the engine fired.
+- **Memory browser redesign (macOS client)** — the Memory view is rebuilt
+  around the 4D system: use-mode filter chips (constrain / remind / context /
+  summarize, with live counts — shown only when the area has annotated
+  entries), newest-first ordering, pinned / relative-time / tag / importance
+  indicators per entry, a 4D annotated-count stat, and a dedicated 四维 card
+  rendering `aim.scope` and `trigger.cues` as wrapping chips. A new
+  `Autumn.colors.memory` design token unifies the 4D identity across views,
+  and v2-serialized records now resolve their titles correctly (the
+  schema-default `use.mode=context` no longer badges every row).
+- **Reliability & code-quality pass** — packaging metadata corrected to the
+  actually-supported dependencies (`pydantic>=2,<3`, FastAPI upper bound
+  removed); the server migrated off removed Pydantic v1 APIs
+  (`.dict()`/`.json()` → `model_dump…`); vector-store table names are
+  validated against SQL injection; tool-call/result pairing uses
+  `zip(strict=True)`; the SQLite backend uses `asyncio.get_running_loop()`;
+  plus a module-wide ruff style/import sweep (~130 fixes).
+- Full design rationale and phasing in
+  [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md).
 
 ### 0.2.1 — Performance, new built-in domains & expanded MCP catalog
 

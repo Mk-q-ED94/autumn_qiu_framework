@@ -232,6 +232,62 @@ final class AutumnClient {
         return try JSONDecoder().decode(TerrSummary.self, from: data)
     }
 
+    func mcpCatalog() async throws -> [KnownMCP] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("mcps/catalog"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([KnownMCP].self, from: data)
+    }
+
+    // ── platform integrations ─────────────────────────────────────────────────
+
+    func integrationCatalog() async throws -> [IntegrationCatalogEntry] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("integrations/catalog"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([IntegrationCatalogEntry].self, from: data)
+    }
+
+    func integrationStatus() async throws -> [IntegrationStatus] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("integrations/status"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([IntegrationStatus].self, from: data)
+    }
+
+    @discardableResult
+    func connectIntegration(id: String, args: [String: String]) async throws -> IntegrationStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("integrations/connect"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Spawning the MCP subprocess (npx download on first run) can be slow.
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(IntegrationConnectBody(id: id, args: args))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(IntegrationStatus.self, from: data)
+    }
+
+    @discardableResult
+    func disconnectIntegration(id: String) async throws -> IntegrationStatus {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("integrations").appendingPathComponent(id)
+        )
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(IntegrationStatus.self, from: data)
+    }
+
     func endSession() async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("session/end"))
         request.httpMethod = "POST"
@@ -265,6 +321,96 @@ final class AutumnClient {
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(MemoryStatsOverview.self, from: data)
+    }
+
+    func fetch4DStatus() async throws -> FourDStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/4d/status"))
+        request.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(FourDStatus.self, from: data)
+    }
+
+    func update4DConfig(
+        memoryEnabled: Bool, pushOnTurn: Bool, mom1AccessEnabled: Bool
+    ) async throws -> FourDStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/4d/config"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            FourDConfigBody(
+                fourdMemoryEnabled: memoryEnabled,
+                fourdPushOnTurn: pushOnTurn,
+                mom1AccessEnabled: mom1AccessEnabled
+            )
+        )
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(FourDStatus.self, from: data)
+    }
+
+    func pushPreview(area: MemoryArea, query: String) async throws -> PushPreviewResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/push/preview"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            PushPreviewRequestBody(area: area.rawValue, query: query, k: 5)
+        )
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(PushPreviewResponse.self, from: data)
+    }
+
+    @discardableResult
+    func annotateMemory(
+        area: MemoryArea, entryID: String,
+        mode: String?, intent: String?, cues: [String]?
+    ) async throws -> AnnotateResult {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/annotate")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            AnnotateRequestBody(entryId: entryID, mode: mode, intent: intent, cues: cues)
+        )
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(AnnotateResult.self, from: data)
+    }
+
+    func autoAnnotate(area: MemoryArea, n: Int = 10) async throws -> AutoAnnotateResult {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/auto-annotate")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(AutoAnnotateRequestBody(n: n, onlyUnannotated: true))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(AutoAnnotateResult.self, from: data)
+    }
+
+    func fetchAccessLog(limit: Int = 200, offset: Int = 0) async throws -> AccessLogResponse {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("memory/audit/access_log"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
+        ]
+        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(AccessLogResponse.self, from: data)
     }
 
     func consolidateMemory(area: MemoryArea) async throws -> ConsolidateResponse {

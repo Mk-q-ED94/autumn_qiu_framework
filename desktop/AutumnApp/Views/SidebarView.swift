@@ -13,17 +13,21 @@ struct SidebarView: View {
                             .tag(section.rawValue)
                     }
                 } header: {
-                    HStack(spacing: Autumn.spacing.xs) {
-                        Image(systemName: "leaf.fill")
-                            .foregroundStyle(.tint)
-                        Text("秋 · Autumn")
-                            .font(Autumn.typography.headline)
+                    HStack(spacing: Autumn.spacing.sm) {
+                        AutumnLogoMark(size: 24)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("秋 · Autumn")
+                                .font(Autumn.typography.headline)
+                            Text("多模型协作工作台")
+                                .font(Autumn.typography.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, Autumn.spacing.xs)
                 }
             }
             .listStyle(.sidebar)
-            .frame(maxHeight: 220)
+            .frame(maxHeight: 238)
 
             Divider()
 
@@ -55,7 +59,8 @@ private struct SidebarRow: View {
             }
         } icon: {
             Image(systemName: section.systemImage)
-                .foregroundStyle(.tint)
+                .foregroundStyle(Autumn.colors.section(section))
+                .frame(width: 18)
         }
         .padding(.vertical, 2)
     }

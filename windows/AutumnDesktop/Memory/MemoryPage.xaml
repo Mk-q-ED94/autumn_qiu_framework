@@ -20,15 +20,15 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <muxc:Segmented
+            <ComboBox
                 Grid.Column="0"
                 x:Name="AreaSegmented"
                 SelectionChanged="AreaSegmented_SelectionChanged">
-                <muxc:SegmentedItem Content="Mom1" />
-                <muxc:SegmentedItem Content="Mom2" />
-                <muxc:SegmentedItem Content="Mom3" />
-                <muxc:SegmentedItem Content="Shared" />
-            </muxc:Segmented>
+                <ComboBoxItem Content="Mom1" />
+                <ComboBoxItem Content="Mom2" />
+                <ComboBoxItem Content="Mom3" />
+                <ComboBoxItem Content="Shared" />
+            </ComboBox>
             <Button Grid.Column="1" Content="刷新" Command="{x:Bind ViewModel.LoadCommand}" />
         </Grid>
 
