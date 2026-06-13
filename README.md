@@ -350,6 +350,31 @@ Each factory returns an unconnected `StdioMCPClient`; pass it into a
 register the always-safe domains on server startup (default off). Use
 `AUTUMN_BUILTIN_TERRS=all` to also include `web`.
 
+## Platform integrations
+
+For the credentialed platforms above, the HTTP server turns a saved token into
+live agent capability — no code, no per-request plumbing. Save a credential
+once and the WP2 agent gains that platform's tools for the rest of the session:
+it reads and edits issues, PRs, files and messages on its own whenever a request
+calls for it.
+
+```text
+GET    /integrations/catalog       # connectable platforms + the fields each needs (secret-free)
+GET    /integrations/status        # per-platform: connected? how many tools? last error?
+POST   /integrations/connect       # { "id": "github", "args": { "token": "ghp_…" } }
+DELETE /integrations/{id}           # revoke: disconnect the MCP server, forget the token
+```
+
+`connect` starts the matching MCP server, bridges its tools, and registers them
+as a Terr (so they also show up in `/terrs` and can be toggled). Reconnecting an
+already-connected platform rotates the token cleanly. Credentials live only in
+the server process, survive a `/config/apply` rebuild, and **status never echoes
+the secret back**. Catalog: GitHub, GitLab, Slack, Brave Search, Google Maps,
+PostgreSQL. The server host needs `npx` / `uvx` to launch the MCP binaries.
+
+In the macOS client this is the **Settings → 集成** tab: a credential form per
+platform with connect / update / disconnect and live status.
+
 ## Plugins
 
 ```python

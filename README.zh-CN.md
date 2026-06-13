@@ -306,6 +306,21 @@ register_builtins(
 
 **服务端按需启用**：设置 `AUTUMN_BUILTIN_TERRS=safe` 可在服务器启动时自动注册所有始终安全的域（默认关闭）；设 `AUTUMN_BUILTIN_TERRS=all` 同时启用 `web` 域。
 
+## 平台集成
+
+对于上表中需要凭据的平台，HTTP 服务可把「保存一次令牌」直接变成 agent 的能力——无需写代码、无需每次手动塞凭据。保存一次凭据，WP2 agent 在本会话内即获得该平台的工具：当请求需要时，它自行读写 issues、PR、文件与消息。
+
+```text
+GET    /integrations/catalog       # 可连接的平台 + 各自需要的字段（不含明文）
+GET    /integrations/status        # 每个平台：是否已连接？暴露多少工具？最近错误？
+POST   /integrations/connect       # { "id": "github", "args": { "token": "ghp_…" } }
+DELETE /integrations/{id}           # 撤销：断开 MCP 服务、忘记令牌
+```
+
+`connect` 会启动对应的 MCP 服务、桥接其工具并注册为一个 Terr（因此也会出现在 `/terrs` 里、可启用/禁用）。对已连接的平台再次 `connect` 即可干净地轮换令牌。凭据只保存在服务器进程内，`/config/apply` 重建后自动恢复，**状态接口绝不回传明文**。目录：GitHub、GitLab、Slack、Brave Search、Google Maps、PostgreSQL。服务器主机需要 `npx` / `uvx` 来启动这些 MCP 二进制。
+
+在 macOS 客户端中即 **设置 → 集成** 标签页：每个平台一个凭据表单，提供连接 / 更新 / 断开与实时状态。
+
 ## 插件
 
 ```python
