@@ -1,5 +1,6 @@
 """HTTP/SSE bridge that exposes Autumn to the SwiftUI desktop client."""
 import asyncio
+import hmac
 import json
 import os
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..core.config import AutumnConfig, ModelConfig
@@ -357,12 +358,21 @@ class IntegrationStatusEntry(BaseModel):
     name: str
     connected: bool
     tool_count: int = 0
+    # Read-only by default. write_enabled reflects whether mutating tools
+    # (create/edit/delete/post) are exposed to the agent; blocked_tool_count is
+    # how many mutating tools are being withheld while in read-only mode.
+    write_enabled: bool = False
+    blocked_tool_count: int = 0
     error: str | None = None
 
 
 class IntegrationConnectRequest(BaseModel):
     id: str
     args: dict[str, str] = Field(default_factory=dict)
+    # Opt-in grant: when false (default) the agent only gets the platform's read
+    # surface; mutating tools are withheld until the user deliberately enables
+    # writes and reconnects.
+    write_enabled: bool = False
 
 
 class OllamaTarget(BaseModel):
@@ -499,6 +509,7 @@ async def lifespan(app: FastAPI):
     # Platform integrations: desired credentials, live runtime handles, and the
     # last connect error per id. integration_lock serialises connect/disconnect.
     app.state.integrations = {}            # id -> args dict (the saved credential)
+    app.state.integration_write = {}       # id -> bool (writes granted to the agent?)
     app.state.integration_runtime = {}     # id -> integrations_mod.IntegrationRuntime
     app.state.integration_errors = {}      # id -> str
     app.state.integration_lock = asyncio.Lock()
@@ -519,9 +530,13 @@ async def _reapply_integrations(app: FastAPI, autumn: Autumn) -> None:
     """
     runtime: dict = {}
     errors: dict = {}
+    write_map: dict = app.state.integration_write
     for integration_id, args in list(app.state.integrations.items()):
         try:
-            runtime[integration_id] = await integrations_mod.connect(autumn, integration_id, args)
+            runtime[integration_id] = await integrations_mod.connect(
+                autumn, integration_id, args,
+                write_enabled=write_map.get(integration_id, False),
+            )
         except Exception as exc:  # noqa: BLE001 - surfaced to the client as status
             errors[integration_id] = str(exc)
     app.state.integration_runtime = runtime
@@ -540,6 +555,8 @@ def _integration_status_list(app: FastAPI) -> list[IntegrationStatusEntry]:
             name=entry["name"],
             connected=handle is not None,
             tool_count=handle.tool_count if handle is not None else 0,
+            write_enabled=handle.write_enabled if handle is not None else False,
+            blocked_tool_count=handle.blocked_count if handle is not None else 0,
             error=errors.get(rid),
         ))
     return out
@@ -625,14 +642,52 @@ def _trace_payload(run: WorkflowRun) -> dict:
     return json.loads(_trace_response(run).model_dump_json())
 
 
+# Paths reachable without the API key even when AUTUMN_API_KEY is set, so a
+# container/uptime probe never has to carry the secret.
+_AUTH_EXEMPT_PATHS = frozenset({"/health"})
+
+
+def _extract_api_key(request: Request) -> str:
+    """Pull the caller's key from ``X-API-Key`` or ``Authorization: Bearer <key>``."""
+    header = request.headers.get("x-api-key")
+    if header:
+        return header.strip()
+    auth = request.headers.get("authorization", "")
+    if auth[:7].lower() == "bearer ":
+        return auth[7:].strip()
+    return ""
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.2.1", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.2", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _enforce_api_key(request: Request, call_next):
+        """Gate every endpoint (except /health and CORS preflight) behind a
+        shared secret when ``AUTUMN_API_KEY`` is set. Unset (the default for
+        local single-user runs) → wide open, exactly as before. This is what
+        makes the server safe to bind beyond localhost: without the key, no one
+        who reaches the port can drive the agent, attach credentials, or read
+        memory. The env is read per-request so it can be rotated without a
+        restart, and the compare is constant-time."""
+        expected = os.environ.get("AUTUMN_API_KEY", "").strip()
+        if (
+            expected
+            and request.method != "OPTIONS"
+            and request.url.path not in _AUTH_EXEMPT_PATHS
+        ):
+            provided = _extract_api_key(request)
+            if not (provided and hmac.compare_digest(provided, expected)):
+                return JSONResponse(
+                    status_code=401, content={"detail": "Missing or invalid API key."},
+                )
+        return await call_next(request)
 
     @app.get("/health")
     async def health():
@@ -891,7 +946,9 @@ def create_app() -> FastAPI:
             if existing is not None:
                 await integrations_mod.disconnect(autumn, existing)
             try:
-                runtime = await integrations_mod.connect(autumn, req.id, req.args)
+                runtime = await integrations_mod.connect(
+                    autumn, req.id, req.args, write_enabled=req.write_enabled,
+                )
             except ValueError as exc:
                 request.app.state.integration_errors[req.id] = str(exc)
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -903,12 +960,15 @@ def create_app() -> FastAPI:
                 ) from exc
             request.app.state.integration_runtime[req.id] = runtime
             request.app.state.integrations[req.id] = dict(req.args)
+            request.app.state.integration_write[req.id] = req.write_enabled
             request.app.state.integration_errors.pop(req.id, None)
         return IntegrationStatusEntry(
             id=req.id,
             name=integrations_mod.display_name(req.id),
             connected=True,
             tool_count=runtime.tool_count,
+            write_enabled=runtime.write_enabled,
+            blocked_tool_count=runtime.blocked_count,
             error=None,
         )
 
@@ -924,6 +984,7 @@ def create_app() -> FastAPI:
             if existing is not None:
                 await integrations_mod.disconnect(autumn, existing)
             request.app.state.integrations.pop(integration_id, None)
+            request.app.state.integration_write.pop(integration_id, None)
             request.app.state.integration_errors.pop(integration_id, None)
         return IntegrationStatusEntry(
             id=integration_id,
@@ -1477,6 +1538,21 @@ def main():
     host = os.environ.get("AUTUMN_HOST", "127.0.0.1")
     port = int(os.environ.get("AUTUMN_PORT", "8765"))
     reload = os.environ.get("AUTUMN_RELOAD") == "1"
+
+    # Loud warning for the one genuinely dangerous configuration: reachable
+    # beyond localhost with no API key, i.e. anyone on the network can drive the
+    # agent and read every memory zone.
+    bound_public = host not in ("127.0.0.1", "localhost", "::1")
+    if bound_public and not os.environ.get("AUTUMN_API_KEY", "").strip():
+        import warnings
+
+        warnings.warn(
+            f"Autumn is binding to {host}:{port} with no AUTUMN_API_KEY set — "
+            "every endpoint is unauthenticated and reachable from the network. "
+            "Set AUTUMN_API_KEY to require a shared secret on all requests.",
+            stacklevel=2,
+        )
+
     uvicorn.run(
         "autumn.server.app:app",
         host=host,
