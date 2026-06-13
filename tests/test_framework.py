@@ -155,6 +155,36 @@ def test_add_memory_skills_project_area(tmp_path):
     assert {"recall", "remember", "list_recent", "pin_memory"} <= names
 
 
+# ── add_mom1_access_skill ─────────────────────────────────────────────────────
+
+
+def test_add_mom1_access_skill_registers_skill(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    autumn.add_mom1_access_skill("mom2")
+    names = {name for name, obj in autumn.plugins.all().items() if isinstance(obj, Skill)}
+    assert "request_mom1_access" in names
+
+
+def test_add_mom1_access_skill_defaults_to_mom2(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    autumn.add_mom1_access_skill()
+    names = {name for name, obj in autumn.plugins.all().items() if isinstance(obj, Skill)}
+    assert "request_mom1_access" in names
+
+
+def test_add_mom1_access_skill_unknown_area_raises(tmp_path):
+    autumn = Autumn(_config(tmp_path))
+    with pytest.raises(ValueError, match="mom2.*mom3|area must be"):
+        autumn.add_mom1_access_skill("mom1")
+
+
+def test_mom1_broker_attached_to_task_and_mission_zones(tmp_path):
+    """The broker is wired at construction, so both zones can request upward."""
+    autumn = Autumn(_config(tmp_path))
+    assert autumn.mom2.can_request_mom1
+    assert autumn.mom3.can_request_mom1
+
+
 # ── per-project shared memory ───────────────────────────────────────────────────
 
 

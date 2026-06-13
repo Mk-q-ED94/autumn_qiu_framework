@@ -21,7 +21,11 @@ from .project import (
     set_current_project,
 )
 from .shared import SharedZone
-from .skills import make_memory_skills, make_project_memory_skills
+from .skills import (
+    make_memory_skills,
+    make_mom1_access_skill,
+    make_project_memory_skills,
+)
 from .access import (
     Mom1AccessBroker,
     Mom1Requester,
@@ -37,7 +41,7 @@ __all__ = [
     "project_context", "set_current_project",
     "get_current_project", "reset_current_project",
     "DictBackend",
-    "make_memory_skills", "make_project_memory_skills",
+    "make_memory_skills", "make_project_memory_skills", "make_mom1_access_skill",
     "Aim", "Use", "UseStats", "UseMode", "Trigger",
     "ActivationContext", "activation_score",
     "Mom1AccessBroker", "Mom1Requester",

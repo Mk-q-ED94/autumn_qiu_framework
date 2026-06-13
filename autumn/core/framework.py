@@ -446,6 +446,32 @@ class Autumn:
         for skill in self.wp4.skills(area):
             self.register_skill(skill)
 
+    def add_mom1_access_skill(self, area: str = "mom2") -> None:
+        """Register the ``request_mom1_access`` skill for a task/mission zone.
+
+        Exposes the governed upward channel (:attr:`mom1_access`) to the agent
+        ReAct loop: a WP2/WP3 agent can file an adjudicated, A4-mediated request
+        to read Mom1 instead of being hard-walled off from it. Every request is
+        adjudicated by A1 and audited in WP4's log, so the asymmetric isolation
+        is preserved — this only makes the gated path *reachable*.
+
+        Parameters
+        ----------
+        area:
+            Which requester zone files the request — ``"mom2"`` (task, default)
+            or ``"mom3"`` (mission). Determines the audit log's requester field.
+
+        No-op-safe: if the broker was disabled (``MOM1_ACCESS_ENABLED=0``) the
+        skill still registers but every request returns a denial.
+        """
+        from .memory.skills import make_mom1_access_skill
+        requester = {"mom2": self.mom2, "mom3": self.mom3}.get(area)
+        if requester is None:
+            raise ValueError(
+                f"add_mom1_access_skill area must be 'mom2' or 'mom3', not {area!r}.",
+            )
+        self.register_skill(make_mom1_access_skill(requester))
+
     def project_zone(self, project_id: str | None = None) -> ProjectZone:
         """Return the dedicated shared memory zone for a project.
 

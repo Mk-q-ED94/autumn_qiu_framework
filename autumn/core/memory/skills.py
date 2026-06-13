@@ -27,6 +27,7 @@ from ..components.tool import ToolParameter
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
+    from .access import Mom1Requester
     from .base import MemoryArea
     from .project import ProjectMemory
 
@@ -210,3 +211,77 @@ def _build_memory_skills(
             ],
         ),
     ]
+
+
+def make_mom1_access_skill(requester: Mom1Requester) -> Skill:
+    """Build the ``request_mom1_access`` skill bound to a Mom2/Mom3 zone.
+
+    This is the *agent-facing* trigger for the governed upward channel
+    (:mod:`autumn.core.memory.access`). A task/mission agent that needs a fact
+    living only in Mom1 calls this skill; A1 adjudicates, A4 mediates a
+    restricted answer, and the result — granted or denied — comes back as text
+    in the ReAct trace. The agent never reads Mom1 directly.
+
+    The skill is only useful once a broker has been attached to *requester*
+    (``Autumn`` does this at construction); without one the handler returns a
+    clear unavailable message rather than raising into the agent loop.
+    """
+
+    async def request_mom1_access(
+        query: str,
+        reason: str,
+        scope: str = "",
+        max_entries: str = "5",
+    ) -> str:
+        scope_list = [s.strip() for s in scope.split(",") if s.strip()] or None
+        try:
+            n = max(1, min(int(max_entries), 20))
+        except (ValueError, TypeError):
+            n = 5
+        try:
+            grant = await requester.request_mom1(
+                query=query, reason=reason, scope=scope_list, max_entries=n,
+            )
+        except RuntimeError as exc:
+            return f"[mom1 access unavailable: {exc}]"
+        if not grant.approved:
+            return f"[mom1 access denied] {grant.decision.reason}".rstrip()
+        header = (
+            f"[mom1 access granted · {len(grant.entries)} entr"
+            f"{'y' if len(grant.entries) == 1 else 'ies'} · via {grant.mediated_by}]"
+        )
+        body = grant.content or "[no content returned]"
+        return f"{header}\n{body}"
+
+    return Skill(
+        name="request_mom1_access",
+        description=(
+            "Request read access to Mom1 — the Total workspace's private memory — "
+            "for a fact you cannot find in your own zone. State what you need "
+            "(query) and why (reason). A1 decides whether to grant it and A4 "
+            "returns a restricted, mediated answer; access is never guaranteed. "
+            "Use only when the task genuinely depends on Mom1-held information."
+        ),
+        handler=request_mom1_access,
+        parameters=[
+            ToolParameter(
+                "query", "string",
+                "Natural-language description of the Mom1 information you need.",
+            ),
+            ToolParameter(
+                "reason", "string",
+                "Why this task/mission needs it — A1 weighs this when adjudicating.",
+            ),
+            ToolParameter(
+                "scope", "string",
+                "Optional comma-separated Mom1 tags or entry ids to restrict the "
+                "request to. Leave empty to let A1 pick relevant entries.",
+                required=False,
+            ),
+            ToolParameter(
+                "max_entries", "string",
+                "Max Mom1 entries the answer may draw on (1–20, default 5).",
+                required=False,
+            ),
+        ],
+    )
