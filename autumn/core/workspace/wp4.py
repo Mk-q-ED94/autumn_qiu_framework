@@ -72,6 +72,42 @@ def render_push_context(entries: list[MemoryEntry]) -> str:
     return "\n\n".join(blocks)
 
 
+def _is_unannotated(entry: MemoryEntry) -> bool:
+    """True when an entry carries only default (empty) 4D dimensions.
+
+    These are the entries auto-annotation targets: a default CONTEXT mode, no
+    declared purpose, and no trigger cues — i.e. nothing for the activation
+    engine to discriminate on beyond plain importance/recency.
+    """
+    return (
+        entry.use.mode == UseMode.CONTEXT
+        and entry.aim.is_empty()
+        and not entry.trigger.cues
+    )
+
+
+_ANNOTATE_SYSTEM = """\
+You are A4, the memory curator in the Autumn framework. You assign 4D-memory \
+dimensions to raw memory entries so the activation engine can rank, retain and \
+proactively surface them well.
+
+For each entry choose:
+- "mode": how it should be applied —
+    "constrain" = a hard rule / guardrail the assistant must always follow,
+    "remind"    = something to proactively resurface at the right moment,
+    "summarize" = a candidate for consolidation (digests, long records),
+    "context"   = ordinary background (the default; use when none of the above).
+- "intent": a short phrase (<=8 words) naming WHY this memory matters, or "".
+- "scope": 0-5 lowercase tags describing the situations it applies to.
+- "cues": 0-5 lowercase keywords whose presence in a turn should trigger it.
+
+Prefer "context" unless the entry is clearly a rule, a reminder, or a digest. \
+Keep tags short and reusable.
+
+Respond with ONLY a JSON array, one object per entry, in this exact shape:
+[{"id": "<id>", "mode": "context", "intent": "", "scope": [], "cues": []}]"""
+
+
 class WP4Mem(WorkspaceBase):
     """Memory workspace (WP4). The A4-backed curator of every memory zone.
 
@@ -250,6 +286,75 @@ class WP4Mem(WorkspaceBase):
             await zone.reinforce([e.id for e in fired], reward=0.0)
         await self._log("activate_push", area, {"fired": [e.id for e in fired]})
         return fired
+
+    # ── annotate (A4-inferred 4D dimensions) ────────────────────────────────────
+
+    async def annotate_recent(
+        self,
+        area: str = "shared",
+        n: int = 10,
+        only_unannotated: bool = True,
+    ) -> dict:
+        """Use A4 to infer 4D dimensions for recent entries and write them back.
+
+        This is the *producer* side of the 4D engine. It scans the ``n`` most
+        recent entries in ``area`` — by default only those still carrying empty
+        default dimensions — and asks A4 to classify each into a use-mode plus a
+        short purpose and cue set. Each result is merged onto the entry via
+        :meth:`MemoryArea.annotate` (preserving the usage ledger), so the recall,
+        eviction and push paths gain something to discriminate on.
+
+        Returns ``{"annotated": int, "scanned": int}``. Raises ``RuntimeError``
+        when no A4 model is configured.
+        """
+        self._require_model("Memory annotation")
+        zone = self._resolve(area)
+        entries = await zone.recent(n)
+        if only_unannotated:
+            entries = [e for e in entries if _is_unannotated(e)]
+        if not entries:
+            await self._log("annotate", area, {"annotated": 0, "scanned": 0})
+            return {"annotated": 0, "scanned": 0}
+
+        from ..types import Message, Role
+
+        listing = "\n".join(f"id={e.id} :: {e.text[:200]}" for e in entries)
+        messages = [
+            Message(role=Role.SYSTEM, content=_ANNOTATE_SYSTEM),
+            Message(
+                role=Role.USER,
+                content=f"Annotate these {len(entries)} memory entries:\n\n{listing}",
+            ),
+        ]
+        response = await self.api.complete(messages)
+        try:
+            data = json.loads(self._extract_json(response))
+        except (json.JSONDecodeError, ValueError):
+            data = []
+        if not isinstance(data, list):
+            data = []
+
+        by_id = {e.id for e in entries}
+        annotated = 0
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            eid = item.get("id")
+            if eid not in by_id:
+                continue
+            scope = item.get("scope")
+            cues = item.get("cues")
+            ok = await zone.annotate(
+                eid,
+                mode=item.get("mode"),
+                intent=item.get("intent") or None,
+                scope=scope if isinstance(scope, list) else None,
+                cues=cues if isinstance(cues, list) else None,
+            )
+            if ok:
+                annotated += 1
+        await self._log("annotate", area, {"annotated": annotated, "scanned": len(entries)})
+        return {"annotated": annotated, "scanned": len(entries)}
 
     # ── consolidate ─────────────────────────────────────────────────────────────
 

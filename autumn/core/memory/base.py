@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..types import SearchResult
-from .dimensions import ActivationContext, Aim, Trigger, Use, activation_score
+from .dimensions import ActivationContext, Aim, Trigger, Use, UseMode, activation_score
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -559,6 +559,59 @@ class MemoryArea:
                 await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
         return updated
 
+    # ── 4D annotation ───────────────────────────────────────────────────────────
+
+    async def annotate(
+        self,
+        entry_id: str,
+        *,
+        mode: UseMode | str | None = None,
+        weight: float | None = None,
+        intent: str | None = None,
+        goal_ref: str | None = None,
+        scope: list[str] | None = None,
+        cues: list[str] | None = None,
+        half_life: float | None = None,
+    ) -> bool:
+        """Set/merge the 4D dimensions on an existing history entry, in place.
+
+        Each argument is applied only when provided, mutating the entry's living
+        ``aim`` / ``use`` / ``trigger`` objects — so ``use.stats`` (the usage
+        ledger) is preserved across annotation. This is the *producer* side of
+        the 4D engine: it gives a memory a purpose (``intent``/``scope``), an
+        application protocol (``mode``/``weight``), and time/cue triggers, which
+        the recall, eviction and push paths then score against.
+
+        ``mode`` accepts a :class:`UseMode` or its string value; an unknown
+        string is ignored (the entry keeps its current mode). Returns True if the
+        entry was found, False otherwise.
+        """
+        async with self._history_lock:
+            history = _decode(await self.get(_HISTORY_KEY))
+            for e in history:
+                if e.id != entry_id:
+                    continue
+                if mode is not None:
+                    try:
+                        e.use.mode = mode if isinstance(mode, UseMode) else UseMode(mode)
+                    except ValueError:
+                        pass  # unknown mode string → keep current
+                if weight is not None:
+                    e.use.weight = weight
+                if intent is not None:
+                    e.aim.intent = intent
+                if goal_ref is not None:
+                    e.aim.goal_ref = goal_ref
+                if scope is not None:
+                    e.aim.scope = list(scope)
+                if cues is not None:
+                    e.trigger.cues = list(cues)
+                if half_life is not None:
+                    e.trigger.half_life = half_life
+                await self.set(_HISTORY_KEY, [h.to_dict() for h in history])
+                return True
+        return False
+
     # ── lifecycle: forget / consolidate / stats ────────────────────────────────
 
     async def forget(
@@ -657,6 +710,10 @@ class MemoryArea:
                 importance=_PIN_THRESHOLD,
                 tags=["summary"],
                 meta={"consolidated": len(candidates)},
+                # A consolidated digest is, by its nature, a summary-mode memory:
+                # this makes the 4D engine treat it as a consolidation priority
+                # rather than a plain context snippet.
+                use=Use(mode=UseMode.SUMMARIZE),
             )
             new_history = [*preserved, summary, *tail]
             new_history.sort(key=lambda e: e.timestamp)
