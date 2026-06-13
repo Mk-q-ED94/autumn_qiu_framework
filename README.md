@@ -465,7 +465,7 @@ python -m pytest
 Current version: **0.2.1**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
 
-### Unreleased — 4D memory (active memory), client redesign & quality pass
+### Unreleased — 4D memory (active memory), client redesign, platform integrations & quality pass
 
 - **Four orthogonal dimensions** — `MemoryEntry` gains `aim` (why — relevance
   gate), `use` (how — processing mode + usage ledger), and `trigger` (when —
@@ -520,6 +520,21 @@ minor versions add features and may adjust APIs.
   validated against SQL injection; tool-call/result pairing uses
   `zip(strict=True)`; the SQLite backend uses `asyncio.get_running_loop()`;
   plus a module-wide ruff style/import sweep (~130 fixes).
+- **Platform integrations** — save a credential once (GitHub, GitLab, Slack,
+  Brave, Google Maps, Postgres) and the WP2 agent gains that platform's tools
+  for the session: it reads and edits issues, PRs, files and messages on its
+  own, with no per-request credential plumbing. The server starts the matching
+  MCP server and registers it as a Terr — `GET /integrations/catalog`,
+  `/integrations/status`, `POST /integrations/connect`,
+  `DELETE /integrations/{id}`. Credentials stay in the server process, survive a
+  `/config/apply` rebuild, and status never echoes the secret back. The macOS
+  Settings → 集成 tab drives connect / update / disconnect with live status.
+- **"Paper & Clay" client restyle** — the desktop visual language moves off the
+  warm orange ramp to a calm, neutral canvas carried by a single clay accent
+  (the restrained, single-accent direction of Claude / ChatGPT / Codex):
+  theme-adaptive surfaces, clean system-sans typography, flattened shadows and
+  hairline borders. Routed entirely through the design tokens, so every view
+  restyles at once.
 - Full design rationale and phasing in
   [`docs/rfc-4d-memory.md`](docs/rfc-4d-memory.md).
 
