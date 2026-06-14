@@ -45,6 +45,7 @@ public static class Autumn
         // and the four workspace identities, never as decoration. RGB values
         // match Tokens.swift exactly.
         public static readonly Color Clay = Color.FromArgb(0xFF, 0xCC, 0x66, 0x45);     // primary accent
+        public static readonly Color ClayLight = Color.FromArgb(0xFF, 0xE8, 0xA0, 0x7E); // lifted clay for dark surfaces
         public static readonly Color ClayDeep = Color.FromArgb(0xFF, 0x9C, 0x45, 0x2E); // gradient anchor
         public static readonly Color Sand = Color.FromArgb(0xFF, 0xC2, 0x9E, 0x73);     // soft warm neutral
         public static readonly Color Sage = Color.FromArgb(0xFF, 0x70, 0x8F, 0x73);     // muted green

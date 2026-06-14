@@ -27,6 +27,9 @@
                     <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#9C452E" />
                     <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#CC6645" />
 
+                    <!-- Sidebar — warm paper, distinct from Mica content area -->
+                    <SolidColorBrush x:Key="AutumnSidebarBrush" Color="#F3EDE7" />
+
                     <!-- Paper & Clay surfaces -->
                     <SolidColorBrush x:Key="AutumnSurfaceElevatedBrush" Color="#0A000000" />
                     <SolidColorBrush x:Key="AutumnAssistantBubbleBrush" Color="#09000000" />
@@ -48,6 +51,9 @@
                     <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#E8A07E" />
                     <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#D67A55" />
 
+                    <!-- Sidebar — warm dark, distinct from Mica content area -->
+                    <SolidColorBrush x:Key="AutumnSidebarBrush" Color="#1C1814" />
+
                     <!-- Paper & Clay surfaces -->
                     <SolidColorBrush x:Key="AutumnSurfaceElevatedBrush" Color="#14FFFFFF" />
                     <SolidColorBrush x:Key="AutumnAssistantBubbleBrush" Color="#10FFFFFF" />
@@ -67,6 +73,24 @@
             <common:WorkspaceToBrushConverter x:Key="WorkspaceToBrush" />
             <common:StatusToBrushConverter x:Key="StatusToBrush" />
 
+            <!-- ══ Global control polish ════════════════════════════════════════
+                 Rounded corners on all text inputs so they read as the app's own
+                 controls rather than stock Fluent. The focus underline remains but
+                 is de-emphasised by keeping BorderThickness at 1 rather than the
+                 default thick bottom stroke the Fluent template uses. -->
+            <Style TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+            <Style TargetType="PasswordBox" BasedOn="{StaticResource DefaultPasswordBoxStyle}">
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+            <Style TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
+
             <!-- ══ Brand spine — clay palette (theme-independent) ═════════════ -->
             <SolidColorBrush x:Key="AutumnClayBrush" Color="#CC6645" />
             <SolidColorBrush x:Key="AutumnClayDeepBrush" Color="#9C452E" />
@@ -77,10 +101,6 @@
             <SolidColorBrush x:Key="AutumnSuccessBrush" Color="#5C996B" />
             <SolidColorBrush x:Key="AutumnWarningBrush" Color="#D69442" />
             <SolidColorBrush x:Key="AutumnDangerBrush" Color="#CC544D" />
-
-            <!-- Let the Mica backdrop read through the NavigationView content area
-                 so pages float on warm paper rather than an opaque panel. -->
-            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
 
             <!-- Chat bubble tints — user turns carry a hint of clay. -->
             <SolidColorBrush x:Key="AutumnUserBubbleBrush" Color="#1FCC6645" />

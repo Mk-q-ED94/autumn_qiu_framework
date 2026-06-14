@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AutumnDesktop.DesignSystem.AutumnNavItem"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Hand-drawn sidebar row — the WinUI replacement for NavigationViewItem so
+         the navigation reads as Autumn's own, not the stock Fluent pane. Icon +
+         label on a rounded surface; selected/hover/normal looks are applied from
+         code-behind (theme-aware) rather than via a templated control. -->
+    <Border x:Name="Root" CornerRadius="9" Padding="11,9" Background="Transparent">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <FontIcon x:Name="IconElement" FontSize="16" VerticalAlignment="Center" />
+            <TextBlock x:Name="LabelElement" FontSize="14" VerticalAlignment="Center" />
+        </StackPanel>
+    </Border>
+</UserControl>
