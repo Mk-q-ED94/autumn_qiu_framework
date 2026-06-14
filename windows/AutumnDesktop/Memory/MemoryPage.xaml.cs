@@ -1,3 +1,5 @@
+using System;
+using AutumnDesktop.DesignSystem;
 using AutumnDesktop.Models;
 using Microsoft.UI.Xaml.Controls;
 
@@ -7,22 +9,30 @@ public sealed partial class MemoryPage : Page
 {
     public MemoryViewModel ViewModel { get; } = new();
 
+    private AutumnTabPill? _activeArea;
+
     public MemoryPage()
     {
         InitializeComponent();
-        AreaSelector.SelectedItem = AreaSelector.Items[0];
+        _activeArea = TabMom1;
         Loaded += (_, _) => _ = ViewModel.LoadAsync();
     }
 
-    private void AreaSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    private void AreaTab_Selected(object? sender, EventArgs e)
     {
-        var index = sender.SelectedItem is null ? 0 : sender.Items.IndexOf(sender.SelectedItem);
-        ViewModel.SelectedArea = index switch
+        if (sender is not AutumnTabPill next) return;
+        if (ReferenceEquals(_activeArea, next)) return;
+
+        if (_activeArea is not null) _activeArea.IsSelected = false;
+        _activeArea = next;
+        next.IsSelected = true;
+
+        ViewModel.SelectedArea = next.Tag as string switch
         {
-            1 => MemoryArea.Mom2,
-            2 => MemoryArea.Mom3,
-            3 => MemoryArea.Shared,
-            _ => MemoryArea.Mom1,
+            "Mom2"   => MemoryArea.Mom2,
+            "Mom3"   => MemoryArea.Mom3,
+            "Shared" => MemoryArea.Shared,
+            _        => MemoryArea.Mom1,
         };
     }
 }

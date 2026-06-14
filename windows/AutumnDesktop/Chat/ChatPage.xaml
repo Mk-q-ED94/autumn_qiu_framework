@@ -55,8 +55,8 @@
                     Visibility="{x:Bind TraceVisibility, Mode=OneWay}"
                     HorizontalAlignment="Stretch"
                     MaxWidth="580"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource AutumnAssistantBubbleBrush}"
+                    BorderThickness="0"
                     CornerRadius="11">
                     <muxc:Expander.Header>
                         <StackPanel Orientation="Horizontal" Spacing="10">
@@ -164,16 +164,28 @@
             </StackPanel>
         </Border>
 
-        <!-- ── Error InfoBar ───────────────────────────────────────────────── -->
-        <muxc:InfoBar
-            Grid.Row="2"
-            IsOpen="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToBool}}"
-            Severity="Error"
-            Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" />
+        <!-- ── Error strip ────────────────────────────────────────────────── -->
+        <Border Grid.Row="2"
+                Background="#1ACC544D"
+                BorderBrush="{StaticResource AutumnDangerBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="20,8"
+                Visibility="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToVisibility}}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon Glyph="&#xE783;" FontSize="12" VerticalAlignment="Center"
+                          Foreground="{StaticResource AutumnDangerBrush}" />
+                <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                           TextWrapping="Wrap" FontSize="12"
+                           Foreground="{StaticResource AutumnDangerBrush}" />
+            </StackPanel>
+        </Border>
 
         <!-- ── Composer ────────────────────────────────────────────────────── -->
-        <Grid Grid.Row="3" Padding="20,8,20,16" ColumnSpacing="8"
-              Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Border Grid.Row="3"
+                Background="{ThemeResource AutumnSidebarBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0">
+        <Grid Padding="20,8,20,16" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -221,5 +233,6 @@
                 <FontIcon Glyph="&#xE74D;" FontSize="13" />
             </Button>
         </Grid>
+        </Border>
     </Grid>
 </Page>

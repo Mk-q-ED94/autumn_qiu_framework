@@ -126,9 +126,10 @@
 
             <!-- ══ Component styles ══════════════════════════════════════════ -->
 
-            <!-- Card surface — hairline border does the structural work. -->
+            <!-- Card surface — uses the app's own surface brush rather than the
+                 system CardBackground so it reads as warm paper, not Windows settings. -->
             <Style x:Key="AutumnCardStyle" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource AutumnSurfaceElevatedBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="11" />

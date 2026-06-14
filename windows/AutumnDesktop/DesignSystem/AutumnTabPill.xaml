@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AutumnDesktop.DesignSystem.AutumnTabPill"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Horizontal pill tab — the AutumnNavItem equivalent for tab bars.
+         Pill-shaped (CornerRadius=999), selection/hover/normal applied from
+         code-behind so it reads as Autumn's own component rather than SelectorBar. -->
+    <Border x:Name="Root" CornerRadius="999" Padding="14,6" Background="Transparent">
+        <TextBlock x:Name="LabelElement" FontSize="13" VerticalAlignment="Center" />
+    </Border>
+</UserControl>

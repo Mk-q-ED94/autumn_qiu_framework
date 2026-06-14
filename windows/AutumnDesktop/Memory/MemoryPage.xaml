@@ -46,13 +46,13 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <muxc:SelectorBar Grid.Column="0" x:Name="AreaSelector"
-                                      SelectionChanged="AreaSelector_SelectionChanged">
-                        <muxc:SelectorBarItem Text="Mom1" />
-                        <muxc:SelectorBarItem Text="Mom2" />
-                        <muxc:SelectorBarItem Text="Mom3" />
-                        <muxc:SelectorBarItem Text="共享区" />
-                    </muxc:SelectorBar>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2"
+                                VerticalAlignment="Center">
+                        <ds:AutumnTabPill x:Name="TabMom1"   Text="Mom1"  IsSelected="True" Tag="Mom1"   Selected="AreaTab_Selected" />
+                        <ds:AutumnTabPill x:Name="TabMom2"   Text="Mom2"                    Tag="Mom2"   Selected="AreaTab_Selected" />
+                        <ds:AutumnTabPill x:Name="TabMom3"   Text="Mom3"                    Tag="Mom3"   Selected="AreaTab_Selected" />
+                        <ds:AutumnTabPill x:Name="TabShared" Text="共享区"                  Tag="Shared" Selected="AreaTab_Selected" />
+                    </StackPanel>
                     <Button Grid.Column="1" Command="{x:Bind ViewModel.LoadCommand}"
                             ToolTipService.ToolTip="刷新" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="6">
@@ -83,12 +83,21 @@
             </StackPanel>
         </Border>
 
-        <!-- ── Error bar ─────────────────────────────────────────────────────── -->
-        <muxc:InfoBar
-            Grid.Row="2"
-            IsOpen="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToBool}}"
-            Severity="Error"
-            Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" />
+        <!-- ── Error strip ───────────────────────────────────────────────────── -->
+        <Border Grid.Row="2"
+                Background="#1ACC544D"
+                BorderBrush="{StaticResource AutumnDangerBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="20,8"
+                Visibility="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToVisibility}}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <FontIcon Glyph="&#xE783;" FontSize="12" VerticalAlignment="Center"
+                          Foreground="{StaticResource AutumnDangerBrush}" />
+                <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                           TextWrapping="Wrap" FontSize="12"
+                           Foreground="{StaticResource AutumnDangerBrush}" />
+            </StackPanel>
+        </Border>
 
         <!-- ── Entry list ────────────────────────────────────────────────────── -->
         <ScrollViewer Grid.Row="3" Padding="20,12,20,16" VerticalScrollBarVisibility="Auto">

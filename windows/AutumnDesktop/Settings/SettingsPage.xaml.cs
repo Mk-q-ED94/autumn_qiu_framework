@@ -1,3 +1,5 @@
+using System;
+using AutumnDesktop.DesignSystem;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -7,30 +9,35 @@ public sealed partial class SettingsPage : Page
 {
     public SettingsViewModel ViewModel { get; } = new();
 
+    private AutumnTabPill? _activeTab;
+
     public SettingsPage()
     {
         InitializeComponent();
-        // PasswordBox.Password isn't a dependency property, so seed from settings
-        // on load and push edits back via PasswordChanged.
         Loaded += (_, _) =>
         {
             A1Key.Password = ViewModel.Settings.A1.ApiKey;
             A2Key.Password = ViewModel.Settings.A2.ApiKey;
             A3Key.Password = ViewModel.Settings.A3.ApiKey;
             A4Key.Password = ViewModel.Settings.A4.ApiKey;
-            // Start on the Server tab.
-            SettingsTabBar.SelectedItem = TabServer;
+            _activeTab = TabServer;
         };
     }
 
-    private void SettingsTabBar_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    private void Tab_Selected(object? sender, EventArgs e)
     {
-        var selected = sender.SelectedItem;
-        ServerTabContent.Visibility = selected == TabServer ? Visibility.Visible : Visibility.Collapsed;
-        ModelsTabContent.Visibility = selected == TabModels ? Visibility.Visible : Visibility.Collapsed;
-        MemoryTabContent.Visibility = selected == TabMemory ? Visibility.Visible : Visibility.Collapsed;
-        IntegrationsTabContent.Visibility = selected == TabIntegrations ? Visibility.Visible : Visibility.Collapsed;
-        AdvancedTabContent.Visibility = selected == TabAdvanced ? Visibility.Visible : Visibility.Collapsed;
+        if (sender is not AutumnTabPill next) return;
+        if (ReferenceEquals(_activeTab, next)) return;
+
+        if (_activeTab is not null) _activeTab.IsSelected = false;
+        _activeTab = next;
+        next.IsSelected = true;
+
+        ServerTabContent.Visibility       = ReferenceEquals(next, TabServer)       ? Visibility.Visible : Visibility.Collapsed;
+        ModelsTabContent.Visibility       = ReferenceEquals(next, TabModels)       ? Visibility.Visible : Visibility.Collapsed;
+        MemoryTabContent.Visibility       = ReferenceEquals(next, TabMemory)       ? Visibility.Visible : Visibility.Collapsed;
+        IntegrationsTabContent.Visibility = ReferenceEquals(next, TabIntegrations) ? Visibility.Visible : Visibility.Collapsed;
+        AdvancedTabContent.Visibility     = ReferenceEquals(next, TabAdvanced)     ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void A1Key_PasswordChanged(object sender, RoutedEventArgs e)
