@@ -12,12 +12,46 @@ responses never echo the secret values back to the client.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from ..builtin import mcp_catalog as _cat
 from ..core.components.mcp_bridge import mcp_to_tools
 from ..core.components.terr import Terr
 from ..core.framework import Autumn
+
+# Verbs that mark a platform tool as *mutating* the user's real account
+# (issues, PRs, files, messages, rows). When an integration is connected in the
+# default read-only mode, tools whose name carries one of these verbs are NOT
+# registered for the agent at all — the dangerous capability simply isn't
+# present until the user explicitly grants write access and reconnects.
+#
+# The set is deliberately conservative: a false positive only hides a tool the
+# user can re-enable, but a false negative would let the agent mutate an account
+# it was never authorised to touch. Common read verbs (get/list/search/read/
+# fetch/describe) and the noun "request" (as in get_pull_request) are excluded
+# so they never get caught.
+_WRITE_VERBS: frozenset[str] = frozenset({
+    "create", "update", "delete", "remove", "add", "edit", "set", "write",
+    "patch", "post", "send", "reply", "merge", "push", "fork", "upload",
+    "rename", "archive", "assign", "submit", "approve", "dismiss", "insert",
+    "drop", "truncate", "star", "pin", "unpin", "invite", "publish", "deploy",
+    "restore", "revert", "replace", "close", "reopen", "lock", "unlock",
+    "cancel", "move", "transfer", "comment",
+})
+
+
+def _name_tokens(name: str) -> list[str]:
+    """Split a tool name into lowercase tokens across snake_case, kebab-case,
+    spaces and camelCase boundaries (``createIssue`` → ``["create", "issue"]``)."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name or "")
+    return [t for t in re.split(r"[^a-zA-Z0-9]+", spaced.lower()) if t]
+
+
+def is_write_tool(name: str) -> bool:
+    """True when a tool name reads as a mutating action on the platform."""
+    return any(token in _WRITE_VERBS for token in _name_tokens(name))
+
 
 # The subset of the MCP catalog that represents an external account / platform
 # the agent can act on with a user-supplied credential. Each entry maps to a
@@ -134,13 +168,25 @@ class IntegrationRuntime:
     terr_name: str
     client: object
     tool_names: list[str] = field(default_factory=list)
+    write_enabled: bool = False
+    blocked_tool_names: list[str] = field(default_factory=list)
 
     @property
     def tool_count(self) -> int:
         return len(self.tool_names)
 
+    @property
+    def blocked_count(self) -> int:
+        return len(self.blocked_tool_names)
 
-async def connect(autumn: Autumn, integration_id: str, args: dict[str, str]) -> IntegrationRuntime:
+
+async def connect(
+    autumn: Autumn,
+    integration_id: str,
+    args: dict[str, str],
+    *,
+    write_enabled: bool = False,
+) -> IntegrationRuntime:
     """Start the platform's MCP server and register it as a Terr on ``autumn``.
 
     Materialises the MCP tools up front (so we can record their names for a
@@ -148,6 +194,13 @@ async def connect(autumn: Autumn, integration_id: str, args: dict[str, str]) -> 
     integration visible and toggleable in the Terrs UI alongside the built-in
     domains. Raises ``ValueError`` for missing args; propagates connection
     errors so the caller can surface them.
+
+    Safety default — ``write_enabled=False``: tools that read as a *mutating*
+    action on the user's real account (see :func:`is_write_tool`) are withheld
+    from the agent entirely. The agent gets the platform's read surface and
+    nothing that can create / edit / delete / post on the user's behalf. Pass
+    ``write_enabled=True`` (a deliberate, per-integration grant) to register the
+    full tool set; rotate the mode the same way a token rotates — by reconnecting.
     """
     if not is_known(integration_id):
         raise ValueError(f"未知集成: {integration_id}")
@@ -164,10 +217,19 @@ async def connect(autumn: Autumn, integration_id: str, args: dict[str, str]) -> 
         await client.disconnect()
         raise
 
+    # Partition into the read surface and the mutating surface. In read-only
+    # mode only the read surface is registered; the write tools are recorded so
+    # status can report exactly how much capability is being withheld.
+    if write_enabled:
+        registered, withheld = list(tools), []
+    else:
+        registered = [t for t in tools if not is_write_tool(getattr(t, "name", ""))]
+        withheld = [t for t in tools if is_write_tool(getattr(t, "name", ""))]
+
     terr = Terr(
         name=terr_name_for(integration_id),
         description=f"{entry['name']} — {entry['description']}",
-        tools=tools,
+        tools=registered,
     )
     autumn.register_terr(terr)
     # Own the client so Autumn.close() disconnects it on shutdown / rebuild.
@@ -177,7 +239,9 @@ async def connect(autumn: Autumn, integration_id: str, args: dict[str, str]) -> 
         integration_id=integration_id,
         terr_name=terr.name,
         client=client,
-        tool_names=[t.name for t in tools],
+        tool_names=[t.name for t in registered],
+        write_enabled=write_enabled,
+        blocked_tool_names=[t.name for t in withheld],
     )
 
 

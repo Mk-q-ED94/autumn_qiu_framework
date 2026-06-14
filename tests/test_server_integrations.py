@@ -260,3 +260,100 @@ def test_connect_unconfigured_503(patched):
     with TestClient(app) as c:
         r = c.post("/integrations/connect", json={"id": "github", "args": {"token": "x"}})
     assert r.status_code == 503
+
+
+# ── write guardrail (read-only by default) ───────────────────────────────────────
+
+
+@pytest.mark.parametrize("name", [
+    "create_issue", "update_issue", "add_issue_comment", "create_pull_request",
+    "merge_pull_request", "create_or_update_file", "push_files", "delete_file",
+    "fork_repository", "create_branch", "post_message", "reply_to_thread",
+    "createIssue", "deleteFile",
+])
+def test_is_write_tool_flags_mutations(name):
+    assert integrations_mod.is_write_tool(name) is True
+
+
+@pytest.mark.parametrize("name", [
+    "get_issue", "list_issues", "search_code", "get_pull_request",
+    "list_commits", "get_file_contents", "list_branches", "read_file",
+    "get_me", "search_repositories", "list_comments",
+])
+def test_is_write_tool_passes_reads(name):
+    # Read tools — including the noun "request" in get_pull_request — must not
+    # be mistaken for mutations, or read-only mode would hide useful capability.
+    assert integrations_mod.is_write_tool(name) is False
+
+
+def _patch_mixed_tools(monkeypatch):
+    """Two read tools + two write tools, so the partition is observable."""
+    async def fake_tools(client):
+        return [
+            _FakeTool("get_issue"),           # read
+            _FakeTool("list_repos"),          # read
+            _FakeTool("create_issue"),        # write
+            _FakeTool("merge_pull_request"),  # write
+        ]
+    monkeypatch.setattr(integrations_mod, "mcp_to_tools", fake_tools)
+
+
+def test_connect_read_only_by_default_withholds_writes(client_with_autumn, monkeypatch):
+    c, autumn, _ = client_with_autumn
+    _patch_mixed_tools(monkeypatch)
+    body = c.post("/integrations/connect", json={"id": "github", "args": {"token": "x"}}).json()
+
+    assert body["write_enabled"] is False
+    assert body["tool_count"] == 2          # only the read surface
+    assert body["blocked_tool_count"] == 2  # mutating tools withheld
+
+    # The agent's registry has the read tools but NOT the write tools.
+    assert "get_issue" in autumn.plugins.all()
+    assert "list_repos" in autumn.plugins.all()
+    assert "create_issue" not in autumn.plugins.all()
+    assert "merge_pull_request" not in autumn.plugins.all()
+
+
+def test_connect_write_enabled_exposes_all(client_with_autumn, monkeypatch):
+    c, autumn, _ = client_with_autumn
+    _patch_mixed_tools(monkeypatch)
+    body = c.post(
+        "/integrations/connect",
+        json={"id": "github", "args": {"token": "x"}, "write_enabled": True},
+    ).json()
+
+    assert body["write_enabled"] is True
+    assert body["tool_count"] == 4
+    assert body["blocked_tool_count"] == 0
+    assert "create_issue" in autumn.plugins.all()
+    assert "merge_pull_request" in autumn.plugins.all()
+
+
+def test_write_mode_reflected_in_status(client_with_autumn, monkeypatch):
+    c, _, _ = client_with_autumn
+    _patch_mixed_tools(monkeypatch)
+    c.post(
+        "/integrations/connect",
+        json={"id": "github", "args": {"token": "x"}, "write_enabled": True},
+    )
+    gh = next(e for e in c.get("/integrations/status").json() if e["id"] == "github")
+    assert gh["write_enabled"] is True
+    assert gh["tool_count"] == 4
+    assert gh["blocked_tool_count"] == 0
+
+
+def test_reconnect_revokes_writes(client_with_autumn, monkeypatch):
+    c, autumn, _ = client_with_autumn
+    _patch_mixed_tools(monkeypatch)
+    # Grant writes…
+    c.post(
+        "/integrations/connect",
+        json={"id": "github", "args": {"token": "x"}, "write_enabled": True},
+    )
+    assert "create_issue" in autumn.plugins.all()
+    # …then reconnect read-only to revoke them.
+    c.post("/integrations/connect", json={"id": "github", "args": {"token": "x"}})
+    assert "create_issue" not in autumn.plugins.all()
+    gh = next(e for e in c.get("/integrations/status").json() if e["id"] == "github")
+    assert gh["write_enabled"] is False
+    assert gh["blocked_tool_count"] == 2
