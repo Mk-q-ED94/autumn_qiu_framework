@@ -27,6 +27,8 @@ public sealed partial class ChatViewModel : ObservableObject
     [ObservableProperty] private string? _errorMessage;
     /// <summary>Drives the empty-state placeholder (shown while no turns exist).</summary>
     [ObservableProperty] private bool _hasMessages;
+    /// <summary>Short label shown in the streaming status bar ("A1 → A2" etc.).</summary>
+    [ObservableProperty] private string _runStatusText = "";
 
     private AutumnClient BuildClient()
     {
@@ -56,6 +58,7 @@ public sealed partial class ChatViewModel : ObservableObject
         HasMessages = true;
 
         IsBusy = true;
+        RunStatusText = "";
         _activeSend = new CancellationTokenSource();
         var route = App.Settings.MissionRoute;
         if (route == "auto") route = null;
@@ -72,7 +75,14 @@ public sealed partial class ChatViewModel : ObservableObject
                         _dispatcher.TryEnqueue(() => assistant.Text += chunk.Text);
                         break;
                     case StreamEvent.Trace trace:
-                        _dispatcher.TryEnqueue(() => assistant.Trace = trace.Value);
+                        _dispatcher.TryEnqueue(() =>
+                        {
+                            assistant.Trace = trace.Value;
+                            var t = trace.Value;
+                            RunStatusText = t.InputType.Length > 0
+                                ? $"· {t.InputType}"
+                                : "";
+                        });
                         break;
                 }
             }
@@ -96,6 +106,7 @@ public sealed partial class ChatViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            RunStatusText = "";
             _activeSend?.Dispose();
             _activeSend = null;
         }

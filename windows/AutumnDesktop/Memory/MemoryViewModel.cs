@@ -23,7 +23,24 @@ public sealed partial class MemoryViewModel : ObservableObject
     /// <summary>Drives the empty-state placeholder when an area has no history.</summary>
     [ObservableProperty] private bool _hasEntries;
 
-    partial void OnSelectedAreaChanged(MemoryArea value) => _ = LoadAsync();
+    public string StatsText
+    {
+        get
+        {
+            if (IsLoading) return "加载中…";
+            return Entries.Count == 0 ? "暂无记忆" : $"{Entries.Count} 条记忆";
+        }
+    }
+
+    public string SelectedAreaTitle => SelectedArea.Title();
+
+    partial void OnIsLoadingChanged(bool value) => OnPropertyChanged(nameof(StatsText));
+
+    partial void OnSelectedAreaChanged(MemoryArea value)
+    {
+        OnPropertyChanged(nameof(SelectedAreaTitle));
+        _ = LoadAsync();
+    }
 
     private static AutumnClient BuildClient()
     {
@@ -43,6 +60,7 @@ public sealed partial class MemoryViewModel : ObservableObject
             Entries.Clear();
             foreach (var e in entries) Entries.Add(e);
             HasEntries = Entries.Count > 0;
+            OnPropertyChanged(nameof(StatsText));
         }
         catch (Exception ex)
         {

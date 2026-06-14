@@ -8,54 +8,90 @@
     xmlns:ds="using:AutumnDesktop.DesignSystem"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
 
-    <Grid Background="{ThemeResource AutumnPageWarmthBrush}" Padding="20,16,20,16" RowSpacing="14">
+    <Grid Background="{ThemeResource AutumnPageWarmthBrush}" RowSpacing="0">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />  <!-- title + toolbar -->
+            <RowDefinition Height="Auto" />  <!-- stats strip -->
+            <RowDefinition Height="Auto" />  <!-- error bar -->
+            <RowDefinition Height="*" />     <!-- entry list / empty state -->
         </Grid.RowDefinitions>
 
-        <!-- Title -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
-            <Ellipse Width="10" Height="10" VerticalAlignment="Center"
-                     Fill="{StaticResource AutumnMemoryBrush}" />
-            <TextBlock Text="记忆" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock Text="Mom1 编排 · Mom2 任务 · Mom3 使命 · 共享区"
-                       VerticalAlignment="Center"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-        </StackPanel>
+        <!-- ── Title + area selector + refresh ─────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="20,12,20,0">
+            <Grid RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <!-- Area selector + refresh -->
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <muxc:SelectorBar Grid.Column="0" x:Name="AreaSelector"
-                              SelectionChanged="AreaSelector_SelectionChanged">
-                <muxc:SelectorBarItem Text="Mom1" />
-                <muxc:SelectorBarItem Text="Mom2" />
-                <muxc:SelectorBarItem Text="Mom3" />
-                <muxc:SelectorBarItem Text="共享区" />
-            </muxc:SelectorBar>
-            <Button Grid.Column="1" Command="{x:Bind ViewModel.LoadCommand}"
-                    ToolTipService.ToolTip="刷新">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
-                    <TextBlock Text="刷新" />
+                <!-- Title row -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+                    <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                             Fill="{StaticResource AutumnMemoryBrush}" />
+                    <TextBlock Text="记忆" FontSize="20" FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <TextBlock Text="Mom1 编排 · Mom2 任务 · Mom3 使命 · 共享区"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               FontSize="12" />
                 </StackPanel>
-            </Button>
-        </Grid>
 
+                <!-- Area selector + refresh -->
+                <Grid Grid.Row="1" ColumnSpacing="8" Margin="0,0,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <muxc:SelectorBar Grid.Column="0" x:Name="AreaSelector"
+                                      SelectionChanged="AreaSelector_SelectionChanged">
+                        <muxc:SelectorBarItem Text="Mom1" />
+                        <muxc:SelectorBarItem Text="Mom2" />
+                        <muxc:SelectorBarItem Text="Mom3" />
+                        <muxc:SelectorBarItem Text="共享区" />
+                    </muxc:SelectorBar>
+                    <Button Grid.Column="1" Command="{x:Bind ViewModel.LoadCommand}"
+                            ToolTipService.ToolTip="刷新" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE72C;" FontSize="13" />
+                            <TextBlock Text="刷新" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ── Stats strip ──────────────────────────────────────────────────── -->
+        <Border Grid.Row="1" Padding="20,6"
+                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="20">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                             Fill="{StaticResource AutumnMemoryBrush}" />
+                    <TextBlock Text="{x:Bind ViewModel.StatsText, Mode=OneWay}"
+                               FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+                <TextBlock Text="{x:Bind ViewModel.SelectedAreaTitle, Mode=OneWay}"
+                           FontSize="12"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </StackPanel>
+        </Border>
+
+        <!-- ── Error bar ─────────────────────────────────────────────────────── -->
         <muxc:InfoBar
             Grid.Row="2"
             IsOpen="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToBool}}"
             Severity="Error"
             Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" />
 
-        <!-- Entry list -->
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+        <!-- ── Entry list ────────────────────────────────────────────────────── -->
+        <ScrollViewer Grid.Row="3" Padding="20,12,20,16" VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{x:Bind ViewModel.Entries}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:MemoryEntry">
@@ -74,13 +110,19 @@
         <!-- Empty state -->
         <StackPanel Grid.Row="3" HorizontalAlignment="Center" VerticalAlignment="Center"
                     Spacing="10" MaxWidth="360"
-                    Visibility="{x:Bind ViewModel.HasEntries, Mode=OneWay, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+                    Visibility="{x:Bind ViewModel.HasEntries, Mode=OneWay,
+                                 Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
             <FontIcon Glyph="&#xE81C;" FontSize="34"
-                      Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                      HorizontalAlignment="Center" />
             <TextBlock Text="这个区域还没有记忆" HorizontalAlignment="Center"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBlock Text="向 Autumn 发送消息后，A4 记忆引擎会在此存储对话摘要。"
+                       HorizontalAlignment="Center" TextAlignment="Center"
+                       Style="{StaticResource AutumnCaptionStyle}" />
         </StackPanel>
 
+        <!-- Loading ring -->
         <muxc:ProgressRing
             Grid.Row="3"
             IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"

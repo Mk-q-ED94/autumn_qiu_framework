@@ -16,9 +16,9 @@
             Background="Transparent"
             SelectionChanged="Nav_SelectionChanged">
 
-            <!-- Brand mark — the WinUI counterpart of the macOS sidebar logo. -->
+            <!-- Brand mark — clay-gradient rounded logotype matching the macOS sidebar. -->
             <muxc:NavigationView.PaneHeader>
-                <StackPanel Orientation="Horizontal" Spacing="10" Padding="4,10,4,10">
+                <StackPanel Orientation="Horizontal" Spacing="10" Padding="4,12,4,12">
                     <Border Width="30" Height="30" CornerRadius="9"
                             Background="{StaticResource AutumnBrandGradientBrush}">
                         <TextBlock Text="秋" Foreground="White" FontSize="16" FontWeight="SemiBold"
@@ -52,6 +52,44 @@
                     </muxc:NavigationViewItem.Icon>
                 </muxc:NavigationViewItem>
             </muxc:NavigationView.FooterMenuItems>
+
+            <!-- Pane footer — agent slot indicators + version label.
+                 Mirrors the macOS sidebar footer status row. -->
+            <muxc:NavigationView.PaneFooter>
+                <StackPanel Padding="16,8,16,16" Spacing="6">
+                    <Rectangle Height="1" Fill="{ThemeResource CardStrokeColorDefaultBrush}"
+                               Margin="0,0,0,4" />
+                    <!-- A1 / A2 / A3 / A4 configured-state dots -->
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="4" x:Name="A1Dot">
+                            <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnClayBrush}" Opacity="0.5" />
+                            <TextBlock Text="A1" FontSize="10"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnWarningBrush}" Opacity="0.5" />
+                            <TextBlock Text="A2" FontSize="10"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnSlateBrush}" Opacity="0.5" />
+                            <TextBlock Text="A3" FontSize="10"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="4" Opacity="0.4">
+                            <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnMemoryBrush}" />
+                            <TextBlock Text="A4" FontSize="10"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Paper &amp; Clay · v0.2.2" FontSize="9"
+                               Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                </StackPanel>
+            </muxc:NavigationView.PaneFooter>
 
             <Frame x:Name="ContentFrame" />
         </muxc:NavigationView>

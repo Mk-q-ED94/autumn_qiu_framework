@@ -128,6 +128,62 @@
                 <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
 
+            <!-- Ghost / outline action — hairline border, accent foreground, no fill. -->
+            <Style x:Key="AutumnGhostButtonStyle" TargetType="Button">
+                <Setter Property="Foreground" Value="{StaticResource AutumnClayBrush}" />
+                <Setter Property="Padding" Value="14,7" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid x:Name="Root"
+                                  CornerRadius="7"
+                                  Padding="{TemplateBinding Padding}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Root"
+                                                                 Storyboard.TargetProperty="Opacity"
+                                                                 To="0.8" Duration="0:0:0.1" />
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Root"
+                                                                 Storyboard.TargetProperty="Opacity"
+                                                                 To="0.6" Duration="0:0:0.05" />
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Root"
+                                                                 Storyboard.TargetProperty="Opacity"
+                                                                 To="0.35" Duration="0" />
+                                            </Storyboard>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <!-- Hairline border, no fill -->
+                                <Border CornerRadius="7"
+                                        BorderBrush="{StaticResource AutumnClayBrush}"
+                                        BorderThickness="1" />
+                                <ContentPresenter x:Name="ContentPresenter"
+                                                  Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  Foreground="{TemplateBinding Foreground}"
+                                                  HorizontalContentAlignment="Center"
+                                                  VerticalContentAlignment="Center"
+                                                  AutomationProperties.AccessibilityView="Raw" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Primary action — brand-gradient fill, white label, opacity states.
                  A self-contained template keeps the gradient on every visual state
                  (the default accent template would swap in flat state brushes). -->

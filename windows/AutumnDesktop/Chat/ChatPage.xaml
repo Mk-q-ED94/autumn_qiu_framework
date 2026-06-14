@@ -11,7 +11,7 @@
         <!-- ── User turn — right-aligned, clay-tinted bubble ──────────────── -->
         <DataTemplate x:Key="UserBubbleTemplate" x:DataType="local:ChatMessage">
             <Grid Margin="0,4" HorizontalAlignment="Right">
-                <Border MaxWidth="560" Padding="12,8" CornerRadius="16"
+                <Border MaxWidth="580" Padding="12,8" CornerRadius="16"
                         Background="{StaticResource AutumnUserBubbleBrush}"
                         BorderBrush="{StaticResource AutumnUserBubbleStrokeBrush}"
                         BorderThickness="1">
@@ -21,35 +21,56 @@
             </Grid>
         </DataTemplate>
 
-        <!-- ── Assistant turn — left-aligned, neutral bubble + workflow trace ─ -->
+        <!-- ── Assistant turn — left-aligned, neutral bubble + pipeline strip + trace ─ -->
         <DataTemplate x:Key="AssistantBubbleTemplate" x:DataType="local:ChatMessage">
-            <StackPanel Margin="0,4" HorizontalAlignment="Left" Spacing="6">
-                <Border MaxWidth="560" Padding="12,8" CornerRadius="16"
+            <StackPanel Margin="0,4" HorizontalAlignment="Left" Spacing="5">
+
+                <!-- Bubble: typing dots or message text -->
+                <Border MaxWidth="580" Padding="12,8" CornerRadius="16"
                         HorizontalAlignment="Left"
                         Background="{ThemeResource AutumnAssistantBubbleBrush}"
                         BorderBrush="{ThemeResource AutumnAssistantBubbleStrokeBrush}"
                         BorderThickness="1">
-                    <TextBlock Text="{x:Bind Text, Mode=OneWay}" TextWrapping="Wrap"
-                               IsTextSelectionEnabled="True" />
+                    <StackPanel Spacing="0">
+                        <!-- Typing indicator — three pulsing dots while text is empty -->
+                        <local:TypingIndicatorView
+                            Visibility="{x:Bind TypingVisibility, Mode=OneWay}" />
+                        <!-- Message text — shown once the first token arrives -->
+                        <TextBlock Text="{x:Bind Text, Mode=OneWay}" TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True"
+                                   Visibility="{x:Bind TextVisibility, Mode=OneWay}" />
+                    </StackPanel>
                 </Border>
 
-                <muxc:Expander Visibility="{x:Bind TraceVisibility, Mode=OneWay}"
-                               HorizontalAlignment="Stretch"
-                               Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                               BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                               CornerRadius="11">
+                <!-- Pipeline strip — colour-coded capsule row (WP1/WP2/WP3 segments)
+                     shown inline below the bubble once the trace arrives. Mirrors the
+                     macOS PipelineStripView. Active capsules pulse via DispatcherTimer. -->
+                <local:PipelineStripView
+                    Trace="{x:Bind Trace, Mode=OneWay}"
+                    Visibility="{x:Bind TraceVisibility, Mode=OneWay}"
+                    Margin="4,0,0,0" />
+
+                <!-- Detailed trace Expander — stage list with WP label + meta line -->
+                <muxc:Expander
+                    Visibility="{x:Bind TraceVisibility, Mode=OneWay}"
+                    HorizontalAlignment="Stretch"
+                    MaxWidth="580"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    CornerRadius="11">
                     <muxc:Expander.Header>
                         <StackPanel Orientation="Horizontal" Spacing="10">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                            <Ellipse Width="7" Height="7" VerticalAlignment="Center"
                                      Fill="{StaticResource AutumnClayBrush}" />
-                            <TextBlock Text="协作路径" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="协作路径" FontWeight="SemiBold" VerticalAlignment="Center"
+                                       FontSize="13" />
                             <TextBlock Text="{x:Bind Trace.SummaryLine, Mode=OneWay}" FontSize="11"
                                        VerticalAlignment="Center"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                     </muxc:Expander.Header>
 
-                    <ItemsControl ItemsSource="{x:Bind Trace.Stages, Mode=OneWay}">
+                    <ItemsControl ItemsSource="{x:Bind Trace.Stages, Mode=OneWay}" Margin="0,4,0,0">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="models:WorkflowStage">
                                 <Grid ColumnSpacing="10" Margin="0,4">
@@ -57,6 +78,7 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
+                                    <!-- 4 px workspace-coloured bar -->
                                     <Border Grid.Column="0" Width="4" CornerRadius="2"
                                             Background="{x:Bind Workspace, Converter={StaticResource WorkspaceToBrush}}" />
                                     <StackPanel Grid.Column="1" Spacing="2">
@@ -78,6 +100,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </muxc:Expander>
+
             </StackPanel>
         </DataTemplate>
 
@@ -86,48 +109,77 @@
                                           AssistantTemplate="{StaticResource AssistantBubbleTemplate}" />
     </Page.Resources>
 
-    <Grid Background="{ThemeResource AutumnPageWarmthBrush}" Padding="20,16,20,16" RowSpacing="12">
+    <!-- Four-row layout: messages / run-status / error / composer -->
+    <Grid Background="{ThemeResource AutumnPageWarmthBrush}" RowSpacing="0">
         <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />     <!-- message list -->
+            <RowDefinition Height="Auto" />  <!-- streaming status bar -->
+            <RowDefinition Height="Auto" />  <!-- error InfoBar -->
+            <RowDefinition Height="Auto" />  <!-- composer -->
         </Grid.RowDefinitions>
 
-        <!-- Message list -->
-        <ScrollViewer Grid.Row="0" x:Name="MessageScroller" VerticalScrollBarVisibility="Auto">
+        <!-- ── Message list ────────────────────────────────────────────────── -->
+        <ScrollViewer Grid.Row="0" x:Name="MessageScroller"
+                      Padding="20,16,20,8"
+                      VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{x:Bind ViewModel.Messages}"
                           ItemTemplateSelector="{StaticResource BubbleSelector}" />
         </ScrollViewer>
 
-        <!-- Empty state -->
+        <!-- Empty state — shown while the conversation has no messages -->
         <StackPanel Grid.Row="0" HorizontalAlignment="Center" VerticalAlignment="Center"
                     Spacing="14" MaxWidth="400"
-                    Visibility="{x:Bind ViewModel.HasMessages, Mode=OneWay, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+                    Visibility="{x:Bind ViewModel.HasMessages, Mode=OneWay,
+                                 Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
             <Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center"
                     Background="{StaticResource AutumnBrandGradientBrush}">
                 <TextBlock Text="秋" FontSize="34" FontWeight="SemiBold" Foreground="White"
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBlock Text="开始协作" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Text="开始协作" FontSize="20" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" />
             <TextBlock Text="向 Autumn 提问或下达任务，A1 / A2 / A3 将协同编排、执行并作答。"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                       TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" />
+                       TextWrapping="Wrap" TextAlignment="Center" />
         </StackPanel>
 
-        <!-- Inline error -->
+        <!-- ── Streaming run-status bar ────────────────────────────────────── -->
+        <!-- Shown only while IsBusy; full-bleed background with top hairline. -->
+        <Border Grid.Row="1"
+                Background="{ThemeResource AutumnAssistantBubbleBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="20,6"
+                Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay,
+                             Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <muxc:ProgressRing IsActive="True" Width="14" Height="14"
+                                   VerticalAlignment="Center" />
+                <TextBlock Text="流式运行" FontSize="12" VerticalAlignment="Center"
+                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="{x:Bind ViewModel.RunStatusText, Mode=OneWay}" FontSize="12"
+                           VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </Border>
+
+        <!-- ── Error InfoBar ───────────────────────────────────────────────── -->
         <muxc:InfoBar
-            Grid.Row="1"
+            Grid.Row="2"
             IsOpen="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToBool}}"
             Severity="Error"
             Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" />
 
-        <!-- Composer -->
-        <Grid Grid.Row="2" ColumnSpacing="8">
+        <!-- ── Composer ────────────────────────────────────────────────────── -->
+        <Grid Grid.Row="3" Padding="20,8,20,16" ColumnSpacing="8"
+              Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+
             <TextBox
                 Grid.Column="0"
                 x:Name="InputBox"
@@ -141,28 +193,33 @@
                 VerticalAlignment="Bottom"
                 KeyDown="InputBox_KeyDown" />
 
-            <!-- Send / Stop occupy the same cell, toggled by IsBusy. -->
+            <!-- Send / Stop occupy the same cell, toggled by IsBusy -->
             <Grid Grid.Column="1" VerticalAlignment="Bottom">
                 <Button
                     Style="{StaticResource AutumnPrimaryButtonStyle}"
                     Width="44" Height="36" Padding="0"
-                    ToolTipService.ToolTip="发送"
+                    ToolTipService.ToolTip="发送 (Enter)"
                     Command="{x:Bind ViewModel.SendCommand}"
-                    Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+                    Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay,
+                                 Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
                     <FontIcon Glyph="&#xE724;" FontSize="16" Foreground="White" />
                 </Button>
                 <Button
                     Width="44" Height="36" Padding="0" CornerRadius="7"
                     Background="{StaticResource AutumnDangerBrush}" Foreground="White"
-                    ToolTipService.ToolTip="停止"
+                    ToolTipService.ToolTip="停止生成"
                     Command="{x:Bind ViewModel.CancelCommand}"
-                    Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
-                    <FontIcon Glyph="&#xE711;" FontSize="14" Foreground="White" />
+                    Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay,
+                                 Converter={StaticResource BoolToVisibility}}">
+                    <FontIcon Glyph="&#xE71A;" FontSize="14" Foreground="White" />
                 </Button>
             </Grid>
 
             <Button Grid.Column="2" Height="36" VerticalAlignment="Bottom"
-                    Content="结束会话" Command="{x:Bind ViewModel.EndSessionCommand}" />
+                    ToolTipService.ToolTip="清空对话并结束服务端会话"
+                    Command="{x:Bind ViewModel.EndSessionCommand}">
+                <FontIcon Glyph="&#xE74D;" FontSize="13" />
+            </Button>
         </Grid>
     </Grid>
 </Page>

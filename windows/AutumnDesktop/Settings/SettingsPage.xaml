@@ -5,43 +5,107 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
 
+    <!-- Three-row layout: tab bar / tab content / apply footer -->
     <Grid Background="{ThemeResource AutumnPageWarmthBrush}">
-        <ScrollViewer Padding="20">
-            <StackPanel Spacing="16" MaxWidth="680" HorizontalAlignment="Left">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />   <!-- tab bar -->
+            <RowDefinition Height="*" />      <!-- tab content (visibility-switched) -->
+            <RowDefinition Height="Auto" />   <!-- apply footer -->
+        </Grid.RowDefinitions>
 
-                <TextBlock Text="设置" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,2" />
+        <!-- ══ Tab bar ══════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0"
+                Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="16,8,16,0">
+            <muxc:SelectorBar x:Name="SettingsTabBar"
+                              SelectionChanged="SettingsTabBar_SelectionChanged">
+                <muxc:SelectorBarItem x:Name="TabServer" Text="服务器">
+                    <muxc:SelectorBarItem.Icon>
+                        <FontIcon Glyph="&#xE968;" />
+                    </muxc:SelectorBarItem.Icon>
+                </muxc:SelectorBarItem>
+                <muxc:SelectorBarItem x:Name="TabModels" Text="模型">
+                    <muxc:SelectorBarItem.Icon>
+                        <FontIcon Glyph="&#xE950;" />
+                    </muxc:SelectorBarItem.Icon>
+                </muxc:SelectorBarItem>
+                <muxc:SelectorBarItem x:Name="TabMemory" Text="记忆">
+                    <muxc:SelectorBarItem.Icon>
+                        <FontIcon Glyph="&#xE81C;" />
+                    </muxc:SelectorBarItem.Icon>
+                </muxc:SelectorBarItem>
+                <muxc:SelectorBarItem x:Name="TabIntegrations" Text="集成">
+                    <muxc:SelectorBarItem.Icon>
+                        <FontIcon Glyph="&#xE8EB;" />
+                    </muxc:SelectorBarItem.Icon>
+                </muxc:SelectorBarItem>
+                <muxc:SelectorBarItem x:Name="TabAdvanced" Text="高级">
+                    <muxc:SelectorBarItem.Icon>
+                        <FontIcon Glyph="&#xE9E9;" />
+                    </muxc:SelectorBarItem.Icon>
+                </muxc:SelectorBarItem>
+            </muxc:SelectorBar>
+        </Border>
 
-                <!-- Local server -->
+        <!-- ══ Server tab ═══════════════════════════════════════════════════ -->
+        <ScrollViewer x:Name="ServerTabContent" Grid.Row="1" Padding="20">
+            <StackPanel Spacing="16" MaxWidth="680">
+                <TextBlock Text="本地服务" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+
                 <Border Style="{StaticResource AutumnCardStyle}">
                     <StackPanel Spacing="10">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnSlateBrush}" />
-                            <TextBlock Text="本地服务" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnSlateBrush}" />
+                            <TextBlock Text="服务器连接" Style="{StaticResource AutumnSectionHeaderStyle}" />
                         </StackPanel>
                         <TextBox Header="Server URL"
-                                 Text="{x:Bind ViewModel.Settings.ServerUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                 Text="{x:Bind ViewModel.Settings.ServerUrl, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <TextBlock Text="{x:Bind ViewModel.ServerManager.StatusText, Mode=OneWay}" Opacity="0.8" VerticalAlignment="Center" />
-                            <TextBlock Text="{x:Bind ViewModel.ConnectionStatus, Mode=OneWay}" Opacity="0.8" VerticalAlignment="Center" />
+                            <TextBlock Text="{x:Bind ViewModel.ServerManager.StatusText, Mode=OneWay}"
+                                       Opacity="0.8" VerticalAlignment="Center" />
+                            <TextBlock Text="{x:Bind ViewModel.ConnectionStatus, Mode=OneWay}"
+                                       Opacity="0.8" VerticalAlignment="Center" />
                             <Button Content="检测连接" Command="{x:Bind ViewModel.TestConnectionCommand}" />
                         </StackPanel>
                         <TextBlock Text="{x:Bind ViewModel.ServerLastError, Mode=OneWay}"
                                    Foreground="{StaticResource AutumnDangerBrush}"
                                    TextWrapping="Wrap"
-                                   Visibility="{x:Bind ViewModel.ServerLastError, Mode=OneWay, Converter={StaticResource NotNullToVisibility}}" />
+                                   Visibility="{x:Bind ViewModel.ServerLastError, Mode=OneWay,
+                                                Converter={StaticResource NotNullToVisibility}}" />
                     </StackPanel>
                 </Border>
+
+                <TextBlock Style="{StaticResource AutumnCaptionStyle}"
+                           Text="App 优先使用仓库下的 .venv\Scripts\python.exe，再回退到 py -3，然后 PATH 中的 python。日志写入 %LOCALAPPDATA%\Autumn\logs\autumn_server.log。" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ══ Models tab ════════════════════════════════════════════════════ -->
+        <ScrollViewer x:Name="ModelsTabContent" Grid.Row="1" Padding="20" Visibility="Collapsed">
+            <StackPanel Spacing="16" MaxWidth="680">
+                <TextBlock Text="模型配置" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
 
                 <!-- A1 -->
                 <Border Style="{StaticResource AutumnCardStyle}">
                     <StackPanel Spacing="10">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnClayBrush}" />
-                            <TextBlock Text="A1 · 编排模型 (WP1)" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnClayBrush}" />
+                            <TextBlock Text="A1 · 编排模型 (WP1)"
+                                       Style="{StaticResource AutumnSectionHeaderStyle}" />
                         </StackPanel>
-                        <PasswordBox x:Name="A1Key" Header="API Key" PasswordChanged="A1Key_PasswordChanged" />
-                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A1.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A1.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox x:Name="A1Key" Header="API Key"
+                                     PasswordChanged="A1Key_PasswordChanged" />
+                        <TextBox Header="Base URL"
+                                 Text="{x:Bind ViewModel.Settings.A1.BaseUrl, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model"
+                                 Text="{x:Bind ViewModel.Settings.A1.Model, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
                         <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
                                   SelectedItem="{x:Bind ViewModel.Settings.A1.Protocol, Mode=TwoWay}" />
                     </StackPanel>
@@ -51,12 +115,19 @@
                 <Border Style="{StaticResource AutumnCardStyle}">
                     <StackPanel Spacing="10">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnWarningBrush}" />
-                            <TextBlock Text="A2 · 任务模型 (WP2)" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnWarningBrush}" />
+                            <TextBlock Text="A2 · 任务模型 (WP2)"
+                                       Style="{StaticResource AutumnSectionHeaderStyle}" />
                         </StackPanel>
-                        <PasswordBox x:Name="A2Key" Header="API Key" PasswordChanged="A2Key_PasswordChanged" />
-                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A2.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A2.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox x:Name="A2Key" Header="API Key"
+                                     PasswordChanged="A2Key_PasswordChanged" />
+                        <TextBox Header="Base URL"
+                                 Text="{x:Bind ViewModel.Settings.A2.BaseUrl, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model"
+                                 Text="{x:Bind ViewModel.Settings.A2.Model, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
                         <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
                                   SelectedItem="{x:Bind ViewModel.Settings.A2.Protocol, Mode=TwoWay}" />
                     </StackPanel>
@@ -66,52 +137,125 @@
                 <Border Style="{StaticResource AutumnCardStyle}">
                     <StackPanel Spacing="10">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnSlateBrush}" />
-                            <TextBlock Text="A3 · 使命模型 (WP3)" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnSlateBrush}" />
+                            <TextBlock Text="A3 · 使命模型 (WP3)"
+                                       Style="{StaticResource AutumnSectionHeaderStyle}" />
                         </StackPanel>
-                        <PasswordBox x:Name="A3Key" Header="API Key" PasswordChanged="A3Key_PasswordChanged" />
-                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A3.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A3.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox x:Name="A3Key" Header="API Key"
+                                     PasswordChanged="A3Key_PasswordChanged" />
+                        <TextBox Header="Base URL"
+                                 Text="{x:Bind ViewModel.Settings.A3.BaseUrl, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model"
+                                 Text="{x:Bind ViewModel.Settings.A3.Model, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
                         <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
                                   SelectedItem="{x:Bind ViewModel.Settings.A3.Protocol, Mode=TwoWay}" />
                     </StackPanel>
                 </Border>
+            </StackPanel>
+        </ScrollViewer>
 
-                <!-- A4 (optional memory model) -->
+        <!-- ══ Memory tab ════════════════════════════════════════════════════ -->
+        <ScrollViewer x:Name="MemoryTabContent" Grid.Row="1" Padding="20" Visibility="Collapsed">
+            <StackPanel Spacing="16" MaxWidth="680">
+                <TextBlock Text="4D 记忆引擎" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+
                 <Border Style="{StaticResource AutumnCardStyle}">
                     <StackPanel Spacing="10">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnMemoryBrush}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnMemoryBrush}" />
                             <ToggleSwitch Header="A4 · 记忆模型 (WP4，可选)"
                                           IsOn="{x:Bind ViewModel.Settings.A4Enabled, Mode=TwoWay}" />
                         </StackPanel>
-                        <PasswordBox x:Name="A4Key" Header="API Key（本地协议可留空）" PasswordChanged="A4Key_PasswordChanged" />
-                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A4.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A4.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox x:Name="A4Key" Header="API Key（本地协议可留空）"
+                                     PasswordChanged="A4Key_PasswordChanged" />
+                        <TextBox Header="Base URL"
+                                 Text="{x:Bind ViewModel.Settings.A4.BaseUrl, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model"
+                                 Text="{x:Bind ViewModel.Settings.A4.Model, Mode=TwoWay,
+                                        UpdateSourceTrigger=PropertyChanged}" />
                         <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
                                   SelectedItem="{x:Bind ViewModel.Settings.A4.Protocol, Mode=TwoWay}" />
                     </StackPanel>
                 </Border>
 
-                <!-- Routing + apply -->
+                <TextBlock Style="{StaticResource AutumnCaptionStyle}"
+                           Text="A4 驱动 recall / remember 记忆 skill。常配本地 Ollama，留空 Key 也可。启用后在记忆页浏览 Mom1–3 及共享区历史。" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ══ Integrations tab ══════════════════════════════════════════════ -->
+        <ScrollViewer x:Name="IntegrationsTabContent" Grid.Row="1" Padding="20" Visibility="Collapsed">
+            <StackPanel Spacing="16" MaxWidth="680">
+                <TextBlock Text="平台集成" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnSageBrush}" />
+                            <TextBlock Text="GitHub 集成" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource AutumnCaptionStyle}"
+                                   Text="在设置页填写 GitHub Token 后，A2 可调用 GitHub MCP 工具进行代码搜索、PR 创建等操作。通过 autumn.server 的 /connect 接口动态注册。" />
+                        <muxc:InfoBar IsOpen="True" Severity="Informational"
+                                      Title="集成管理"
+                                      Message="请在服务器运行后通过 /connect API 注册集成；集成状态可在记忆页查看。" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ══ Advanced tab ══════════════════════════════════════════════════ -->
+        <ScrollViewer x:Name="AdvancedTabContent" Grid.Row="1" Padding="20" Visibility="Collapsed">
+            <StackPanel Spacing="16" MaxWidth="680">
+                <TextBlock Text="高级选项" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+
                 <Border Style="{StaticResource AutumnCardStyle}">
                     <StackPanel Spacing="12">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnSageBrush}" />
-                            <TextBlock Text="路由与应用" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{StaticResource AutumnSageBrush}" />
+                            <TextBlock Text="路由策略" Style="{StaticResource AutumnSectionHeaderStyle}" />
                         </StackPanel>
-                        <ComboBox Header="Mission 默认路由" ItemsSource="{x:Bind ViewModel.Routes}"
+                        <ComboBox Header="Mission 默认路由"
+                                  ItemsSource="{x:Bind ViewModel.Routes}"
                                   SelectedItem="{x:Bind ViewModel.Settings.MissionRoute, Mode=TwoWay}" />
-                        <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button Content="应用配置" Style="{StaticResource AutumnPrimaryButtonStyle}"
-                                    Command="{x:Bind ViewModel.ApplyConfigurationCommand}" />
-                            <muxc:ProgressRing IsActive="{x:Bind ViewModel.IsApplying, Mode=OneWay}" Width="20" Height="20" VerticalAlignment="Center" />
-                            <TextBlock Text="{x:Bind ViewModel.ApplyResult, Mode=OneWay}" VerticalAlignment="Center" Opacity="0.8" />
-                        </StackPanel>
+                        <TextBlock Style="{StaticResource AutumnCaptionStyle}"
+                                   Text="auto — A1 自动判断；direct — 强制走 WP3 直通；convert — 强制经 WP2 转换后再路由。" />
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="关于" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        <TextBlock Text="Autumn 多模型协作工作台 · v0.2.2" FontSize="13" />
+                        <TextBlock Style="{StaticResource AutumnCaptionStyle}"
+                                   Text="WinUI 3 / .NET 8 · Paper &amp; Clay 设计语言" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
+
+        <!-- ══ Apply footer ══════════════════════════════════════════════════ -->
+        <Border Grid.Row="2"
+                Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="20,10">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="应用配置" Style="{StaticResource AutumnPrimaryButtonStyle}"
+                        Command="{x:Bind ViewModel.ApplyConfigurationCommand}" />
+                <muxc:ProgressRing IsActive="{x:Bind ViewModel.IsApplying, Mode=OneWay}"
+                                   Width="20" Height="20" VerticalAlignment="Center" />
+                <TextBlock Text="{x:Bind ViewModel.ApplyResult, Mode=OneWay}"
+                           VerticalAlignment="Center" Opacity="0.8" />
+            </StackPanel>
+        </Border>
+
     </Grid>
 </Page>

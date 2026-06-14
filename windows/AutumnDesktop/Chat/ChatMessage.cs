@@ -20,8 +20,22 @@ public sealed partial class ChatMessage : ObservableObject
     public Microsoft.UI.Xaml.HorizontalAlignment Alignment =>
         IsUser ? Microsoft.UI.Xaml.HorizontalAlignment.Right : Microsoft.UI.Xaml.HorizontalAlignment.Left;
 
+    /// <summary>Show text once the assistant has at least one character.</summary>
+    public Microsoft.UI.Xaml.Visibility TextVisibility =>
+        Text.Length > 0 ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    /// <summary>Show the typing dots while the assistant reply is still empty.</summary>
+    public Microsoft.UI.Xaml.Visibility TypingVisibility =>
+        Text.Length == 0 ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
     public Microsoft.UI.Xaml.Visibility TraceVisibility =>
         Trace is not null ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    partial void OnTextChanged(string value)
+    {
+        OnPropertyChanged(nameof(TextVisibility));
+        OnPropertyChanged(nameof(TypingVisibility));
+    }
 
     partial void OnTraceChanged(WorkflowTrace? value) => OnPropertyChanged(nameof(TraceVisibility));
 }
