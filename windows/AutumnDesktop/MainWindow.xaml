@@ -9,10 +9,28 @@
     <Grid>
         <muxc:NavigationView
             x:Name="Nav"
-            PaneDisplayMode="LeftCompact"
+            PaneDisplayMode="Left"
+            OpenPaneLength="240"
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
+            Background="Transparent"
             SelectionChanged="Nav_SelectionChanged">
+
+            <!-- Brand mark — the WinUI counterpart of the macOS sidebar logo. -->
+            <muxc:NavigationView.PaneHeader>
+                <StackPanel Orientation="Horizontal" Spacing="10" Padding="4,10,4,10">
+                    <Border Width="30" Height="30" CornerRadius="9"
+                            Background="{StaticResource AutumnBrandGradientBrush}">
+                        <TextBlock Text="秋" Foreground="White" FontSize="16" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Autumn" FontWeight="SemiBold" FontSize="14" />
+                        <TextBlock Text="多模型协作工作台" FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+            </muxc:NavigationView.PaneHeader>
 
             <muxc:NavigationView.MenuItems>
                 <muxc:NavigationViewItem Content="协作" Tag="Chat">

@@ -3,6 +3,12 @@
 WinUI 3 / .NET Windows 客户端。与 macOS 客户端共用同一套 HTTP/SSE 协议，连接本地运行的
 Autumn 服务器。它是 `desktop/`（SwiftUI）在 Windows 上的原生对等实现。
 
+视觉语言与 macOS 端对齐为 **"Paper & Clay"**：以 Mica 材质 + 暖色渐隐为画布，单一的
+陶土（clay/terracotta）强调色贯穿整体，发丝级描边承担结构、几乎不用阴影。强调色经
+`App.xaml` 的 `ThemeDictionaries` 覆写系统 accent，全局生效（按钮、导航选中条、强调文字
+随之变为陶土色），并随浅色/深色主题切换。设计令牌见 `DesignSystem/Tokens.cs`，画刷 /
+渐变 / 圆角 / 组件样式见 `App.xaml`，徽标药丸组件见 `DesignSystem/AutumnBadge`。
+
 ## 架构
 
 ```
@@ -108,10 +114,12 @@ windows/
 └── AutumnDesktop/
     ├── AutumnDesktop.csproj            # net8.0-windows · WinUI 3 · 非打包
     ├── app.manifest                    # PerMonitorV2 DPI
-    ├── App.xaml(.cs)                    # 应用入口 + 服务单例
-    ├── MainWindow.xaml(.cs)            # NavigationView 外壳
-    ├── DesignSystem/Tokens.cs          # 设计令牌
-    ├── Common/Converters.cs            # XAML 值转换器
+    ├── App.xaml(.cs)                    # 应用入口 + 服务单例 + Paper & Clay 资源系统
+    ├── MainWindow.xaml(.cs)            # NavigationView 外壳 + 品牌标识 + Mica 背景
+    ├── DesignSystem/
+    │   ├── Tokens.cs                    # 设计令牌（陶土调色板 + 间距 / 圆角 / 格式化）
+    │   └── AutumnBadge.xaml(.cs)        # 药丸徽标组件（图标 + 文字 + 语义色调）
+    ├── Common/Converters.cs            # XAML 值转换器（工作区色 / bool→可见性 等）
     ├── Models/
     │   ├── ChatModels.cs               # 线协议记录（snake_case ↔ C#）
     │   ├── AppSection.cs               # 导航 + 路由枚举
@@ -124,6 +132,7 @@ windows/
     │   └── SettingsPage.xaml(.cs)
     ├── Chat/
     │   ├── ChatMessage.cs
+    │   ├── ChatBubbleTemplateSelector.cs # 用户 / 助手气泡模板选择
     │   ├── ChatViewModel.cs            # 流式 + 追踪
     │   └── ChatPage.xaml(.cs)
     ├── Memory/

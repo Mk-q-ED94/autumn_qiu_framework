@@ -33,6 +33,32 @@ public sealed record WorkflowStage(
     [property: JsonPropertyName("cost_usd")] double? CostUsd = null)
 {
     [JsonIgnore] public string KindOrStage => string.IsNullOrEmpty(Kind) ? "stage" : Kind!;
+
+    /// <summary>Upper-cased workspace label for the trace row ("WP1"…).</summary>
+    [JsonIgnore] public string WorkspaceLabel => (Workspace ?? "").ToUpperInvariant();
+
+    /// <summary>Duration + token metrics, pre-formatted for the trace row.</summary>
+    [JsonIgnore]
+    public string MetaLine
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            var dur = DesignSystem.Autumn.Format.Duration(DurationMs);
+            if (dur.Length > 0) parts.Add(dur);
+            var tok = DesignSystem.Autumn.Format.Tokens(PromptTokens, CompletionTokens);
+            if (tok.Length > 0) parts.Add(tok);
+            var cost = DesignSystem.Autumn.Format.Cost(CostUsd);
+            if (cost.Length > 0) parts.Add(cost);
+            return string.Join("   ·   ", parts);
+        }
+    }
+
+    [JsonIgnore] public Microsoft.UI.Xaml.Visibility MetaVisibility =>
+        MetaLine.Length > 0 ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    [JsonIgnore] public Microsoft.UI.Xaml.Visibility DetailVisibility =>
+        string.IsNullOrWhiteSpace(Detail) ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
 }
 
 public sealed record WorkflowTrace(
@@ -65,6 +91,21 @@ public sealed record WorkflowTrace(
     [JsonIgnore]
     public IReadOnlyList<string> SourceTerrNames =>
         Stages.Where(s => s.SourceTerr != null).Select(s => s.SourceTerr!).Distinct().OrderBy(x => x).ToList();
+
+    /// <summary>Compact one-line summary shown in the collapsed trace header.</summary>
+    [JsonIgnore]
+    public string SummaryLine
+    {
+        get
+        {
+            var parts = new List<string> { $"{CompletedStageCount}/{Stages.Count} 阶段" };
+            if (ToolStageCount > 0) parts.Add($"{ToolStageCount} 工具");
+            if (AgentStageCount > 0) parts.Add($"{AgentStageCount} Agent");
+            var dur = DesignSystem.Autumn.Format.Duration(TotalDurationMs);
+            if (dur.Length > 0) parts.Add(dur);
+            return string.Join("   ·   ", parts);
+        }
+    }
 }
 
 public sealed record IntentPreview(

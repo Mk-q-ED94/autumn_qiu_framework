@@ -25,6 +25,8 @@ public sealed partial class ChatViewModel : ObservableObject
     [ObservableProperty] private string _input = "";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string? _errorMessage;
+    /// <summary>Drives the empty-state placeholder (shown while no turns exist).</summary>
+    [ObservableProperty] private bool _hasMessages;
 
     private AutumnClient BuildClient()
     {
@@ -51,6 +53,7 @@ public sealed partial class ChatViewModel : ObservableObject
 
         var assistant = new ChatMessage { Role = ChatRole.Assistant, Text = "" };
         Messages.Add(assistant);
+        HasMessages = true;
 
         IsBusy = true;
         _activeSend = new CancellationTokenSource();
@@ -108,6 +111,7 @@ public sealed partial class ChatViewModel : ObservableObject
         {
             await BuildClient().EndSessionAsync();
             Messages.Clear();
+            HasMessages = false;
         }
         catch (Exception ex)
         {

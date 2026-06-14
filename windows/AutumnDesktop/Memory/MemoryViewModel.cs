@@ -20,6 +20,8 @@ public sealed partial class MemoryViewModel : ObservableObject
     [ObservableProperty] private MemoryArea _selectedArea = MemoryArea.Mom1;
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string? _errorMessage;
+    /// <summary>Drives the empty-state placeholder when an area has no history.</summary>
+    [ObservableProperty] private bool _hasEntries;
 
     partial void OnSelectedAreaChanged(MemoryArea value) => _ = LoadAsync();
 
@@ -40,6 +42,7 @@ public sealed partial class MemoryViewModel : ObservableObject
             var entries = await BuildClient().MemoryHistoryAsync(SelectedArea);
             Entries.Clear();
             foreach (var e in entries) Entries.Add(e);
+            HasEntries = Entries.Count > 0;
         }
         catch (Exception ex)
         {

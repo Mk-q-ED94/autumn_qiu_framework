@@ -1,5 +1,4 @@
 using AutumnDesktop.Models;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace AutumnDesktop.Memory;
@@ -11,13 +10,14 @@ public sealed partial class MemoryPage : Page
     public MemoryPage()
     {
         InitializeComponent();
-        AreaSegmented.SelectedIndex = 0;
+        AreaSelector.SelectedItem = AreaSelector.Items[0];
         Loaded += (_, _) => _ = ViewModel.LoadAsync();
     }
 
-    private void AreaSegmented_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void AreaSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
-        ViewModel.SelectedArea = AreaSegmented.SelectedIndex switch
+        var index = sender.SelectedItem is null ? 0 : sender.Items.IndexOf(sender.SelectedItem);
+        ViewModel.SelectedArea = index switch
         {
             1 => MemoryArea.Mom2,
             2 => MemoryArea.Mom3,

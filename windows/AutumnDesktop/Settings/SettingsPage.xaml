@@ -5,90 +5,113 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
 
-    <ScrollViewer Padding="16">
-        <StackPanel Spacing="16" MaxWidth="640" HorizontalAlignment="Left">
+    <Grid Background="{ThemeResource AutumnPageWarmthBrush}">
+        <ScrollViewer Padding="20">
+            <StackPanel Spacing="16" MaxWidth="680" HorizontalAlignment="Left">
 
-            <!-- Local server -->
-            <Border Padding="16" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="本地服务" FontSize="16" FontWeight="SemiBold" />
-                    <TextBox Header="Server URL"
-                             Text="{x:Bind ViewModel.Settings.ServerUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <TextBlock Text="{x:Bind ViewModel.ServerManager.StatusText, Mode=OneWay}" Opacity="0.8" VerticalAlignment="Center" />
-                        <TextBlock Text="{x:Bind ViewModel.ConnectionStatus, Mode=OneWay}" Opacity="0.8" VerticalAlignment="Center" />
-                        <Button Content="检测连接" Command="{x:Bind ViewModel.TestConnectionCommand}" />
+                <TextBlock Text="设置" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,2" />
+
+                <!-- Local server -->
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnSlateBrush}" />
+                            <TextBlock Text="本地服务" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        </StackPanel>
+                        <TextBox Header="Server URL"
+                                 Text="{x:Bind ViewModel.Settings.ServerUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="{x:Bind ViewModel.ServerManager.StatusText, Mode=OneWay}" Opacity="0.8" VerticalAlignment="Center" />
+                            <TextBlock Text="{x:Bind ViewModel.ConnectionStatus, Mode=OneWay}" Opacity="0.8" VerticalAlignment="Center" />
+                            <Button Content="检测连接" Command="{x:Bind ViewModel.TestConnectionCommand}" />
+                        </StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.ServerLastError, Mode=OneWay}"
+                                   Foreground="{StaticResource AutumnDangerBrush}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{x:Bind ViewModel.ServerLastError, Mode=OneWay, Converter={StaticResource NotNullToVisibility}}" />
                     </StackPanel>
-                    <TextBlock Text="{x:Bind ViewModel.ServerLastError, Mode=OneWay}"
-                               Foreground="{ThemeResource AutumnDangerBrush}"
-                               TextWrapping="Wrap"
-                               Visibility="{x:Bind ViewModel.ServerLastError, Mode=OneWay, Converter={StaticResource NotNullToVisibility}}" />
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <!-- A1 -->
-            <Border Padding="16" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="A1 · 编排模型 (WP1)" FontSize="16" FontWeight="SemiBold" />
-                    <PasswordBox x:Name="A1Key" Header="API Key" PasswordChanged="A1Key_PasswordChanged" />
-                    <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A1.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A1.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
-                              SelectedItem="{x:Bind ViewModel.Settings.A1.Protocol, Mode=TwoWay}" />
-                </StackPanel>
-            </Border>
-
-            <!-- A2 -->
-            <Border Padding="16" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="A2 · 任务模型 (WP2)" FontSize="16" FontWeight="SemiBold" />
-                    <PasswordBox x:Name="A2Key" Header="API Key" PasswordChanged="A2Key_PasswordChanged" />
-                    <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A2.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A2.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
-                              SelectedItem="{x:Bind ViewModel.Settings.A2.Protocol, Mode=TwoWay}" />
-                </StackPanel>
-            </Border>
-
-            <!-- A3 -->
-            <Border Padding="16" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="A3 · 使命模型 (WP3)" FontSize="16" FontWeight="SemiBold" />
-                    <PasswordBox x:Name="A3Key" Header="API Key" PasswordChanged="A3Key_PasswordChanged" />
-                    <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A3.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A3.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
-                              SelectedItem="{x:Bind ViewModel.Settings.A3.Protocol, Mode=TwoWay}" />
-                </StackPanel>
-            </Border>
-
-            <!-- A4 (optional memory model) -->
-            <Border Padding="16" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="8">
-                    <ToggleSwitch Header="A4 · 记忆模型 (WP4，可选)"
-                                  IsOn="{x:Bind ViewModel.Settings.A4Enabled, Mode=TwoWay}" />
-                    <PasswordBox x:Name="A4Key" Header="API Key（本地协议可留空）" PasswordChanged="A4Key_PasswordChanged" />
-                    <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A4.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A4.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                    <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
-                              SelectedItem="{x:Bind ViewModel.Settings.A4.Protocol, Mode=TwoWay}" />
-                </StackPanel>
-            </Border>
-
-            <!-- Routing + apply -->
-            <Border Padding="16" CornerRadius="10" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                <StackPanel Spacing="8">
-                    <ComboBox Header="Mission 默认路由" ItemsSource="{x:Bind ViewModel.Routes}"
-                              SelectedItem="{x:Bind ViewModel.Settings.MissionRoute, Mode=TwoWay}" />
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button Content="应用配置" Style="{ThemeResource AccentButtonStyle}"
-                                Command="{x:Bind ViewModel.ApplyConfigurationCommand}" />
-                        <muxc:ProgressRing IsActive="{x:Bind ViewModel.IsApplying, Mode=OneWay}" Width="20" Height="20" />
-                        <TextBlock Text="{x:Bind ViewModel.ApplyResult, Mode=OneWay}" VerticalAlignment="Center" Opacity="0.8" />
+                <!-- A1 -->
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnClayBrush}" />
+                            <TextBlock Text="A1 · 编排模型 (WP1)" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        </StackPanel>
+                        <PasswordBox x:Name="A1Key" Header="API Key" PasswordChanged="A1Key_PasswordChanged" />
+                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A1.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A1.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
+                                  SelectedItem="{x:Bind ViewModel.Settings.A1.Protocol, Mode=TwoWay}" />
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                </Border>
 
-        </StackPanel>
-    </ScrollViewer>
+                <!-- A2 -->
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnWarningBrush}" />
+                            <TextBlock Text="A2 · 任务模型 (WP2)" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        </StackPanel>
+                        <PasswordBox x:Name="A2Key" Header="API Key" PasswordChanged="A2Key_PasswordChanged" />
+                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A2.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A2.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
+                                  SelectedItem="{x:Bind ViewModel.Settings.A2.Protocol, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- A3 -->
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnSlateBrush}" />
+                            <TextBlock Text="A3 · 使命模型 (WP3)" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        </StackPanel>
+                        <PasswordBox x:Name="A3Key" Header="API Key" PasswordChanged="A3Key_PasswordChanged" />
+                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A3.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A3.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
+                                  SelectedItem="{x:Bind ViewModel.Settings.A3.Protocol, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- A4 (optional memory model) -->
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnMemoryBrush}" />
+                            <ToggleSwitch Header="A4 · 记忆模型 (WP4，可选)"
+                                          IsOn="{x:Bind ViewModel.Settings.A4Enabled, Mode=TwoWay}" />
+                        </StackPanel>
+                        <PasswordBox x:Name="A4Key" Header="API Key（本地协议可留空）" PasswordChanged="A4Key_PasswordChanged" />
+                        <TextBox Header="Base URL" Text="{x:Bind ViewModel.Settings.A4.BaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox Header="Model" Text="{x:Bind ViewModel.Settings.A4.Model, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <ComboBox Header="Protocol" ItemsSource="{x:Bind ViewModel.Protocols}"
+                                  SelectedItem="{x:Bind ViewModel.Settings.A4.Protocol, Mode=TwoWay}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Routing + apply -->
+                <Border Style="{StaticResource AutumnCardStyle}">
+                    <StackPanel Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{StaticResource AutumnSageBrush}" />
+                            <TextBlock Text="路由与应用" Style="{StaticResource AutumnSectionHeaderStyle}" />
+                        </StackPanel>
+                        <ComboBox Header="Mission 默认路由" ItemsSource="{x:Bind ViewModel.Routes}"
+                                  SelectedItem="{x:Bind ViewModel.Settings.MissionRoute, Mode=TwoWay}" />
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <Button Content="应用配置" Style="{StaticResource AutumnPrimaryButtonStyle}"
+                                    Command="{x:Bind ViewModel.ApplyConfigurationCommand}" />
+                            <muxc:ProgressRing IsActive="{x:Bind ViewModel.IsApplying, Mode=OneWay}" Width="20" Height="20" VerticalAlignment="Center" />
+                            <TextBlock Text="{x:Bind ViewModel.ApplyResult, Mode=OneWay}" VerticalAlignment="Center" Opacity="0.8" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
 </Page>

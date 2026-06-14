@@ -5,52 +5,65 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:AutumnDesktop.Memory"
     xmlns:models="using:AutumnDesktop.Models"
+    xmlns:ds="using:AutumnDesktop.DesignSystem"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
 
-    <Grid Padding="16" RowSpacing="12">
+    <Grid Background="{ThemeResource AutumnPageWarmthBrush}" Padding="20,16,20,16" RowSpacing="14">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
+        <!-- Title -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10">
+            <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                     Fill="{StaticResource AutumnMemoryBrush}" />
+            <TextBlock Text="记忆" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <TextBlock Text="Mom1 编排 · Mom2 任务 · Mom3 使命 · 共享区"
+                       VerticalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+        </StackPanel>
+
         <!-- Area selector + refresh -->
-        <Grid Grid.Row="0" ColumnSpacing="8">
+        <Grid Grid.Row="1" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <ComboBox
-                Grid.Column="0"
-                x:Name="AreaSegmented"
-                SelectionChanged="AreaSegmented_SelectionChanged">
-                <ComboBoxItem Content="Mom1" />
-                <ComboBoxItem Content="Mom2" />
-                <ComboBoxItem Content="Mom3" />
-                <ComboBoxItem Content="Shared" />
-            </ComboBox>
-            <Button Grid.Column="1" Content="刷新" Command="{x:Bind ViewModel.LoadCommand}" />
+            <muxc:SelectorBar Grid.Column="0" x:Name="AreaSelector"
+                              SelectionChanged="AreaSelector_SelectionChanged">
+                <muxc:SelectorBarItem Text="Mom1" />
+                <muxc:SelectorBarItem Text="Mom2" />
+                <muxc:SelectorBarItem Text="Mom3" />
+                <muxc:SelectorBarItem Text="共享区" />
+            </muxc:SelectorBar>
+            <Button Grid.Column="1" Command="{x:Bind ViewModel.LoadCommand}"
+                    ToolTipService.ToolTip="刷新">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                    <TextBlock Text="刷新" />
+                </StackPanel>
+            </Button>
         </Grid>
 
         <muxc:InfoBar
-            Grid.Row="1"
+            Grid.Row="2"
             IsOpen="{x:Bind ViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToBool}}"
             Severity="Error"
             Message="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" />
 
-        <ScrollViewer Grid.Row="2">
+        <!-- Entry list -->
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{x:Bind ViewModel.Entries}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:MemoryEntry">
-                        <Border
-                            Margin="0,4"
-                            Padding="12"
-                            CornerRadius="10"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="{x:Bind Role}" FontWeight="SemiBold"
-                                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                        <Border Style="{StaticResource AutumnCardStyle}" Margin="0,5" Padding="14">
+                            <StackPanel Spacing="8">
+                                <ds:AutumnBadge Text="{x:Bind Role}" Tone="Memory" />
+                                <TextBlock Text="{x:Bind Content}" TextWrapping="Wrap"
+                                           IsTextSelectionEnabled="True" />
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -58,8 +71,18 @@
             </ItemsControl>
         </ScrollViewer>
 
+        <!-- Empty state -->
+        <StackPanel Grid.Row="3" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Spacing="10" MaxWidth="360"
+                    Visibility="{x:Bind ViewModel.HasEntries, Mode=OneWay, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}">
+            <FontIcon Glyph="&#xE81C;" FontSize="34"
+                      Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center" />
+            <TextBlock Text="这个区域还没有记忆" HorizontalAlignment="Center"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+
         <muxc:ProgressRing
-            Grid.Row="2"
+            Grid.Row="3"
             IsActive="{x:Bind ViewModel.IsLoading, Mode=OneWay}"
             HorizontalAlignment="Center"
             VerticalAlignment="Center" />
