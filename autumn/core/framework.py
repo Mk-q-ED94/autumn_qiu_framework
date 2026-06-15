@@ -16,7 +16,12 @@ from .components.terr import Terr
 from .components.tool import Tool
 from .config import AutumnConfig
 from .interaction import UserInteraction
-from .memory.backends import HybridBackend, SQLiteBackend, SQLiteVectorStore
+from .memory.backends import (
+    HybridBackend,
+    MarkdownBackend,
+    SQLiteBackend,
+    SQLiteVectorStore,
+)
 from .memory.base import MemoryArea
 from .memory.dimensions import ActivationContext
 from .memory.mom1 import Mom1
@@ -113,23 +118,36 @@ class Autumn:
         hist = b.history_limit
         decay = b.memory_decay_half_life or None
         fourd = b.fourd_memory_enabled
+
+        # Long-term backend factory. "sqlite" (default) keeps the historical
+        # file-per-zone DB; "markdown" stores readable .md entries with 4D
+        # frontmatter under "<db>.mdstore/<zone>/". Both are wrapped in
+        # HybridBackend for the short-term session cache, so the choice is
+        # transparent to every zone above.
+        markdown = config.storage.backend == "markdown"
+
+        def _zone(suffix: str) -> HybridBackend:
+            if markdown:
+                return HybridBackend(MarkdownBackend(f"{db}.mdstore/{suffix}"))
+            return HybridBackend(SQLiteBackend(f"{db}.{suffix}"))
+
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
         self.shared = SharedZone(
-            HybridBackend(SQLiteBackend(db + ".shared")),
+            _zone("shared"),
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         self.mom2 = Mom2(
-            HybridBackend(SQLiteBackend(db + ".mom2")), self.shared,
+            _zone("mom2"), self.shared,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom3 = Mom3(
-            HybridBackend(SQLiteBackend(db + ".mom3")), self.shared,
+            _zone("mom3"), self.shared,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom1 = Mom1(
-            HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3,
+            _zone("mom1"), self.mom2, self.mom3,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
@@ -137,7 +155,7 @@ class Autumn:
         # but within a project the zone is shared across every workspace and turn.
         # Resolved per-request via project_scope()/the active-project contextvar.
         self.projects = ProjectMemory(
-            HybridBackend(SQLiteBackend(db + ".projects")),
+            _zone("projects"),
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
@@ -148,7 +166,7 @@ class Autumn:
         self.wp4 = WP4Mem(
             self.a4,
             MemoryArea(
-                "wp4", HybridBackend(SQLiteBackend(db + ".wp4")),
+                "wp4", _zone("wp4"),
                 history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
             ),
             zones={

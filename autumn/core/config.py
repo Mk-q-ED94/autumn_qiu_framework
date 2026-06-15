@@ -109,6 +109,10 @@ class WorkspacePrompts:
 @dataclass
 class StorageConfig:
     db_path: str = "autumn_memory.db"
+    # Long-term backend for memory zones. "sqlite" (default) keeps today's
+    # opaque DB; "markdown" stores each entry as a readable .md file with 4D
+    # frontmatter under "<db_path>.mdstore/" (RFC 4D-memory P1-A).
+    backend: str = "sqlite"
 
 
 @dataclass
@@ -215,7 +219,10 @@ class AutumnConfig:
             a2=ModelConfig.from_env(f"{prefix}A2"),
             a3=ModelConfig.from_env(f"{prefix}A3"),
             a4=a4,
-            storage=StorageConfig(db_path=env("STORAGE_DB_PATH", "autumn_memory.db")),
+            storage=StorageConfig(
+                db_path=env("STORAGE_DB_PATH", "autumn_memory.db"),
+                backend=env("STORAGE_BACKEND", "sqlite"),
+            ),
             behavior=BehaviorConfig.from_env(prefix),
             headless_mission_route=route,
             embedding=EmbeddingConfig.from_env(f"{prefix}EMBEDDING_"),
