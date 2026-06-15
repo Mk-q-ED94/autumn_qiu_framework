@@ -438,3 +438,29 @@ struct AutoAnnotateRequestBody: Encodable {
         case onlyUnannotated = "only_unannotated"
     }
 }
+
+struct ExtractFactsRequestBody: Encodable {
+    let keepRecent: Int
+    let maxFacts: Int
+
+    enum CodingKeys: String, CodingKey {
+        case keepRecent = "keep_recent"
+        case maxFacts = "max_facts"
+    }
+}
+
+struct EvolveMemoryRequestBody: Encodable {
+    let minCount: Int
+    let minCluster: Int
+    let maxSkills: Int
+
+    enum CodingKeys: String, CodingKey {
+        case minCount = "min_count"
+        case minCluster = "min_cluster"
+        case maxSkills = "max_skills"
+    }
+}
+
+struct MemoryProfileRequestBody: Encodable {
+    let scope: String
+}

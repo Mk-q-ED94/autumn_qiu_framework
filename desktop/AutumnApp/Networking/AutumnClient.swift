@@ -461,6 +461,72 @@ final class AutumnClient {
         return try JSONDecoder().decode(ConsolidateResponse.self, from: data)
     }
 
+    func extractFacts(
+        area: MemoryArea,
+        keepRecent: Int = 0,
+        maxFacts: Int = 20
+    ) async throws -> ExtractFactsResponse {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/extract-facts")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(
+            ExtractFactsRequestBody(keepRecent: keepRecent, maxFacts: maxFacts)
+        )
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(ExtractFactsResponse.self, from: data)
+    }
+
+    func evolveMemory(
+        area: MemoryArea,
+        minCount: Int = 2,
+        minCluster: Int = 2,
+        maxSkills: Int = 10
+    ) async throws -> EvolveMemoryResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/evolve"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(
+            EvolveMemoryRequestBody(minCount: minCount, minCluster: minCluster, maxSkills: maxSkills)
+        )
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(EvolveMemoryResponse.self, from: data)
+    }
+
+    func fetchMemoryProfile(area: MemoryArea, scope: String) async throws -> MemoryProfileResponse {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/profile"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "scope", value: scope)]
+        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(MemoryProfileResponse.self, from: data)
+    }
+
+    func synthesizeMemoryProfile(area: MemoryArea, scope: String) async throws -> MemoryProfileResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/profile"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(MemoryProfileRequestBody(scope: scope))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(MemoryProfileResponse.self, from: data)
+    }
+
     func projectMetadata(projectID: String) async throws -> ProjectMetadata {
         var request = URLRequest(
             url: baseURL
