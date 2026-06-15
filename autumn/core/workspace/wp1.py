@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from ..components.selector import Selector
 from ..interaction import UserInteraction
@@ -19,6 +19,11 @@ from ..types import (
 from .base import WorkspaceBase
 from .wp2 import WP2Tas
 from .wp3 import WP3Mis
+
+if TYPE_CHECKING:
+    from ..memory.access import Mom1AccessBroker
+    from ..memory.project import ProjectMemory
+    from .wp4 import WP4Mem
 
 _ADVISORY_PREFIX = "\n\n---\n[质量提示] "
 
@@ -118,6 +123,9 @@ class WP1Tot(WorkspaceBase):
         memory,
         wp2: WP2Tas,
         wp3: WP3Mis,
+        wp4: "WP4Mem | None" = None,
+        projects: "ProjectMemory | None" = None,
+        mom1_access: "Mom1AccessBroker | None" = None,
         interaction: UserInteraction | None = None,
         selector_prompt: str | None = None,
         headless_mission_route: MissionRoute | Literal["auto"] = "auto",
@@ -127,6 +135,13 @@ class WP1Tot(WorkspaceBase):
         super().__init__(api, memory)
         self.wp2 = wp2
         self.wp3 = wp3
+        # 0.3.0 cooperative-workflow wiring: A1 (组长) holds handles to the
+        # memory-management workspace, project memory, and the Mom1 access broker
+        # so it can supervise execution, query memory state, and lead project
+        # parameter discussions instead of appearing only at route + final check.
+        self.wp4 = wp4
+        self.projects = projects
+        self.mom1_access = mom1_access
         self.selector = Selector(api, system_prompt=selector_prompt, confirm_threshold=confirm_threshold)
         self.interaction = interaction
         self._headless_route = headless_mission_route

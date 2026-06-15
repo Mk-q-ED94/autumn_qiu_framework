@@ -232,6 +232,9 @@ class Autumn:
         self.wp3 = WP3Mis(self.a3, self.mom3, direct_prompt=p.wp3_direct, convert_prompt=p.wp3_convert)
         self.wp1 = WP1Tot(
             self.a1, self.mom1, self.wp2, self.wp3,
+            wp4=self.wp4,
+            projects=self.projects,
+            mom1_access=self.mom1_access,
             interaction=interaction,
             selector_prompt=p.selector,
             headless_mission_route=config.headless_mission_route,
