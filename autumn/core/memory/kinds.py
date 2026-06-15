@@ -23,9 +23,9 @@ ALL_KINDS: tuple[str, ...] = (
     KIND_EPISODE, KIND_ATOMIC_FACT, KIND_PROFILE, KIND_SUMMARY, KIND_CASE,
 )
 
-# Kinds that are framework-derived (not raw input) — skipped when re-extracting
-# atomic facts so a pass never feeds on its own output.
-DERIVED_KINDS: frozenset[str] = frozenset({KIND_ATOMIC_FACT, KIND_SUMMARY})
+# Kinds that are framework-derived (not raw input) — skipped by the extraction
+# and evolution passes so they never feed on their own output.
+DERIVED_KINDS: frozenset[str] = frozenset({KIND_ATOMIC_FACT, KIND_SUMMARY, KIND_CASE})
 
 
 def is_kind(entry: MemoryEntry, kind: str) -> bool:

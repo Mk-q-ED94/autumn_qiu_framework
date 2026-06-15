@@ -207,6 +207,20 @@ class ExtractFactsRequest(BaseModel):
     max_facts: int = 20
 
 
+class EvolveRequest(BaseModel):
+    """Tuning for a self-evolution pass (all optional)."""
+
+    min_count: int = 2
+    min_cluster: int = 2
+    max_skills: int = 10
+
+
+class ProfileRequest(BaseModel):
+    """Scope selector for profile synthesis (optional)."""
+
+    scope: str = "default"
+
+
 class ProjectMetaUpdateRequest(BaseModel):
     """Partial update for project metadata. Omitted fields are unchanged."""
 
@@ -971,6 +985,39 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise _record_failure(request, exc) from exc
         return {"status": "ok", "facts": [f.to_dict() for f in facts]}
+
+    @app.post("/memory/{area}/evolve")
+    async def memory_evolve(
+        area: MemoryArea, request: Request, req: EvolveRequest = EvolveRequest(),
+    ):
+        autumn = _autumn_or_503(request)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            skills = await wp4.evolve(
+                area, min_count=req.min_count,
+                min_cluster=req.min_cluster, max_skills=req.max_skills,
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return {"status": "ok", "skills": [s.to_dict() for s in skills]}
+
+    @app.get("/memory/{area}/profile")
+    async def memory_get_profile(area: MemoryArea, request: Request, scope: str = "default"):
+        autumn = _autumn_or_503(request)
+        wp4 = _memory_curator(autumn)
+        return {"status": "ok", "scope": scope, "profile": await wp4.get_profile(area, scope=scope)}
+
+    @app.post("/memory/{area}/profile")
+    async def memory_synthesize_profile(
+        area: MemoryArea, request: Request, req: ProfileRequest = ProfileRequest(),
+    ):
+        autumn = _autumn_or_503(request)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            profile = await wp4.synthesize_profile(area, scope=req.scope)
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return {"status": "ok", "scope": req.scope, "profile": profile}
 
     @app.post("/memory/{area}/annotate", response_model=AnnotateResponse)
     async def annotate_memory_entry(
