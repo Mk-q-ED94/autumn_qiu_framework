@@ -132,6 +132,7 @@ class BehaviorConfig:
     fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
+    async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -158,6 +159,7 @@ class BehaviorConfig:
             lexical_recall_enabled=_to_bool(
                 env("LEXICAL_RECALL_ENABLED"), cls.lexical_recall_enabled
             ),
+            async_index=_to_bool(env("ASYNC_INDEX"), cls.async_index),
         )
 
 

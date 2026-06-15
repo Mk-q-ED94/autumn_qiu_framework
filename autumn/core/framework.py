@@ -214,6 +214,14 @@ class Autumn:
             ]:
                 mom.enable_lexical(SQLiteLexicalStore(f"{db}.{suffix}.fts"), auto_index=True)
 
+        # Background indexing (P2-B): decouple embedding/lexical indexing from the
+        # write path so a slow/down embedding service never blocks (or breaks) an
+        # append. Off by default → synchronous, unchanged. flush_index() runs on
+        # close so in-flight indexing completes before the embedding client shuts.
+        if b.async_index:
+            for mom in (self.mom1, self.mom2, self.mom3):
+                mom.set_async_index(True)
+
         p = config.prompts
         self.wp2 = WP2Tas(
             self.a2, self.mom2,
@@ -678,6 +686,9 @@ class Autumn:
                 await backend.clear_session()
 
     async def close(self) -> None:
+        # Drain any background indexing before tearing down the embedding client.
+        for mom in (self.mom1, self.mom2, self.mom3):
+            await mom.flush_index()
         for client in self._mcp_clients:
             await client.disconnect()
         self._mcp_clients.clear()

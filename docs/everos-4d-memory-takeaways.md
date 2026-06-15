@@ -159,8 +159,8 @@ Markdown 可编辑路线，需要同样的护栏：`id`/`timestamp` 只读，`us
 | **P1-A** | Markdown 后端 + 4D frontmatter | `markdown_backend.py` + config/framework 可插拔 | 低（后端可插拔） | 可读/可编辑/可版本化记忆 | ✅ 已实现 |
 | **P1-B** | recall 补 BM25/FTS5 词法层 | `lexical_backend.py` + recall RRF 融合 | 中 | 专名/ID/符号召回 | ✅ 已实现 |
 | **P1-C** | 抽取/整合提示词外置 slot | `prompts.py` + `base.py`/`skills.py` | 低 | 可覆盖、可本地化 | ✅ 已实现 |
-| **P2-A** | 记忆类型化（先 tag 约定 + AtomicFact） | 抽取 pass | 中 | 更精准的原子召回 | ⏳ |
-| **P2-B** | 索引与写路径解耦（异步队列） | `base.py` | 中 | 写入不被 embedding 拖慢 | ⏳ |
+| **P2-A** | 记忆类型化（tag 约定 + AtomicFact） | `kinds.py` + `extract_facts`（MemoryArea/WP4/server） | 中 | 更精准的原子召回 | ✅ 已实现 |
+| **P2-B** | 索引与写路径解耦（后台任务） | `base.py` async-index + framework | 中 | 写入不被 embedding 拖慢 | ✅ 已实现 |
 | **P3-A** | 自进化：模式→skill（接 reward 闭环） | 新增 evolution pass | 中高 | 越用越聪明 | ⏳ |
 | **P3-B** | 用户画像轨 + user/session scope | `shared.py`/`project.py` | 中 | 稳定偏好常驻 | ⏳ |
 
@@ -170,6 +170,18 @@ Markdown 可编辑路线，需要同样的护栏：`id`/`timestamp` 只读，`us
 - `LEXICAL_RECALL_ENABLED=true` — 启用 BM25/FTS5 词法层，与向量结果经 RRF 融合进 recall
   （未启用时 recall 与向量-only 旧路径逐字节一致；FTS5 不可用时自动降级为空结果不崩溃）。
 - P1-C 提示词 slot 默认值逐字复制，`consolidate(system_prompt=...)` 可覆盖。
+
+**P2 进度（全部完成）**：P2-A/B 已在 `claude/4d-memory-p2` 分支实现并测试
+（全套 849 passed，P1+P2 累计新增 56）。同样默认关、向后兼容：
+- **P2-A 记忆类型化 + AtomicFact**：`kinds.py` 定义 episode/atomic_fact/profile/summary/case
+  约定标签；`MemoryArea.extract_facts(api)` 用 A4 把对话裂解为独立可召回的原子事实
+  （tag `atomic_fact`、`meta.from` 回链来源、跳过派生项防自我级联），经
+  `WP4.extract_facts` 与 `POST /memory/{area}/extract-facts` 暴露。
+- **P2-B 索引异步解耦**：`ASYNC_INDEX=true` 时 `append_history` 把向量/词法索引转为后台
+  任务，写入即返回且索引失败不影响落库；`flush_index()` 等待完成（close 时自动 drain）。
+  默认关 = 同步、逐字节不变。
+
+下一步候选：**P3-A 自进化（模式→skill，接 reward 闭环）**、**P3-B 用户画像轨 + user/session scope**。
 
 ---
 

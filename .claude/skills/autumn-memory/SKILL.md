@@ -131,6 +131,14 @@ a busy zone).
 6. **Right zone.** Write task facts to Mom2/shared, mission facts to Mom3/shared; don't try
    to reach into Mom1 unless the task depends on it (then go through `request_mom1_access`).
 
+## Memory kinds (tag conventions)
+
+Entries are typed by reserved tags (`autumn/core/memory/kinds.py`): `episode` (raw turn),
+`atomic_fact` (a discrete extracted claim), `profile`, `summary`, `case`. Filter by kind
+through the normal tag path — e.g. `recall(query, tags=["atomic_fact"])`. A4 can break
+recent history into atomic facts (`WP4.extract_facts` / `POST /memory/{area}/extract-facts`)
+so individual claims surface independently of the turn they came from.
+
 ---
 
 ## HTTP surface (for client / web integrations)
@@ -143,6 +151,7 @@ GET  /memory/{area}/history          list entries (area ∈ mom1|mom2|mom3|share
 GET  /memory/stats                   stats across all zones
 GET  /memory/{area}/stats            stats for one zone
 POST /memory/{area}/consolidate      summarise old entries into one pinned digest (A4)
+POST /memory/{area}/extract-facts    break history into atomic_fact entries (A4)
 POST /memory/{area}/annotate         attach 4D dimensions
 POST /memory/{area}/auto-annotate    let A4 infer dimensions
 GET  /memory/4d/status               read the 4D feature flags
