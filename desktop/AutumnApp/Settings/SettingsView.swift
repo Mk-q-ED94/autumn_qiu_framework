@@ -452,7 +452,7 @@ struct SettingsView: View {
             }
 
             SettingsSection(title: "关于") {
-                LabeledContent("版本", value: "0.2.1")
+                LabeledContent("版本", value: "0.2.3")
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
