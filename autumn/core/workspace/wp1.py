@@ -22,6 +22,24 @@ from .wp3 import WP3Mis
 
 _ADVISORY_PREFIX = "\n\n---\n[质量提示] "
 
+
+def _strip_check_marker(checked: str) -> str:
+    """Extract the clean output from a [CHECK_FAILED(...): ...]\n\n<output> string."""
+    idx = checked.find("]\n\n")
+    return checked[idx + 3:] if idx != -1 else checked
+
+
+def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) -> tuple[str, str]:
+    """Return (clean_output, stage_detail) from a checker.validate result."""
+    if ok:
+        return checked, passed_label
+    clean = _strip_check_marker(checked)
+    # Extract the issues text from between ": " and "]"
+    start = checked.find(": ")
+    end = checked.find("]")
+    issues = checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
+    return clean, f"{failed_label}: {issues}"
+
 _AUTO_ROUTE_SYSTEM = """\
 You are a routing agent in the Autumn framework.
 Decide how the following mission should be handled:
@@ -173,9 +191,9 @@ class WP1Tot(WorkspaceBase):
                 prompt_tokens=wp2_prompt, completion_tokens=wp2_completion,
             ))
             t = time.perf_counter()
-            final = await self._wp1_check(result)
+            final, check_detail = await self._wp1_check(result)
             stages.append(_make_stage(
-                "wp1.final_check", "A1 最终检查", "WP1 已完成最终质量检查", "WP1", t, self.api,
+                "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
             ))
             chosen_route = None
         else:
@@ -228,9 +246,9 @@ class WP1Tot(WorkspaceBase):
                 "wp3.direct", "A3 直接回答", "WP3 已生成 mission 回答", "WP3", t, self.wp3.api,
             ))
             t = time.perf_counter()
-            final = await self._wp1_check(result)
+            final, check_detail = await self._wp1_check(result)
             stages.append(_make_stage(
-                "wp1.final_check", "A1 最终检查", "WP1 已完成最终质量检查", "WP1", t, self.api,
+                "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
             ))
             return final, route
 
@@ -241,16 +259,21 @@ class WP1Tot(WorkspaceBase):
         ))
         if self.wp3.checker:
             t = time.perf_counter()
-            _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+            wp3_ok, wp3_checked = await self.wp3.checker.validate(task_form, self.wp3.memory)
+            task_form, wp3_detail = _check_detail(
+                wp3_ok, wp3_checked, "WP3 转换检查通过", "WP3 转换检查发现问题（已尽力修正）",
+            )
             stages.append(_make_stage(
-                "wp3.check", "WP3 检查", "转换后的任务已通过 WP3 检查", "WP3", t, self.wp3.api,
+                "wp3.check", "WP3 检查", wp3_detail, "WP3", t, self.wp3.api,
             ))
         if self.checker:
             t = time.perf_counter()
-            _, task_form = await self.checker.validate(task_form, self.memory)
+            a1_ok, a1_checked = await self.checker.validate(task_form, self.memory)
+            task_form, a1_detail = _check_detail(
+                a1_ok, a1_checked, "A1 交接检查通过", "A1 交接检查发现问题（已尽力修正）",
+            )
             stages.append(_make_stage(
-                "wp1.handoff_check", "A1 交接检查",
-                "A1 已检查 mission 到 task 的交接内容", "WP1", t, self.api,
+                "wp1.handoff_check", "A1 交接检查", a1_detail, "WP1", t, self.api,
             ))
 
         t = time.perf_counter()
@@ -264,9 +287,9 @@ class WP1Tot(WorkspaceBase):
             prompt_tokens=wp2_prompt, completion_tokens=wp2_completion,
         ))
         t = time.perf_counter()
-        final = await self._wp1_check(result)
+        final, check_detail = await self._wp1_check(result)
         stages.append(_make_stage(
-            "wp1.final_check", "A1 最终检查", "WP1 已完成最终质量检查", "WP1", t, self.api,
+            "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
         ))
         return final, route
 
@@ -322,10 +345,11 @@ class WP1Tot(WorkspaceBase):
         except (json.JSONDecodeError, KeyError, ValueError):
             return MissionRoute.DIRECT
 
-    async def _wp1_check(self, output: str) -> str:
-        if self.checker:
-            _, output = await self.checker.validate(output, self.memory)
-        return output
+    async def _wp1_check(self, output: str) -> tuple[str, str]:
+        if not self.checker:
+            return output, "WP1 已完成最终质量检查"
+        ok, checked = await self.checker.validate(output, self.memory)
+        return _check_detail(ok, checked, "WP1 质量检查通过", "WP1 质量检查发现问题（已尽力修正）")
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
@@ -430,17 +454,21 @@ class WP1Tot(WorkspaceBase):
                 ))
                 if self.wp3.checker:
                     t = time.perf_counter()
-                    _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+                    wp3_ok, wp3_checked = await self.wp3.checker.validate(task_form, self.wp3.memory)
+                    task_form, wp3_detail = _check_detail(
+                        wp3_ok, wp3_checked, "WP3 转换检查通过", "WP3 转换检查发现问题（已尽力修正）",
+                    )
                     stages.append(_make_stage(
-                        "wp3.check", "WP3 检查",
-                        "转换后的任务已通过 WP3 检查", "WP3", t, self.wp3.api,
+                        "wp3.check", "WP3 检查", wp3_detail, "WP3", t, self.wp3.api,
                     ))
                 if self.checker:
                     t = time.perf_counter()
-                    _, task_form = await self.checker.validate(task_form, self.memory)
+                    a1_ok, a1_checked = await self.checker.validate(task_form, self.memory)
+                    task_form, a1_detail = _check_detail(
+                        a1_ok, a1_checked, "A1 交接检查通过", "A1 交接检查发现问题（已尽力修正）",
+                    )
                     stages.append(_make_stage(
-                        "wp1.handoff_check", "A1 交接检查",
-                        "A1 已检查 mission 到 task 的交接内容", "WP1", t, self.api,
+                        "wp1.handoff_check", "A1 交接检查", a1_detail, "WP1", t, self.api,
                     ))
                 task_started = time.perf_counter()
                 gen = self.wp2.stream_with_trace(

@@ -248,7 +248,7 @@ class Selector:
                     task_type = TaskType.GENERAL
             return SelectorResult(
                 input_type=input_type,
-                confidence=float(data.get("confidence", 1.0)),
+                confidence=float(data.get("confidence", 0.5)),
                 task_type=task_type,
                 reasoning=data.get("reasoning"),
             )

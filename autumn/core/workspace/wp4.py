@@ -333,7 +333,11 @@ class WP4Mem(WorkspaceBase):
                 content=f"Annotate these {len(entries)} memory entries:\n\n{listing}",
             ),
         ]
-        response = await self.api.complete(messages)
+        try:
+            response = await self.api.complete(messages)
+        except Exception:
+            await self._log("annotate", area, {"annotated": 0, "scanned": len(entries)})
+            return {"annotated": 0, "scanned": len(entries)}
         try:
             data = json.loads(self._extract_json(response))
         except (json.JSONDecodeError, ValueError):

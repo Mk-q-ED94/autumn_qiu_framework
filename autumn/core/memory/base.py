@@ -896,7 +896,10 @@ class MemoryArea:
                     content=consolidate_instruction(len(candidates), joined),
                 ),
             ]
-            summary_text = await api.complete(messages)
+            try:
+                summary_text = await api.complete(messages)
+            except Exception:
+                return None  # A4 unavailable — skip consolidation rather than corrupt memory
 
             summary = MemoryEntry(
                 id=_new_id(),
@@ -971,7 +974,10 @@ class MemoryArea:
             Message(role=Role.SYSTEM, content=system_prompt or ATOMIC_FACT_SYSTEM),
             Message(role=Role.USER, content=atomic_fact_instruction(joined)),
         ]
-        facts = _parse_fact_array(await api.complete(messages))[:max_facts]
+        try:
+            facts = _parse_fact_array(await api.complete(messages))[:max_facts]
+        except Exception:
+            return []  # A4 unavailable — return empty rather than raise into caller
         if not facts:
             return []
 
@@ -996,6 +1002,7 @@ class MemoryArea:
         min_count: int = 2,
         min_cluster: int = 2,
         max_skills: int = 10,
+        max_chars: int = 4000,
         system_prompt: str | None = None,
     ) -> list[MemoryEntry]:
         """Distil recurring, proven-useful memories into reusable skills (P3-A).
@@ -1037,12 +1044,15 @@ class MemoryArea:
         for intent, members in clusters.items():
             if len(members) < min_cluster or len(created) >= max_skills:
                 continue
-            joined = "\n".join(f"- {e.text}" for e in members)
+            joined = "\n".join(f"- {e.text}" for e in members)[:max_chars]
             messages = [
                 Message(role=Role.SYSTEM, content=system_prompt or EVOLVE_SYSTEM),
                 Message(role=Role.USER, content=evolve_instruction(intent, joined)),
             ]
-            rule = (await api.complete(messages)).strip()
+            try:
+                rule = (await api.complete(messages)).strip()
+            except Exception:
+                continue  # A4 unavailable for this cluster — skip rather than abort
             if not rule:
                 continue
             cues = sorted({c for e in members for c in e.trigger.cues})
@@ -1130,7 +1140,10 @@ class MemoryArea:
             Message(role=Role.SYSTEM, content=system_prompt or PROFILE_SYSTEM),
             Message(role=Role.USER, content=profile_instruction(current, joined)),
         ]
-        updated = (await api.complete(messages)).strip()
+        try:
+            updated = (await api.complete(messages)).strip()
+        except Exception:
+            return None  # A4 unavailable — leave existing profile intact
         if not updated:
             return None
         await self.set_profile(updated, scope=scope)

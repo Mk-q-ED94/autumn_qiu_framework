@@ -213,12 +213,24 @@ class AutumnConfig:
         a4_key = env("A4_API_KEY")
         a4: ModelConfig | None = None
         if a4_key:
-            a4 = ModelConfig(
-                api_key=a4_key,
-                base_url=env("A4_BASE_URL", "http://127.0.0.1:11434"),
-                model=env("A4_MODEL", ""),
-                protocol=Protocol(env("A4_PROTOCOL", "openai")),
-            )
+            a4_model = env("A4_MODEL", "")
+            if not a4_model:
+                import warnings
+                warnings.warn(
+                    "A4_API_KEY is set but A4_MODEL is empty — A4 will be disabled. "
+                    "Set A4_MODEL to a valid model name to enable memory operations.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
+                a4 = ModelConfig(
+                    api_key=a4_key,
+                    base_url=env("A4_BASE_URL", "http://127.0.0.1:11434"),
+                    model=a4_model,
+                    protocol=Protocol(env("A4_PROTOCOL", "openai")),
+                    input_price_per_1m=_to_float(os.environ.get(f"{prefix}A4_INPUT_PRICE")),
+                    output_price_per_1m=_to_float(os.environ.get(f"{prefix}A4_OUTPUT_PRICE")),
+                )
 
         return cls(
             a1=ModelConfig.from_env(f"{prefix}A1"),

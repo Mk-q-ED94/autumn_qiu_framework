@@ -107,7 +107,10 @@ def _build_memory_skills(
                     Message(role=Role.SYSTEM, content=RECALL_SYNTH_SYSTEM),
                     Message(role=Role.USER, content=recall_synth_prompt(query, snippets)),
                 ]
-                return await api.complete(msgs)
+                try:
+                    return await api.complete(msgs)
+                except Exception:
+                    pass  # A4 unavailable — fall back to raw snippets
             return snippets
 
         return f"[no memory found for '{query}']"
