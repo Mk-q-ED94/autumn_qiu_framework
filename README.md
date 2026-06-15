@@ -513,7 +513,7 @@ Current version: **0.2.3**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs. **Next up: `0.3.0`**, a larger
 release currently in planning.
 
-### 0.2.3 — 2026-06-15 · EverOS-inspired 4D memory: persistence, hybrid recall, typed & self-evolving memory
+### 0.2.3 — 2026-06-15 · EverOS-inspired 4D memory + HTTP-bridge security hardening
 
 Deepens the memory subsystem along the **persistence / extraction** axis to
 complement 0.2.2's activation engine — so 4D memory is now strong on *both* axes
@@ -555,21 +555,21 @@ identical to 0.2.2. Rationale and the upstream comparison live in
   via A4. HTTP: `GET`/`POST /memory/{area}/profile`.
 - **WP4 surface** — A4's curator workspace gains `extract_facts`, `evolve`,
   `get_profile` and `synthesize_profile`, each model-guarded and audit-logged.
-- **Tests** — +77 (870 total), ruff clean.
-
-### Unreleased — security hardening
-
-- **API-key auth on the HTTP bridge** — set `AUTUMN_API_KEY` to require a shared
-  secret on every endpoint except `/health` (Bearer or `X-API-Key`, constant-time,
-  rotatable without a restart). Unset stays fully open for local single-user runs;
-  the server warns when it binds beyond localhost with no key set. The desktop
-  client sends it from Settings → 服务器.
+- **Security hardening (HTTP bridge)** — full details in the
+  [Security](#security) section:
+- **API-key auth** — set `AUTUMN_API_KEY` to require a shared secret on every
+  endpoint except `/health` (Bearer or `X-API-Key`, constant-time, rotatable
+  without a restart). Unset stays fully open for local single-user runs; the
+  server warns when it binds beyond localhost with no key set. The desktop client
+  sends it from Settings → 服务器.
 - **Read-only-by-default platform integrations** — a connected platform now
   exposes only its read tools to the agent; mutating tools (create / edit / delete /
   merge / push / post …) are withheld until the user grants write access
   (`write_enabled`) and reconnects. Status surfaces `write_enabled` +
   `blocked_tool_count`, and the 集成 tab gains a per-platform write toggle, so the
   most dangerous capability is absent unless deliberately granted.
+- **Tests** — 907 passing (memory P1–P3 plus the API-key auth and integration
+  write-gating suites), ruff clean.
 
 ### 0.2.2 — 2026-06-13 · 4D memory (active memory), client redesign, platform integrations & quality pass
 

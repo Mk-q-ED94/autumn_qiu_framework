@@ -659,7 +659,7 @@ def _extract_api_key(request: Request) -> str:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.2.2", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.2.3", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

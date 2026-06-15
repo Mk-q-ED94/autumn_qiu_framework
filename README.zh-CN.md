@@ -445,7 +445,7 @@ python -m pytest
 
 当前版本：**0.2.3**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。**下一站：`0.3.0`**，一次规划中的大版本更新。
 
-### 0.2.3 — 2026-06-15 · 借鉴 EverOS 的四维记忆增强：持久化、混合召回、类型化与自演化记忆
+### 0.2.3 — 2026-06-15 · 借鉴 EverOS 的四维记忆增强 + HTTP 桥安全加固
 
 在 0.2.2 的「激活引擎」之上，沿**持久化 / 抽取**这条轴深化记忆子系统——至此四维记忆在**两条轴**（记忆如何持久与抽取、以及如何激活）上都已成形。所有特性均为**增量且可选**：在默认配置下行为与 0.2.2 完全一致。设计动机与上游对比见
 [`docs/everos-4d-memory-takeaways.md`](docs/everos-4d-memory-takeaways.md)。
@@ -458,11 +458,8 @@ python -m pytest
 - **自演化** —— `MemoryArea.evolve(api)` 按 `aim.intent` 聚合非派生历史；反复出现且被强化（`use.count`）的集群,由 A4 提炼成一条置顶的 `case` 规则（`CONSTRAIN` 模式）——这是奖励循环的消费端,把被验证有用的记忆升格为可被 push 推送的常驻规则。对同一 intent 幂等。HTTP：`POST /memory/{area}/evolve`。
 - **用户画像轨道** —— `set`/`get`/`synthesize_profile(scope=…)` 为每个 scope 维护一条置顶画像（`scope:<id>` 标签）,采用覆写（而非追加）语义；`synthesize_profile` 经 A4 把近期历史折叠进常驻模型。HTTP：`GET`/`POST /memory/{area}/profile`。
 - **WP4 接口** —— A4 的策展工作区新增 `extract_facts`、`evolve`、`get_profile`、`synthesize_profile`,均带模型守卫与审计日志。
-- **测试** —— 新增 77 个（共 870），ruff 干净。
-
-### 未发布 —— 安全加固
-
-- **HTTP 桥的 API Key 鉴权** —— 设置 `AUTUMN_API_KEY` 即可要求除 `/health` 外的每个端点都携带
+- **安全加固（HTTP 桥）** —— 详见下方[安全](#安全)章节:
+- **API Key 鉴权** —— 设置 `AUTUMN_API_KEY` 即可要求除 `/health` 外的每个端点都携带
   共享密钥（Bearer 或 `X-API-Key`，常量时间比较，可不重启轮换）。不设置则对本地单用户运行保持
   完全开放；服务器绑定到 localhost 以外却未设置密钥时会发出警告。桌面客户端在 设置 → 服务器
   中填入并自动携带。
@@ -470,6 +467,7 @@ python -m pytest
   删除 / 合并 / 推送 / 发送 …）在用户授予写权限（`write_enabled`）并重新连接前一律屏蔽。状态接口
   回报 `write_enabled` 与 `blocked_tool_count`，集成标签页新增每个平台的写权限开关——除非刻意授予，
   最危险的能力根本不存在。
+- **测试** —— 共 907 通过（四维记忆 P1–P3,外加 API Key 鉴权与集成写权限门控两组测试），ruff 干净。
 
 ### 0.2.2 — 2026-06-13 · 四维记忆（活性记忆）、客户端重设计、平台集成与质量梳理
 
