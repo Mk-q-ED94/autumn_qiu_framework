@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..types import SearchResult
 from .dimensions import ActivationContext, Aim, Trigger, Use, UseMode, activation_score
-from .kinds import DERIVED_KINDS, KIND_ATOMIC_FACT
+from .kinds import DERIVED_KINDS, KIND_ATOMIC_FACT, KIND_CASE, KIND_PROFILE
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -989,6 +989,152 @@ class MemoryArea:
             )
             created.append(await self.append_history(entry))
         return created
+
+    async def evolve(
+        self,
+        api: ModelAPIInterface,
+        min_count: int = 2,
+        min_cluster: int = 2,
+        max_skills: int = 10,
+        system_prompt: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Distil recurring, proven-useful memories into reusable skills (P3-A).
+
+        Self-evolution: clusters non-derived history by ``aim.intent``, keeps the
+        clusters whose members have repeatedly proven useful (``use.count >=
+        min_count`` and at least ``min_cluster`` such members), and asks A4 to
+        distil each into one reusable procedural rule. Each rule is stored
+        **pinned**, tagged ``case``, with ``use.mode = CONSTRAIN`` (so the push
+        engine can surface it) and the shared intent/cues on its dimensions —
+        closing the loop from "reinforced repeatedly" to "promoted to a standing
+        rule". Intents already evolved into a ``case`` are skipped, so re-runs
+        don't duplicate. Returns the created skill entries.
+
+        This is the consumer side of the ``use`` reward loop (``reinforce`` →
+        higher ``utility`` → eligible for evolution). It only ever *adds* derived
+        entries; nothing existing changes.
+        """
+        from .prompts import EVOLVE_SYSTEM, evolve_instruction
+
+        history = await self.get_history()
+        already_evolved = {
+            e.aim.intent for e in history if KIND_CASE in e.tags and e.aim.intent
+        }
+
+        clusters: dict[str, list[MemoryEntry]] = {}
+        for e in history:
+            if set(e.tags) & DERIVED_KINDS:
+                continue
+            intent = e.aim.intent
+            if not intent or intent in already_evolved:
+                continue
+            if e.use.stats.count >= min_count:
+                clusters.setdefault(intent, []).append(e)
+
+        from ..types import Message, Role
+        now = time.time()
+        created: list[MemoryEntry] = []
+        for intent, members in clusters.items():
+            if len(members) < min_cluster or len(created) >= max_skills:
+                continue
+            joined = "\n".join(f"- {e.text}" for e in members)
+            messages = [
+                Message(role=Role.SYSTEM, content=system_prompt or EVOLVE_SYSTEM),
+                Message(role=Role.USER, content=evolve_instruction(intent, joined)),
+            ]
+            rule = (await api.complete(messages)).strip()
+            if not rule:
+                continue
+            cues = sorted({c for e in members for c in e.trigger.cues})
+            scope = sorted({s for e in members for s in e.aim.scope})
+            entry = MemoryEntry(
+                id=_new_id(),
+                content=rule,
+                timestamp=now,
+                importance=_PIN_THRESHOLD,  # a distilled skill is worth pinning
+                tags=[KIND_CASE],
+                meta={"from": [e.id for e in members], "evolved": True, "intent": intent},
+                aim=Aim(intent=intent, scope=scope),
+                use=Use(mode=UseMode.CONSTRAIN, weight=1.5),
+                trigger=Trigger(cues=cues),
+            )
+            created.append(await self.append_history(entry))
+        return created
+
+    # ── profile track (P3-B) ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _profile_tags(scope: str) -> list[str]:
+        return [KIND_PROFILE, f"scope:{scope}"]
+
+    async def get_profile(self, scope: str = "default") -> str | None:
+        """Return the current profile text for *scope*, or None if unset (P3-B)."""
+        matches = await self.get_history(tags=self._profile_tags(scope))
+        return matches[-1].text if matches else None
+
+    async def set_profile(self, content: str, scope: str = "default") -> MemoryEntry:
+        """Upsert the single pinned profile entry for *scope* (rewrite semantics).
+
+        Unlike ordinary appends, a profile is one living document per scope: the
+        prior profile for that scope is removed and replaced, EverOS-``user.md``
+        style. Scoped by an opaque id (a ``user``/``session`` identifier), so
+        many users' profiles coexist in one zone and are retrieved orthogonally
+        via ``recall(tags=["profile", "scope:<id>"])``.
+        """
+        tags = self._profile_tags(scope)
+        async with self._history_lock:
+            history = _decode(await self.get(_HISTORY_KEY))
+            kept = [e for e in history if not set(tags).issubset(set(e.tags))]
+            entry = MemoryEntry(
+                id=_new_id(),
+                content=content,
+                timestamp=time.time(),
+                importance=_PIN_THRESHOLD,  # profiles are pinned (stable, resident)
+                tags=tags,
+                meta={"scope": scope},
+            )
+            kept.append(entry)
+            await self.set(_HISTORY_KEY, [e.to_dict() for e in kept])
+        return entry
+
+    async def synthesize_profile(
+        self,
+        api: ModelAPIInterface,
+        scope: str = "default",
+        max_chars: int = 4000,
+        system_prompt: str | None = None,
+    ) -> str | None:
+        """Fold recent history into the profile for *scope* via A4 (P3-B).
+
+        Reads the current profile plus non-derived, non-profile history, asks A4
+        to merge them into an updated profile, and stores it with rewrite
+        semantics. Returns the new profile text (or None when there is nothing to
+        fold in).
+        """
+        from .prompts import PROFILE_SYSTEM, profile_instruction
+
+        history = await self.get_history()
+        sources = [
+            e for e in history
+            if not (set(e.tags) & DERIVED_KINDS) and KIND_PROFILE not in e.tags
+        ]
+        if not sources:
+            return None
+        joined = "\n".join(f"- {e.text}" for e in sources)[:max_chars]
+        if not joined.strip():
+            return None
+
+        current = await self.get_profile(scope) or ""
+        from ..types import Message, Role
+        messages = [
+            Message(role=Role.SYSTEM, content=system_prompt or PROFILE_SYSTEM),
+            Message(role=Role.USER, content=profile_instruction(current, joined)),
+        ]
+        updated = (await api.complete(messages)).strip()
+        if not updated:
+            return None
+        await self.set_profile(updated, scope=scope)
+        return updated
 
     async def stats(self) -> dict:
         """Return a snapshot of this area's history for observability.

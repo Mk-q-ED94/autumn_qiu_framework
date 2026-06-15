@@ -433,6 +433,53 @@ class WP4Mem(WorkspaceBase):
         await self._log("extract_facts", area, {"facts": len(facts)})
         return facts
 
+    # ── evolve (self-evolution) ───────────────────────────────────────────────────
+
+    async def evolve(
+        self,
+        area: str = "shared",
+        min_count: int = 2,
+        min_cluster: int = 2,
+        max_skills: int = 10,
+    ) -> list[MemoryEntry]:
+        """Distil a zone's recurring, proven-useful memories into pinned skills
+        via A4 (RFC 4D-memory P3-A). Raises ``RuntimeError`` without an A4 slot;
+        returns ``[]`` when nothing qualifies.
+        """
+        if not self.has_model:
+            raise RuntimeError(
+                "Memory self-evolution needs the A4 model slot; none is configured.",
+            )
+        skills = await self._resolve(area).evolve(
+            self.api, min_count=min_count, min_cluster=min_cluster, max_skills=max_skills,
+        )
+        await self._log("evolve", area, {"skills": len(skills)})
+        return skills
+
+    # ── profile track ─────────────────────────────────────────────────────────────
+
+    async def get_profile(self, area: str = "shared", scope: str = "default") -> str | None:
+        """Return the stored profile text for *scope* (mechanical — no model)."""
+        return await self._resolve(area).get_profile(scope=scope)
+
+    async def synthesize_profile(
+        self, area: str = "shared", scope: str = "default",
+    ) -> str | None:
+        """Fold a zone's recent history into the *scope* profile via A4 (P3-B).
+
+        Raises ``RuntimeError`` without an A4 slot; returns ``None`` when there
+        is nothing to fold in.
+        """
+        if not self.has_model:
+            raise RuntimeError(
+                "Profile synthesis needs the A4 model slot; none is configured.",
+            )
+        profile = await self._resolve(area).synthesize_profile(self.api, scope=scope)
+        await self._log(
+            "synthesize_profile", area, {"scope": scope, "updated": profile is not None},
+        )
+        return profile
+
     # ── forget ──────────────────────────────────────────────────────────────────
 
     async def forget(

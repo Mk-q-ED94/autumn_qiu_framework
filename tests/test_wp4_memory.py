@@ -229,3 +229,61 @@ async def test_process_without_model_returns_snippets():
 async def test_process_empty_memory():
     answer = await _wp4(api=_StubAPI()).process("nothing-here")
     assert "no memory found" in answer
+
+
+# ── extract_facts / evolve / profile (P2-A, P3-A, P3-B) ─────────────────────────
+
+async def test_extract_facts_requires_model():
+    with pytest.raises(RuntimeError, match="A4 model slot"):
+        await _wp4(api=None).extract_facts("shared")
+
+
+async def test_extract_facts_creates_and_audits():
+    wp4 = _wp4(api=_StubAPI('["Jin prefers dark mode"]'))
+    await wp4._resolve("shared").append_history("Jin likes dark mode a lot")
+    facts = await wp4.extract_facts("shared")
+    assert facts and facts[0].content == "Jin prefers dark mode"
+    log = await wp4.audit_log()
+    assert any(e.content.get("action") == "extract_facts" for e in log)
+
+
+async def test_evolve_requires_model():
+    with pytest.raises(RuntimeError, match="A4 model slot"):
+        await _wp4(api=None).evolve("shared")
+
+
+async def test_evolve_distils_and_audits():
+    wp4 = _wp4(api=_StubAPI("Always use a read replica for prod reads."))
+    zone = wp4._resolve("shared")
+    ids = []
+    for t in ("used replica once", "used replica again"):
+        e = await zone.append_history(t)
+        await zone.annotate(e.id, intent="db_access")
+        ids.append(e.id)
+    await zone.reinforce(ids)
+    await zone.reinforce(ids)
+    skills = await wp4.evolve("shared", min_count=2, min_cluster=2)
+    assert skills and skills[0].aim.intent == "db_access"
+    log = await wp4.audit_log()
+    assert any(e.content.get("action") == "evolve" for e in log)
+
+
+async def test_synthesize_profile_requires_model():
+    with pytest.raises(RuntimeError, match="A4 model slot"):
+        await _wp4(api=None).synthesize_profile("shared")
+
+
+async def test_profile_synthesise_get_and_audit():
+    wp4 = _wp4(api=_StubAPI("Prefers terse answers."))
+    await wp4._resolve("shared").append_history("user asked for shorter replies")
+    updated = await wp4.synthesize_profile("shared", scope="jin")
+    assert updated == "Prefers terse answers."
+    assert await wp4.get_profile("shared", scope="jin") == "Prefers terse answers."
+    log = await wp4.audit_log()
+    assert any(e.content.get("action") == "synthesize_profile" for e in log)
+
+
+async def test_get_profile_without_model_ok():
+    # Reading a profile is mechanical — no A4 needed.
+    wp4 = _wp4(api=None)
+    assert await wp4.get_profile("shared", scope="nobody") is None

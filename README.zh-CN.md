@@ -443,7 +443,22 @@ python -m pytest
 
 ## 开发历程
 
-当前版本：**0.2.2**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+当前版本：**0.2.3**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。**下一站：`0.3.0`**，一次规划中的大版本更新。
+
+### 0.2.3 — 2026-06-15 · 借鉴 EverOS 的四维记忆增强：持久化、混合召回、类型化与自演化记忆
+
+在 0.2.2 的「激活引擎」之上，沿**持久化 / 抽取**这条轴深化记忆子系统——至此四维记忆在**两条轴**（记忆如何持久与抽取、以及如何激活）上都已成形。所有特性均为**增量且可选**：在默认配置下行为与 0.2.2 完全一致。设计动机与上游对比见
+[`docs/everos-4d-memory-takeaways.md`](docs/everos-4d-memory-takeaways.md)。
+
+- **Markdown 即真相源后端** —— `STORAGE_BACKEND=markdown` 将每条记忆存为一份可读的 `.md` 文件，四维（aim/use/trigger）以 JSON frontmatter 序列化；写入原子化（tmp + `os.replace`），淘汰时同步删除文件。
+- **混合召回（BM25 + 向量）** —— `LEXICAL_RECALL_ENABLED=true` 增加一层基于 SQLite FTS5、用 `bm25()` 排序的关键词索引，再以倒数排名融合（RRF）与语义向量结果合并，让专有名词、标识符与符号能与语义一起命中。FTS5 操作符做了防注入中和，环境缺少 FTS5 时优雅降级。
+- **提示槽** —— 整合、召回综合、事实抽取、自演化与画像五类提示词外置到 `autumn/core/memory/prompts.py`，每次调用可通过 `system_prompt=` 覆写；默认值与此前内联字符串逐字节一致。
+- **类型化记忆与原子事实抽取** —— 记忆按保留标签分类（`episode` / `atomic_fact` / `profile` / `summary` / `case`）；`MemoryArea.extract_facts(api)` 把原始对话拆成可被召回独立命中的离散事实。`DERIVED_KINDS` 守卫阻止各派生流程拿自己的产物再喂自己。HTTP：`POST /memory/{area}/extract-facts`。
+- **异步索引** —— `ASYNC_INDEX=true` 把向量 + 词法索引移出写入路径,交给受跟踪的后台任务；追加立即返回,`framework.close()` 经 `flush_index()` 排空。
+- **自演化** —— `MemoryArea.evolve(api)` 按 `aim.intent` 聚合非派生历史；反复出现且被强化（`use.count`）的集群,由 A4 提炼成一条置顶的 `case` 规则（`CONSTRAIN` 模式）——这是奖励循环的消费端,把被验证有用的记忆升格为可被 push 推送的常驻规则。对同一 intent 幂等。HTTP：`POST /memory/{area}/evolve`。
+- **用户画像轨道** —— `set`/`get`/`synthesize_profile(scope=…)` 为每个 scope 维护一条置顶画像（`scope:<id>` 标签）,采用覆写（而非追加）语义；`synthesize_profile` 经 A4 把近期历史折叠进常驻模型。HTTP：`GET`/`POST /memory/{area}/profile`。
+- **WP4 接口** —— A4 的策展工作区新增 `extract_facts`、`evolve`、`get_profile`、`synthesize_profile`,均带模型守卫与审计日志。
+- **测试** —— 新增 77 个（共 870），ruff 干净。
 
 ### 未发布 —— 安全加固
 

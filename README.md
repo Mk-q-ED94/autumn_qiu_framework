@@ -509,8 +509,53 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.2.2**. Autumn follows semantic versioning; while `0.x`,
-minor versions add features and may adjust APIs.
+Current version: **0.2.3**. Autumn follows semantic versioning; while `0.x`,
+minor versions add features and may adjust APIs. **Next up: `0.3.0`**, a larger
+release currently in planning.
+
+### 0.2.3 — 2026-06-15 · EverOS-inspired 4D memory: persistence, hybrid recall, typed & self-evolving memory
+
+Deepens the memory subsystem along the **persistence / extraction** axis to
+complement 0.2.2's activation engine — so 4D memory is now strong on *both* axes
+(how memory persists and is extracted, **and** how it activates). Every feature
+is **additive and opt-in**: with all flags at their defaults, behaviour is
+identical to 0.2.2. Rationale and the upstream comparison live in
+[`docs/everos-4d-memory-takeaways.md`](docs/everos-4d-memory-takeaways.md).
+
+- **Markdown-as-source-of-truth backend** — `STORAGE_BACKEND=markdown` stores one
+  human-readable `.md` file per entry, with the 4D dimensions (aim/use/trigger)
+  serialised as JSON frontmatter; writes are atomic (tmp + `os.replace`) and
+  eviction syncs file deletes.
+- **Hybrid recall (BM25 + vector)** — `LEXICAL_RECALL_ENABLED=true` adds a SQLite
+  FTS5 keyword layer with `bm25()` ranking, fused with semantic vector results
+  via Reciprocal Rank Fusion so proper nouns, identifiers and symbols match
+  alongside meaning. FTS5 operators are neutralised against injection, and the
+  layer degrades gracefully where FTS5 is unavailable.
+- **Prompt slots** — consolidation, recall-synthesis, fact-extraction, evolution
+  and profile prompts are externalised to `autumn/core/memory/prompts.py`, each
+  overridable per call via `system_prompt=`; defaults are byte-for-byte the
+  previous inline strings.
+- **Typed memory & atomic-fact extraction** — entries are typed by reserved tags
+  (`episode` / `atomic_fact` / `profile` / `summary` / `case`);
+  `MemoryArea.extract_facts(api)` breaks raw turns into discrete claims that
+  recall can hit independently of their originating turn. A `DERIVED_KINDS` guard
+  stops every derived pass from feeding on its own output. HTTP:
+  `POST /memory/{area}/extract-facts`.
+- **Async indexing** — `ASYNC_INDEX=true` moves vector + lexical indexing off the
+  write path into tracked background tasks; appends return immediately and
+  `framework.close()` drains them via `flush_index()`.
+- **Self-evolution** — `MemoryArea.evolve(api)` clusters non-derived history by
+  `aim.intent`; clusters that recur and have been reinforced (`use.count`) are
+  distilled by A4 into one pinned `case` rule in `CONSTRAIN` mode — the consumer
+  end of the reward loop, promoting proven memories to standing rules that push
+  can surface. Idempotent per intent. HTTP: `POST /memory/{area}/evolve`.
+- **User profile track** — `set`/`get`/`synthesize_profile(scope=…)` maintains
+  one pinned profile per scope (`scope:<id>` tag) with rewrite (not append)
+  semantics; `synthesize_profile` folds recent history into the resident model
+  via A4. HTTP: `GET`/`POST /memory/{area}/profile`.
+- **WP4 surface** — A4's curator workspace gains `extract_facts`, `evolve`,
+  `get_profile` and `synthesize_profile`, each model-guarded and audit-logged.
+- **Tests** — +77 (870 total), ruff clean.
 
 ### Unreleased — security hardening
 

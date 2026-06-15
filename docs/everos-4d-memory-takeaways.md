@@ -161,8 +161,8 @@ Markdown 可编辑路线，需要同样的护栏：`id`/`timestamp` 只读，`us
 | **P1-C** | 抽取/整合提示词外置 slot | `prompts.py` + `base.py`/`skills.py` | 低 | 可覆盖、可本地化 | ✅ 已实现 |
 | **P2-A** | 记忆类型化（tag 约定 + AtomicFact） | `kinds.py` + `extract_facts`（MemoryArea/WP4/server） | 中 | 更精准的原子召回 | ✅ 已实现 |
 | **P2-B** | 索引与写路径解耦（后台任务） | `base.py` async-index + framework | 中 | 写入不被 embedding 拖慢 | ✅ 已实现 |
-| **P3-A** | 自进化：模式→skill（接 reward 闭环） | 新增 evolution pass | 中高 | 越用越聪明 | ⏳ |
-| **P3-B** | 用户画像轨 + user/session scope | `shared.py`/`project.py` | 中 | 稳定偏好常驻 | ⏳ |
+| **P3-A** | 自进化：模式→skill（接 reward 闭环） | `evolve`（MemoryArea/WP4/server） | 中高 | 越用越聪明 | ✅ 已实现 |
+| **P3-B** | 用户画像轨 + user/session scope | `set/get/synthesize_profile` + scope 标签 | 中 | 稳定偏好常驻 | ✅ 已实现 |
 
 **P1 进度（全部完成）**：P1-A/B/C 已在 `claude/4d-memory-p1` 分支实现并测试
 （全套 830 passed，新增 37）。三个开关全部默认关、向后兼容：
@@ -181,7 +181,19 @@ Markdown 可编辑路线，需要同样的护栏：`id`/`timestamp` 只读，`us
   任务，写入即返回且索引失败不影响落库；`flush_index()` 等待完成（close 时自动 drain）。
   默认关 = 同步、逐字节不变。
 
-下一步候选：**P3-A 自进化（模式→skill，接 reward 闭环）**、**P3-B 用户画像轨 + user/session scope**。
+**P3 进度（全部完成）**：P3-A/B 已在 `claude/4d-memory-p3` 分支实现并测试
+（全套 870 passed，P1–P3 累计新增 77）。同样默认关、向后兼容、仅新增方法：
+- **P3-A 自进化**：`MemoryArea.evolve(api)` 把"同 `aim.intent` 且被反复 `reinforce`
+  （`use.count ≥ min_count`）"的记忆簇用 A4 提炼成**一条 pinned `case` 技能**
+  （`use.mode=CONSTRAIN`，可被 push 主动浮出），同 intent 已进化则跳过、不自我级联。
+  这正是 `reinforce → utility → 提升为常驻规则`的闭环消费端。经 `WP4.evolve` 与
+  `POST /memory/{area}/evolve` 暴露。
+- **P3-B 用户画像轨 + scope**：`set/get/synthesize_profile(scope=...)` 维护**每 scope
+  一份 pinned profile**（重写式，类 EverOS `user.md`）；scope 即 `scope:<id>` 标签，
+  天然支持 user/session 正交检索（`recall(tags=["profile","scope:<id>"])`）。A4 合成
+  经 `WP4.synthesize_profile` 与 `GET/POST /memory/{area}/profile` 暴露。
+
+至此 EverOS 持久化/抽取轴的全部可取之处（P1–P3）已并入 Autumn 的激活模型，两条轴叠加。
 
 ---
 

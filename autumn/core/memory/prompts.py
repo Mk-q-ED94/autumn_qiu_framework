@@ -59,3 +59,39 @@ def atomic_fact_instruction(joined: str) -> str:
     """The user message asking A4 to extract atomic facts from *joined* text."""
     return f"Extract atomic facts from these memory entries:\n\n{joined}"
 
+
+# ── self-evolution: recurring memories → reusable skill (MemoryArea.evolve) ────
+
+EVOLVE_SYSTEM = (
+    "You distill recurring, proven-useful memories into ONE reusable procedural "
+    "rule — a 'skill'. Make it general, imperative and actionable, not a recap of "
+    "the specific instances. Respond with ONLY the rule text, one or two sentences."
+)
+
+
+def evolve_instruction(intent: str, joined: str) -> str:
+    """The user message asking A4 to distill a cluster (shared *intent*) into a rule."""
+    return (
+        f"These memories share the purpose {intent!r} and have repeatedly proven "
+        f"useful. Distill them into one reusable rule:\n\n{joined}"
+    )
+
+
+# ── user profile synthesis (MemoryArea.synthesize_profile) ────────────────────
+
+PROFILE_SYSTEM = (
+    "You maintain a concise user profile from conversation memory — stable "
+    "preferences, recurring context, working style and standing constraints. "
+    "Merge new evidence into the existing profile; keep it short, factual and "
+    "current (drop anything contradicted). Respond with ONLY the updated profile."
+)
+
+
+def profile_instruction(current: str, joined: str) -> str:
+    """The user message asking A4 to update *current* profile from *joined* memory."""
+    base = current.strip() or "(no profile yet)"
+    return (
+        f"Current profile:\n{base}\n\nRecent memory to fold in:\n\n{joined}\n\n"
+        "Return the updated profile."
+    )
+
