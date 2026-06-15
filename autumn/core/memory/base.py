@@ -13,6 +13,7 @@ from .dimensions import ActivationContext, Aim, Trigger, Use, UseMode, activatio
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
     from ..api.embedding import EmbeddingInterface
+    from .backends.lexical_backend import SQLiteLexicalStore
     from .backends.vector_backend import SQLiteVectorStore
 
 _HISTORY_KEY = "history"
@@ -242,6 +243,17 @@ class _VectorLayer:
         self.auto_index = auto_index
 
 
+class _LexicalLayer:
+    """Keyword/BM25 retrieval layer (no embedding needed) — the lexical sibling
+    of :class:`_VectorLayer`. Fused with vector results in :meth:`recall`."""
+
+    __slots__ = ("store", "auto_index")
+
+    def __init__(self, store: SQLiteLexicalStore, auto_index: bool = False):
+        self.store = store
+        self.auto_index = auto_index
+
+
 # ── MemoryArea ────────────────────────────────────────────────────────────────
 
 class MemoryArea:
@@ -274,6 +286,7 @@ class MemoryArea:
         self.name = name
         self._backend = backend
         self._vector: _VectorLayer | None = None
+        self._lexical: _LexicalLayer | None = None
         self._history_limit = history_limit
         # When set, importance decays by half every this-many seconds of age,
         # influencing eviction priority. None disables decay (default).
@@ -303,6 +316,10 @@ class MemoryArea:
     def has_vector(self) -> bool:
         return self._vector is not None
 
+    @property
+    def has_lexical(self) -> bool:
+        return self._lexical is not None
+
     def enable_vector(
         self,
         embedding: EmbeddingInterface,
@@ -311,6 +328,14 @@ class MemoryArea:
     ) -> None:
         """Attach a vector layer for semantic search."""
         self._vector = _VectorLayer(embedding=embedding, store=store, auto_index=auto_index)
+
+    def enable_lexical(
+        self,
+        store: SQLiteLexicalStore,
+        auto_index: bool = False,
+    ) -> None:
+        """Attach a lexical (BM25) layer for keyword search, fused into recall."""
+        self._lexical = _LexicalLayer(store=store, auto_index=auto_index)
 
     # ── namespaced key-value ──────────────────────────────────────────────────
 
@@ -353,6 +378,71 @@ class MemoryArea:
             raise RuntimeError("Vector layer not enabled. Call enable_vector() first.")
         query_vec = await self._vector.embedding.embed(query)
         return await self._vector.store.search(query_vec, k)
+
+    async def lexical_index(self, id: str, text: str, metadata: dict | None = None) -> None:
+        """Store text in the BM25 keyword index. Requires enable_lexical()."""
+        if self._lexical is None:
+            raise RuntimeError("Lexical layer not enabled. Call enable_lexical() first.")
+        await self._lexical.store.store(id, text, metadata or {})
+
+    async def lexical_search(self, query: str, k: int = 5) -> list[SearchResult]:
+        """Return the k best BM25 keyword matches. Requires enable_lexical()."""
+        if self._lexical is None:
+            raise RuntimeError("Lexical layer not enabled. Call enable_lexical() first.")
+        return await self._lexical.store.search(query, k)
+
+    async def _hybrid_search(self, query: str, k: int) -> list[MemoryEntry]:
+        """Fuse vector + lexical retrieval via Reciprocal Rank Fusion (RRF).
+
+        Runs whichever layers are enabled, ranks each result list, and combines
+        them so a hit strong in *either* modality surfaces. ``tags`` mark the
+        contributing modalities (``["vector"]`` / ``["lexical"]`` / both) and
+        ``importance`` is the RRF score scaled so the top fused hit sits at the
+        pin threshold (matching the vector-only path's top-hit magnitude). Never
+        raises — a failing layer is skipped.
+        """
+        k0 = 60  # RRF damping constant (standard default)
+        vector_list: list[SearchResult] = []
+        lexical_list: list[SearchResult] = []
+        if self._vector is not None:
+            try:
+                vector_list = await self.search(query, k=k)
+            except Exception:
+                vector_list = []
+        if self._lexical is not None:
+            try:
+                lexical_list = await self.lexical_search(query, k=k)
+            except Exception:
+                lexical_list = []
+
+        fused: dict[str, dict] = {}
+        for source, ranked in (("vector", vector_list), ("lexical", lexical_list)):
+            for rank, r in enumerate(ranked):
+                slot = fused.setdefault(
+                    r.id, {"score": 0.0, "text": r.text, "meta": {}, "sources": set()},
+                )
+                slot["score"] += 1.0 / (k0 + rank)
+                slot["sources"].add(source)
+                slot["meta"][f"{source}_score"] = r.score
+
+        if not fused:
+            return []
+        max_score = max(slot["score"] for slot in fused.values())
+        entries: list[MemoryEntry] = []
+        for entry_id, slot in fused.items():
+            sources = sorted(slot["sources"])
+            meta = dict(slot["meta"])
+            meta["score"] = slot["score"]
+            meta["sources"] = sources
+            entries.append(MemoryEntry(
+                id=entry_id,
+                content=slot["text"],
+                timestamp=0.0,
+                importance=(slot["score"] / max_score) * _PIN_THRESHOLD,
+                tags=sources,
+                meta=meta,
+            ))
+        return entries
 
     # ── history ───────────────────────────────────────────────────────────────
 
@@ -416,6 +506,11 @@ class MemoryArea:
             meta = {"type": "history", "area": self.name}
             meta.update({f"tag:{t}": True for t in entry.tags})
             await self.index(entry.id, entry.text, meta)
+
+        if self._lexical is not None and self._lexical.auto_index:
+            meta = {"type": "history", "area": self.name}
+            meta.update({f"tag:{t}": True for t in entry.tags})
+            await self.lexical_index(entry.id, entry.text, meta)
 
         return entry
 
@@ -484,8 +579,13 @@ class MemoryArea:
         if tags:
             results.extend(await self.get_history(tags=tags))
 
-        # 3. Semantic search
-        if self._vector is not None and len(results) < k:
+        # 3. Semantic / lexical retrieval.
+        #    With a lexical layer attached, vector + lexical are fused by RRF
+        #    (hybrid). Without one, the vector-only path below is byte-identical
+        #    to before, so enabling lexical is a strict, opt-in superset.
+        if self._lexical is not None and len(results) < k:
+            results.extend(await self._hybrid_search(query, k))
+        elif self._vector is not None and len(results) < k:
             try:
                 semantic = await self.search(query, k=k)
                 for r in semantic:

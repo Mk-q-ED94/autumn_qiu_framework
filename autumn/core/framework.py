@@ -20,6 +20,7 @@ from .memory.backends import (
     HybridBackend,
     MarkdownBackend,
     SQLiteBackend,
+    SQLiteLexicalStore,
     SQLiteVectorStore,
 )
 from .memory.base import MemoryArea
@@ -201,6 +202,17 @@ class Autumn:
             ]:
                 store = SQLiteVectorStore(f"{db}.{suffix}.vec")
                 mom.enable_vector(self._embedding, store, auto_index=config.auto_index)
+
+        # Lexical (BM25) recall — opt-in keyword half of hybrid retrieval (P1-B).
+        # Auto-indexes on append so it works out of the box; fused with vector
+        # results (when present) by RRF inside recall. Off by default.
+        if b.lexical_recall_enabled:
+            for mom, suffix in [
+                (self.mom1, "mom1"),
+                (self.mom2, "mom2"),
+                (self.mom3, "mom3"),
+            ]:
+                mom.enable_lexical(SQLiteLexicalStore(f"{db}.{suffix}.fts"), auto_index=True)
 
         p = config.prompts
         self.wp2 = WP2Tas(

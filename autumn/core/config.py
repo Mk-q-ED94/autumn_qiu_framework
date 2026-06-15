@@ -131,6 +131,7 @@ class BehaviorConfig:
     fourd_memory_enabled: bool = False  # Rank recall/evict by 4D activation score (off = today's importance×timestamp)
     fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
+    lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -153,6 +154,9 @@ class BehaviorConfig:
             ),
             mom1_access_enabled=_to_bool(
                 env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled
+            ),
+            lexical_recall_enabled=_to_bool(
+                env("LEXICAL_RECALL_ENABLED"), cls.lexical_recall_enabled
             ),
         )
 
