@@ -93,28 +93,19 @@ def _build_memory_skills(
                 else str(v)
             )
 
-        # Vector hits — synthesize with A4 or return formatted snippets
-        vector_hits = [e for e in entries if "vector" in e.tags]
-        if vector_hits:
+        # Semantic / lexical hits — synthesize with A4 or return formatted snippets
+        semantic_hits = [e for e in entries if "vector" in e.tags or "lexical" in e.tags]
+        if semantic_hits:
             snippets = "\n".join(
                 f"[relevance={e.meta.get('score', 0.0):.2f}] {e.text}"
-                for e in vector_hits
+                for e in semantic_hits
             )
             if api is not None:
                 from ..types import Message, Role
-                prompt = (
-                    f"Using these memory entries, answer: {query!r}\n\n"
-                    f"{snippets}\n\nBe concise."
-                )
+                from .prompts import RECALL_SYNTH_SYSTEM, recall_synth_prompt
                 msgs = [
-                    Message(
-                        role=Role.SYSTEM,
-                        content=(
-                            "You are a memory assistant. Synthesise stored facts "
-                            "into a direct, concise answer."
-                        ),
-                    ),
-                    Message(role=Role.USER, content=prompt),
+                    Message(role=Role.SYSTEM, content=RECALL_SYNTH_SYSTEM),
+                    Message(role=Role.USER, content=recall_synth_prompt(query, snippets)),
                 ]
                 return await api.complete(msgs)
             return snippets

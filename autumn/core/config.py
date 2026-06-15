@@ -109,6 +109,10 @@ class WorkspacePrompts:
 @dataclass
 class StorageConfig:
     db_path: str = "autumn_memory.db"
+    # Long-term backend for memory zones. "sqlite" (default) keeps today's
+    # opaque DB; "markdown" stores each entry as a readable .md file with 4D
+    # frontmatter under "<db_path>.mdstore/" (RFC 4D-memory P1-A).
+    backend: str = "sqlite"
 
 
 @dataclass
@@ -127,6 +131,8 @@ class BehaviorConfig:
     fourd_memory_enabled: bool = False  # Rank recall/evict by 4D activation score (off = today's importance×timestamp)
     fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
+    lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
+    async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -150,6 +156,10 @@ class BehaviorConfig:
             mom1_access_enabled=_to_bool(
                 env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled
             ),
+            lexical_recall_enabled=_to_bool(
+                env("LEXICAL_RECALL_ENABLED"), cls.lexical_recall_enabled
+            ),
+            async_index=_to_bool(env("ASYNC_INDEX"), cls.async_index),
         )
 
 
@@ -215,7 +225,10 @@ class AutumnConfig:
             a2=ModelConfig.from_env(f"{prefix}A2"),
             a3=ModelConfig.from_env(f"{prefix}A3"),
             a4=a4,
-            storage=StorageConfig(db_path=env("STORAGE_DB_PATH", "autumn_memory.db")),
+            storage=StorageConfig(
+                db_path=env("STORAGE_DB_PATH", "autumn_memory.db"),
+                backend=env("STORAGE_BACKEND", "sqlite"),
+            ),
             behavior=BehaviorConfig.from_env(prefix),
             headless_mission_route=route,
             embedding=EmbeddingConfig.from_env(f"{prefix}EMBEDDING_"),

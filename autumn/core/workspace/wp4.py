@@ -409,6 +409,30 @@ class WP4Mem(WorkspaceBase):
             for name in self._zones
         }
 
+    # ── extract atomic facts ──────────────────────────────────────────────────────
+
+    async def extract_facts(
+        self,
+        area: str = "shared",
+        keep_recent: int = 0,
+        max_facts: int = 20,
+    ) -> list[MemoryEntry]:
+        """Extract atomic facts from a zone's history via A4 (RFC 4D-memory P2-A).
+
+        Each fact is stored back into the zone tagged ``atomic_fact`` so recall
+        can hit it independently. Raises ``RuntimeError`` when no A4 model is
+        configured; returns ``[]`` when there is nothing worth extracting.
+        """
+        if not self.has_model:
+            raise RuntimeError(
+                "Atomic-fact extraction needs the A4 model slot; none is configured.",
+            )
+        facts = await self._resolve(area).extract_facts(
+            self.api, keep_recent=keep_recent, max_facts=max_facts,
+        )
+        await self._log("extract_facts", area, {"facts": len(facts)})
+        return facts
+
     # ── forget ──────────────────────────────────────────────────────────────────
 
     async def forget(

@@ -200,6 +200,13 @@ class ConsolidateRequest(BaseModel):
     min_candidates: int = 3
 
 
+class ExtractFactsRequest(BaseModel):
+    """Tuning for an atomic-fact extraction pass (all optional)."""
+
+    keep_recent: int = 0
+    max_facts: int = 20
+
+
 class ProjectMetaUpdateRequest(BaseModel):
     """Partial update for project metadata. Omitted fields are unchanged."""
 
@@ -950,6 +957,20 @@ def create_app() -> FastAPI:
         if summary is None:
             return {"status": "noop", "summary": None}
         return {"status": "ok", "summary": summary.to_dict()}
+
+    @app.post("/memory/{area}/extract-facts")
+    async def memory_extract_facts(
+        area: MemoryArea, request: Request, req: ExtractFactsRequest = ExtractFactsRequest(),
+    ):
+        autumn = _autumn_or_503(request)
+        wp4 = _curator_with_model_or_400(autumn)
+        try:
+            facts = await wp4.extract_facts(
+                area, keep_recent=req.keep_recent, max_facts=req.max_facts,
+            )
+        except Exception as exc:
+            raise _record_failure(request, exc) from exc
+        return {"status": "ok", "facts": [f.to_dict() for f in facts]}
 
     @app.post("/memory/{area}/annotate", response_model=AnnotateResponse)
     async def annotate_memory_entry(

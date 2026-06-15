@@ -16,7 +16,13 @@ from .components.terr import Terr
 from .components.tool import Tool
 from .config import AutumnConfig
 from .interaction import UserInteraction
-from .memory.backends import HybridBackend, SQLiteBackend, SQLiteVectorStore
+from .memory.backends import (
+    HybridBackend,
+    MarkdownBackend,
+    SQLiteBackend,
+    SQLiteLexicalStore,
+    SQLiteVectorStore,
+)
 from .memory.base import MemoryArea
 from .memory.dimensions import ActivationContext
 from .memory.mom1 import Mom1
@@ -113,23 +119,36 @@ class Autumn:
         hist = b.history_limit
         decay = b.memory_decay_half_life or None
         fourd = b.fourd_memory_enabled
+
+        # Long-term backend factory. "sqlite" (default) keeps the historical
+        # file-per-zone DB; "markdown" stores readable .md entries with 4D
+        # frontmatter under "<db>.mdstore/<zone>/". Both are wrapped in
+        # HybridBackend for the short-term session cache, so the choice is
+        # transparent to every zone above.
+        markdown = config.storage.backend == "markdown"
+
+        def _zone(suffix: str) -> HybridBackend:
+            if markdown:
+                return HybridBackend(MarkdownBackend(f"{db}.mdstore/{suffix}"))
+            return HybridBackend(SQLiteBackend(f"{db}.{suffix}"))
+
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
         self.shared = SharedZone(
-            HybridBackend(SQLiteBackend(db + ".shared")),
+            _zone("shared"),
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         self.mom2 = Mom2(
-            HybridBackend(SQLiteBackend(db + ".mom2")), self.shared,
+            _zone("mom2"), self.shared,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom3 = Mom3(
-            HybridBackend(SQLiteBackend(db + ".mom3")), self.shared,
+            _zone("mom3"), self.shared,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom1 = Mom1(
-            HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3,
+            _zone("mom1"), self.mom2, self.mom3,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
@@ -137,7 +156,7 @@ class Autumn:
         # but within a project the zone is shared across every workspace and turn.
         # Resolved per-request via project_scope()/the active-project contextvar.
         self.projects = ProjectMemory(
-            HybridBackend(SQLiteBackend(db + ".projects")),
+            _zone("projects"),
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
@@ -148,7 +167,7 @@ class Autumn:
         self.wp4 = WP4Mem(
             self.a4,
             MemoryArea(
-                "wp4", HybridBackend(SQLiteBackend(db + ".wp4")),
+                "wp4", _zone("wp4"),
                 history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
             ),
             zones={
@@ -183,6 +202,25 @@ class Autumn:
             ]:
                 store = SQLiteVectorStore(f"{db}.{suffix}.vec")
                 mom.enable_vector(self._embedding, store, auto_index=config.auto_index)
+
+        # Lexical (BM25) recall — opt-in keyword half of hybrid retrieval (P1-B).
+        # Auto-indexes on append so it works out of the box; fused with vector
+        # results (when present) by RRF inside recall. Off by default.
+        if b.lexical_recall_enabled:
+            for mom, suffix in [
+                (self.mom1, "mom1"),
+                (self.mom2, "mom2"),
+                (self.mom3, "mom3"),
+            ]:
+                mom.enable_lexical(SQLiteLexicalStore(f"{db}.{suffix}.fts"), auto_index=True)
+
+        # Background indexing (P2-B): decouple embedding/lexical indexing from the
+        # write path so a slow/down embedding service never blocks (or breaks) an
+        # append. Off by default → synchronous, unchanged. flush_index() runs on
+        # close so in-flight indexing completes before the embedding client shuts.
+        if b.async_index:
+            for mom in (self.mom1, self.mom2, self.mom3):
+                mom.set_async_index(True)
 
         p = config.prompts
         self.wp2 = WP2Tas(
@@ -648,6 +686,9 @@ class Autumn:
                 await backend.clear_session()
 
     async def close(self) -> None:
+        # Drain any background indexing before tearing down the embedding client.
+        for mom in (self.mom1, self.mom2, self.mom3):
+            await mom.flush_index()
         for client in self._mcp_clients:
             await client.disconnect()
         self._mcp_clients.clear()
