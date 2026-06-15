@@ -135,10 +135,24 @@ class WP4Mem(WorkspaceBase):
         memory: MemoryArea,
         zones: dict[str, MemoryArea],
         projects: ProjectMemory | None = None,
+        delegation_api=None,
     ):
         super().__init__(api, memory)
         self._zones: dict[str, MemoryArea] = dict(zones)
         self._projects = projects
+        # When set, heavy cognitive operations (consolidation, evolution, profile
+        # synthesis, project discussion) are delegated to this stronger model api
+        # rather than calling the weak local A4 model. Set by framework.py to A1.
+        self._delegation_api = delegation_api
+
+    def _cognitive_api(self):
+        """Return the api to use for heavy cognitive memory operations.
+
+        Prefers the delegation_api (A1) over the local A4 model when available,
+        so the strong cloud model handles reasoning and the weak local model is
+        relieved of tasks it handles poorly.
+        """
+        return self._delegation_api if self._delegation_api is not None else self.api
 
     # ── model availability ──────────────────────────────────────────────────────
 
@@ -334,7 +348,7 @@ class WP4Mem(WorkspaceBase):
             ),
         ]
         try:
-            response = await self.api.complete(messages)
+            response = await self._cognitive_api().complete(messages)
         except Exception:
             await self._log("annotate", area, {"annotated": 0, "scanned": len(entries)})
             return {"annotated": 0, "scanned": len(entries)}
@@ -385,7 +399,7 @@ class WP4Mem(WorkspaceBase):
                 "Memory consolidation needs the A4 model slot; none is configured.",
             )
         summary = await self._resolve(area).consolidate(
-            self.api, keep_recent=keep_recent, min_candidates=min_candidates,
+            self._cognitive_api(), keep_recent=keep_recent, min_candidates=min_candidates,
         )
         await self._log(
             "consolidate",
@@ -432,7 +446,7 @@ class WP4Mem(WorkspaceBase):
                 "Atomic-fact extraction needs the A4 model slot; none is configured.",
             )
         facts = await self._resolve(area).extract_facts(
-            self.api, keep_recent=keep_recent, max_facts=max_facts,
+            self._cognitive_api(), keep_recent=keep_recent, max_facts=max_facts,
         )
         await self._log("extract_facts", area, {"facts": len(facts)})
         return facts
@@ -455,7 +469,7 @@ class WP4Mem(WorkspaceBase):
                 "Memory self-evolution needs the A4 model slot; none is configured.",
             )
         skills = await self._resolve(area).evolve(
-            self.api, min_count=min_count, min_cluster=min_cluster, max_skills=max_skills,
+            self._cognitive_api(), min_count=min_count, min_cluster=min_cluster, max_skills=max_skills,
         )
         await self._log("evolve", area, {"skills": len(skills)})
         return skills
@@ -478,7 +492,7 @@ class WP4Mem(WorkspaceBase):
             raise RuntimeError(
                 "Profile synthesis needs the A4 model slot; none is configured.",
             )
-        profile = await self._resolve(area).synthesize_profile(self.api, scope=scope)
+        profile = await self._resolve(area).synthesize_profile(self._cognitive_api(), scope=scope)
         await self._log(
             "synthesize_profile", area, {"scope": scope, "updated": profile is not None},
         )
@@ -581,7 +595,7 @@ class WP4Mem(WorkspaceBase):
             ),
             Message(role=Role.USER, content=user_input),
         ]
-        result = await self.api.complete(messages)
+        result = await self._cognitive_api().complete(messages)
         return result.strip()
 
     async def draft_goals(self, user_input: str, project_id: str) -> ProjectGoals:
@@ -613,7 +627,7 @@ class WP4Mem(WorkspaceBase):
                 content=f"{desc_context}Goals description: {user_input}",
             ),
         ]
-        response = await self.api.complete(messages)
+        response = await self._cognitive_api().complete(messages)
         try:
             data = json.loads(self._extract_json(response))
             return ProjectGoals.from_dict(data)
@@ -658,7 +672,7 @@ class WP4Mem(WorkspaceBase):
                 ),
             ),
         ]
-        response = await self.api.complete(messages)
+        response = await self._cognitive_api().complete(messages)
         try:
             data = json.loads(self._extract_json(response))
             meta.environment = ProjectEnvironment.from_dict(data)
@@ -698,4 +712,4 @@ class WP4Mem(WorkspaceBase):
                 content=f"Using these memory entries, answer: {query!r}\n\n{snippets}",
             ),
         ]
-        return await self.api.complete(messages)
+        return await self._cognitive_api().complete(messages)

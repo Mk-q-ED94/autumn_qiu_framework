@@ -133,6 +133,10 @@ class BehaviorConfig:
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
+    # 0.3.0 cooperative workflow
+    a3_lite_skills: list[str] = field(default_factory=list)  # Skills A3 may call on the direct path (empty = off)
+    a1_task_planning: bool = False  # A1 generates a step plan before dispatching to A2 (adds one A1 call per task)
+    a4_delegate_to_a1: bool = True  # A4's heavy cognitive ops (consolidate/evolve/project) use A1 instead of A4
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -160,6 +164,11 @@ class BehaviorConfig:
                 env("LEXICAL_RECALL_ENABLED"), cls.lexical_recall_enabled
             ),
             async_index=_to_bool(env("ASYNC_INDEX"), cls.async_index),
+            a3_lite_skills=[
+                s.strip() for s in (env("A3_LITE_SKILLS") or "").split(",") if s.strip()
+            ],
+            a1_task_planning=_to_bool(env("A1_TASK_PLANNING"), cls.a1_task_planning),
+            a4_delegate_to_a1=_to_bool(env("A4_DELEGATE_TO_A1"), cls.a4_delegate_to_a1),
         )
 
 

@@ -45,6 +45,14 @@ def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) 
     issues = checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
     return clean, f"{failed_label}: {issues}"
 
+_PLAN_TASK_SYSTEM = """\
+You are A1, the orchestrating coordinator in the Autumn framework.
+A2 (the code executor) is about to work on the task below. Before it starts,
+briefly outline the approach — 3 to 6 numbered steps — so A2 has a clear direction.
+
+Write only the numbered steps. One step per line. Each step: one short action sentence.
+No introduction, no markdown headers, no commentary after the steps."""
+
 _AUTO_ROUTE_SYSTEM = """\
 You are a routing agent in the Autumn framework.
 Decide how the following mission should be handled:
@@ -131,6 +139,7 @@ class WP1Tot(WorkspaceBase):
         headless_mission_route: MissionRoute | Literal["auto"] = "auto",
         validate_before_stream: bool = True,
         confirm_threshold: float = 0.75,
+        task_planning: bool = False,
     ):
         super().__init__(api, memory)
         self.wp2 = wp2
@@ -146,6 +155,7 @@ class WP1Tot(WorkspaceBase):
         self.interaction = interaction
         self._headless_route = headless_mission_route
         self._validate_before_stream = validate_before_stream
+        self._task_planning = task_planning
 
     async def process(
         self,
@@ -194,9 +204,17 @@ class WP1Tot(WorkspaceBase):
 
         if input_type == InputType.TASK:
             t = time.perf_counter()
+            plan_hint = await self._plan_task(user_input, task_type)
+            if plan_hint:
+                stages.append(_make_stage(
+                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_hint.splitlines())} 步）",
+                    "WP1", t, self.api,
+                ))
+            t = time.perf_counter()
             result, tool_stages, wp2_prompt, wp2_completion = (
                 await self.wp2.process_with_trace(
                     user_input, task_type=task_type, turn_context=push_context,
+                    plan_hint=plan_hint,
                 )
             )
             stages.extend(tool_stages)
@@ -256,7 +274,10 @@ class WP1Tot(WorkspaceBase):
 
         if route == MissionRoute.DIRECT:
             t = time.perf_counter()
-            result = await self.wp3.answer_directly(mission_input, turn_context=push_context)
+            result, wp3_tool_stages, *_ = await self.wp3.answer_directly_with_trace(
+                mission_input, turn_context=push_context,
+            )
+            stages.extend(wp3_tool_stages)
             stages.append(_make_stage(
                 "wp3.direct", "A3 直接回答", "WP3 已生成 mission 回答", "WP3", t, self.wp3.api,
             ))
@@ -360,6 +381,24 @@ class WP1Tot(WorkspaceBase):
         except (json.JSONDecodeError, KeyError, ValueError):
             return MissionRoute.DIRECT
 
+    async def _plan_task(self, user_input: str, task_type: TaskType | None) -> str | None:
+        """Ask A1 to generate a step-by-step execution plan before dispatching to WP2.
+
+        Returns the plan text (to inject as WP2's plan_hint) or None when planning
+        is disabled, the model call fails, or the output is empty.
+        """
+        if not self._task_planning:
+            return None
+        messages = [
+            Message(role=Role.SYSTEM, content=_PLAN_TASK_SYSTEM),
+            Message(role=Role.USER, content=user_input),
+        ]
+        try:
+            plan = await self.api.complete(messages, max_tokens=256)
+            return plan.strip() or None
+        except Exception:
+            return None
+
     async def _wp1_check(self, output: str) -> tuple[str, str]:
         if not self.checker:
             return output, "WP1 已完成最终质量检查"
@@ -444,9 +483,17 @@ class WP1Tot(WorkspaceBase):
         ))
 
         if input_type == InputType.TASK:
+            t = time.perf_counter()
+            plan_hint = await self._plan_task(user_input, task_type)
+            if plan_hint:
+                stages.append(_make_stage(
+                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_hint.splitlines())} 步）",
+                    "WP1", t, self.api,
+                ))
             task_started = time.perf_counter()
             gen = self.wp2.stream_with_trace(
                 user_input, task_type=task_type, chunk_size=chunk_size, turn_context=push_context,
+                plan_hint=plan_hint,
             )
             chosen_route: MissionRoute | None = None
         else:
@@ -506,6 +553,7 @@ class WP1Tot(WorkspaceBase):
                 workspace="WP2", duration_ms=_duration_ms(task_started),
             ))
         elif chosen_route == MissionRoute.DIRECT:
+            stages.extend(tool_stages)
             stages.append(WorkflowStage(
                 id="wp3.direct", title="A3 直接回答",
                 detail="WP3 已生成 mission 回答",

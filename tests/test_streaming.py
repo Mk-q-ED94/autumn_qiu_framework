@@ -179,7 +179,8 @@ async def test_wp3_stream_direct_yields_tokens():
     wp3 = WP3Mis(api, mom3)
     chunks = []
     async for tok in wp3.stream_direct("tell me a story"):
-        chunks.append(tok)
+        if isinstance(tok, str):
+            chunks.append(tok)
     assert chunks == ["Once ", "upon ", "a time"]
 
 

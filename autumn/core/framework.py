@@ -177,6 +177,9 @@ class Autumn:
                 "shared": self.shared,
             },
             projects=self.projects,
+            # Delegate heavy cognitive ops to A1 (strong model) when enabled (default).
+            # A4 handles mechanical memory ops; A1 handles reasoning-heavy synthesis.
+            delegation_api=self.a1 if b.a4_delegate_to_a1 else None,
         )
 
         # Governed upward channel: Mom2/Mom3 may *request* a Mom1 read, A1
@@ -229,7 +232,12 @@ class Autumn:
             tool_provider=self._collect_plugins,
             agent_max_steps=b.agent_max_steps,
         )
-        self.wp3 = WP3Mis(self.a3, self.mom3, direct_prompt=p.wp3_direct, convert_prompt=p.wp3_convert)
+        self.wp3 = WP3Mis(
+            self.a3, self.mom3,
+            direct_prompt=p.wp3_direct,
+            convert_prompt=p.wp3_convert,
+            skill_provider=self._collect_a3_skills if b.a3_lite_skills else None,
+        )
         self.wp1 = WP1Tot(
             self.a1, self.mom1, self.wp2, self.wp3,
             wp4=self.wp4,
@@ -240,6 +248,7 @@ class Autumn:
             headless_mission_route=config.headless_mission_route,
             validate_before_stream=config.validate_before_stream,
             confirm_threshold=b.confirm_threshold,
+            task_planning=b.a1_task_planning,
         )
 
         self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker, retries=b.checker_retries)
@@ -461,6 +470,28 @@ class Autumn:
             elif isinstance(obj, Skill):
                 skills.append(obj)
         return tools, skills
+
+    def _collect_a3_skills(self) -> list[Skill]:
+        """Snapshot the curated lite-skill set for WP3's bounded direct loop.
+
+        Resolved fresh each turn. Only skills whose name appears in
+        ``BehaviorConfig.a3_lite_skills`` and whose Terr (if any) is enabled
+        are included — A3 gets a narrow, safe subset, not the full WP2 bag.
+        """
+        whitelist = set(self.config.behavior.a3_lite_skills)
+        if not whitelist:
+            return []
+        skills: list[Skill] = []
+        for obj in self.plugins.all().values():
+            if not isinstance(obj, Skill):
+                continue
+            if obj.name not in whitelist:
+                continue
+            source_terr = getattr(obj, "source_terr", None)
+            if source_terr and not self.plugins.is_terr_enabled(source_terr):
+                continue
+            skills.append(obj)
+        return skills
 
     def add_memory_skills(self, area: str = "shared") -> None:
         """Register recall and remember Skills backed by a memory area.
