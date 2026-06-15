@@ -48,6 +48,7 @@ from .mcp_catalog import (
     mcp_sqlite,
     mcp_time,
 )
+from .knowledge_terr import knowledge_terr
 from .memory_terr import memory_terr, project_memory_terr
 from .text_terr import text_terr
 from .time_terr import time_terr
@@ -144,6 +145,7 @@ __all__ = [
     "encoding_terr",
     "collection_terr",
     "web_terr",
+    "knowledge_terr",
     "fs_terr",
     "memory_terr",
     "project_memory_terr",

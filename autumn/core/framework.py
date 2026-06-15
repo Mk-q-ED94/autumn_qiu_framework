@@ -179,7 +179,11 @@ class Autumn:
             projects=self.projects,
             # Delegate heavy cognitive ops to A1 (strong model) when enabled (default).
             # A4 handles mechanical memory ops; A1 handles reasoning-heavy synthesis.
-            delegation_api=self.a1 if b.a4_delegate_to_a1 else None,
+            delegation_api=self.a1 if b.delegate_on else None,
+            delegation_threshold=b.a4_delegation_threshold,
+            # External-retrieval augmentation: A4.research() pulls these skills from
+            # the knowledge Terr (registered below when a4_knowledge_terr is on).
+            research_provider=self._collect_knowledge_skills,
         )
 
         # Governed upward channel: Mom2/Mom3 may *request* a Mom1 read, A1
@@ -225,6 +229,12 @@ class Autumn:
             for mom in (self.mom1, self.mom2, self.mom3):
                 mom.set_async_index(True)
 
+        # Knowledge Terr (0.3.0): A4's external-retrieval engine. Registered here so
+        # research() can resolve its skills; also available to A2/A3 like any Terr.
+        if b.knowledge_terr_on:
+            from ..builtin.knowledge_terr import knowledge_terr
+            self.register_terr(knowledge_terr(recall_fn=self._knowledge_recall))
+
         p = config.prompts
         self.wp2 = WP2Tas(
             self.a2, self.mom2,
@@ -236,7 +246,7 @@ class Autumn:
             self.a3, self.mom3,
             direct_prompt=p.wp3_direct,
             convert_prompt=p.wp3_convert,
-            skill_provider=self._collect_a3_skills if b.a3_lite_skills else None,
+            skill_provider=self._collect_a3_skills if b.lite_skills_on() else None,
         )
         self.wp1 = WP1Tot(
             self.a1, self.mom1, self.wp2, self.wp3,
@@ -248,7 +258,10 @@ class Autumn:
             headless_mission_route=config.headless_mission_route,
             validate_before_stream=config.validate_before_stream,
             confirm_threshold=b.confirm_threshold,
-            task_planning=b.a1_task_planning,
+            task_planning=b.task_planning_on,
+            supervision=b.supervision_on,
+            archive=b.archive_on,
+            capability_provider=self._capability_digest,
         )
 
         self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker, retries=b.checker_retries)
@@ -478,7 +491,7 @@ class Autumn:
         ``BehaviorConfig.a3_lite_skills`` and whose Terr (if any) is enabled
         are included — A3 gets a narrow, safe subset, not the full WP2 bag.
         """
-        whitelist = set(self.config.behavior.a3_lite_skills)
+        whitelist = set(self.config.behavior.lite_skills_on())
         if not whitelist:
             return []
         skills: list[Skill] = []
@@ -492,6 +505,47 @@ class Autumn:
                 continue
             skills.append(obj)
         return skills
+
+    def _collect_knowledge_skills(self) -> list[Skill]:
+        """Snapshot the enabled ``knowledge`` Terr's skills for A4.research().
+
+        Returns ``[]`` when the knowledge Terr isn't registered/enabled, so
+        ``WP4Mem.research`` degrades gracefully to an "unavailable" message.
+        """
+        if not self.plugins.is_terr_enabled("knowledge"):
+            return []
+        return [
+            obj
+            for obj in self.plugins.all().values()
+            if isinstance(obj, Skill) and getattr(obj, "source_terr", None) == "knowledge"
+        ]
+
+    async def _knowledge_recall(self, query: str, k: int) -> str:
+        """Local-knowledge-store backing for the knowledge Terr's KB-query skill.
+
+        Reads the shared zone (the cross-workspace knowledge zone) and returns
+        formatted snippets, so A4's research loop can consult prior facts.
+        """
+        entries = await self.shared.recall(query, k=k)
+        if not entries:
+            return f"[no local knowledge found for {query!r}]"
+        return "\n".join(f"- {e.text}" for e in entries)
+
+    def _capability_digest(self) -> str:
+        """Render a compact digest of enabled capability domains for the Selector.
+
+        Lets A1 route with awareness of what the system can actually do — e.g.
+        leaning TASK when a relevant code/tool domain is loaded. Returns "" when
+        nothing is registered (the Selector then behaves exactly as before).
+        """
+        lines: list[str] = []
+        for terr in self.plugins.all_terrs().values():
+            if not self.plugins.is_terr_enabled(terr.name):
+                continue
+            lines.append(f"- {terr.name}: {terr.description}")
+        if not lines:
+            return ""
+        return "Loaded capability domains (the system can act in these areas):\n" + "\n".join(lines)
 
     def add_memory_skills(self, area: str = "shared") -> None:
         """Register recall and remember Skills backed by a memory area.

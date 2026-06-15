@@ -1,12 +1,33 @@
 # RFC: 合作型多模型工作流（Cooperative Multi-Model Workflow）
 
-> 状态：草案（Draft）· 目标里程碑：0.3.0
-> 范围：`autumn/core/workspace/{wp1,wp2,wp3,wp4}` · `autumn/core/components/selector.py`
->       `autumn/core/framework.py` · `autumn/core/config.py`
+> 状态：**已实现（Implemented）**· 目标里程碑：0.3.0
+> 范围：`autumn/core/workspace/{wp1,wp2,wp3,wp4}` · `autumn/core/components/{selector,agent}.py`
+>       `autumn/core/framework.py` · `autumn/core/config.py` · `autumn/builtin/knowledge_terr.py`
 >
 > 本文定义 0.3.0 的核心主题：让 A1/A2/A3/A4 从「分工型」单向流水线升级为
 > **具备主动交互能力的合作型工作流**。四个模型有清晰的角色分工，A1 作为组长
 > 驱动整体协调，关键节点允许直接的模型间消息传递。
+
+---
+
+## 实现状态（Implementation Status）
+
+全部 Phase 已落地，由 `COOPERATIVE_WORKFLOW` 总开关统一门控（默认开；置 false 退回 0.2.x）。
+
+| Phase | 功能 | 开关（env） | 关键代码 |
+|-------|------|-------------|----------|
+| 0 | A1 全模块连接 | 始终 | `WP1Tot.__init__(wp4, projects, mom1_access)` |
+| 1 | 任务边界重定义 | 始终 | `selector.py` 提示词 |
+| 1 | 能力感知路由 | 始终 | `Selector(capability_provider=...)` + `Autumn._capability_digest` |
+| 2 | A3 Lite Toolset | `A3_LITE_SKILLS` | `WP3Mis(skill_provider=...)` |
+| 3 | A1 任务计划 | `A1_TASK_PLANNING` | `WP1Tot._plan_task` → `plan_hint` |
+| 3 | A1 执行监督 | `A1_SUPERVISION` | `Agent.run(supervisor=...)` + `WP1Tot._build_supervisor` |
+| 3 | 执行归档 | `ARCHIVE_EXECUTIONS` | `WP4Mem.record_execution_summary` |
+| 4 | A4→A1 认知委托 | `A4_DELEGATE_TO_A1` + `A4_DELEGATION_THRESHOLD` | `WP4Mem._cognitive_api` |
+| 4 | A4 外部检索引擎 | `A4_KNOWLEDGE_TERR` | `knowledge_terr` + `WP4Mem.research` |
+| 5 | 项目讨论归 A1 | `A4_DELEGATE_TO_A1` | `draft_*`/`infer_environment` → `_cognitive_api(0)` |
+
+测试：`tests/test_cooperative_workflow.py`（21 例）+ 全量回归 928 passed。
 
 ---
 

@@ -435,7 +435,9 @@ async def test_wp1_trace_includes_wp2_tool_stages():
     from autumn.core.types import WorkflowStage, InputType, TaskType, SelectorResult
 
     class StubWP2:
-        async def process_with_trace(self, task, task_type=None, turn_context="", plan_hint=None):
+        async def process_with_trace(
+            self, task, task_type=None, turn_context="", plan_hint=None, supervisor=None,
+        ):
             return "wp2 output", [WorkflowStage(
                 id="wp2.tool.0.search", title="search", detail="q=x → result",
                 workspace="WP2", status="completed", kind="tool",

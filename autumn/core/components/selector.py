@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Callable
 
 from ..types import InputType, Message, Role, SelectorResult, TaskType
 
@@ -225,10 +226,30 @@ class Selector:
         api_interface,
         system_prompt: str | None = None,
         confirm_threshold: float = _CONFIRM_THRESHOLD,
+        capability_provider: Callable[[], str] | None = None,
     ):
         self.api = api_interface
         self._system = system_prompt or _DEFAULT_SYSTEM
         self._confirm_threshold = confirm_threshold
+        # Optional callable returning a digest of loaded capability domains, injected
+        # into the LLM classification prompt so A1 routes with capability awareness.
+        self._capability_provider = capability_provider
+
+    def _system_with_capabilities(self) -> str:
+        """Append the live capability digest (if any) to the base system prompt."""
+        if self._capability_provider is None:
+            return self._system
+        try:
+            digest = self._capability_provider()
+        except Exception:
+            digest = ""
+        if not digest:
+            return self._system
+        return (
+            f"{self._system}\n\n# Available capabilities\n{digest}\n"
+            "Consider these when deciding: a request the loaded domains can execute "
+            "leans TASK; one that is pure conversation stays MISSION."
+        )
 
     async def classify(self, user_input: str) -> SelectorResult:
         # Fast path: heuristic pre-classifier
@@ -238,7 +259,7 @@ class Selector:
 
         # Slow path: LLM classifier with examples
         messages = [
-            Message(role=Role.SYSTEM, content=self._system),
+            Message(role=Role.SYSTEM, content=self._system_with_capabilities()),
             Message(role=Role.USER, content=user_input),
         ]
         response = await self.api.complete(messages, max_tokens=128)
