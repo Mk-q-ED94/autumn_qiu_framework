@@ -154,18 +154,19 @@ Markdown 可编辑路线，需要同样的护栏：`id`/`timestamp` 只读，`us
 
 ## 3. 建议路线图
 
-| 优先级 | 项目 | 改动面 | 风险 | 收益 |
-|--------|------|--------|------|------|
-| **P1-A** | Markdown 后端 + 4D frontmatter | 新增 `markdown_backend.py` | 低（后端可插拔） | 可读/可编辑/可版本化记忆 |
-| **P1-B** | recall 补 BM25/FTS5 词法层 | `hybrid_backend.py` | 中 | 专名/ID/符号召回 |
-| **P1-C** | 抽取/整合提示词外置 slot | `base.py`/`skills.py` + yaml | 低 | 可覆盖、可本地化 |
-| **P2-A** | 记忆类型化（先 tag 约定 + AtomicFact） | 抽取 pass | 中 | 更精准的原子召回 |
-| **P2-B** | 索引与写路径解耦（异步队列） | `base.py` | 中 | 写入不被 embedding 拖慢 |
-| **P3-A** | 自进化：模式→skill（接 reward 闭环） | 新增 evolution pass | 中高 | 越用越聪明 |
-| **P3-B** | 用户画像轨 + user/session scope | `shared.py`/`project.py` | 中 | 稳定偏好常驻 |
+| 优先级 | 项目 | 改动面 | 风险 | 收益 | 状态 |
+|--------|------|--------|------|------|------|
+| **P1-A** | Markdown 后端 + 4D frontmatter | `markdown_backend.py` + config/framework 可插拔 | 低（后端可插拔） | 可读/可编辑/可版本化记忆 | ✅ 已实现 |
+| **P1-B** | recall 补 BM25/FTS5 词法层 | `hybrid_backend.py` | 中 | 专名/ID/符号召回 | ⏳ 待实现 |
+| **P1-C** | 抽取/整合提示词外置 slot | `prompts.py` + `base.py`/`skills.py` | 低 | 可覆盖、可本地化 | ✅ 已实现 |
+| **P2-A** | 记忆类型化（先 tag 约定 + AtomicFact） | 抽取 pass | 中 | 更精准的原子召回 | ⏳ |
+| **P2-B** | 索引与写路径解耦（异步队列） | `base.py` | 中 | 写入不被 embedding 拖慢 | ⏳ |
+| **P3-A** | 自进化：模式→skill（接 reward 闭环） | 新增 evolution pass | 中高 | 越用越聪明 | ⏳ |
+| **P3-B** | 用户画像轨 + user/session scope | `shared.py`/`project.py` | 中 | 稳定偏好常驻 | ⏳ |
 
-**起步建议**：P1-A（Markdown 后端）单独可合并、风险最低、收益最直观，且为 P1-C/P2-A/P3-C
-铺路，是最佳第一步。
+**P1 进度**：P1-A（Markdown 后端）与 P1-C（提示词 slot）已在 `claude/4d-memory-p1`
+分支实现并测试（全套 814 passed，新增 21）。开关 `STORAGE_BACKEND=markdown` 启用，默认
+`sqlite` 行为不变。P1-B（FTS5 词法召回）改动 recall 热路径，作为下一步单独推进。
 
 ---
 

@@ -102,19 +102,10 @@ def _build_memory_skills(
             )
             if api is not None:
                 from ..types import Message, Role
-                prompt = (
-                    f"Using these memory entries, answer: {query!r}\n\n"
-                    f"{snippets}\n\nBe concise."
-                )
+                from .prompts import RECALL_SYNTH_SYSTEM, recall_synth_prompt
                 msgs = [
-                    Message(
-                        role=Role.SYSTEM,
-                        content=(
-                            "You are a memory assistant. Synthesise stored facts "
-                            "into a direct, concise answer."
-                        ),
-                    ),
-                    Message(role=Role.USER, content=prompt),
+                    Message(role=Role.SYSTEM, content=RECALL_SYNTH_SYSTEM),
+                    Message(role=Role.USER, content=recall_synth_prompt(query, snippets)),
                 ]
                 return await api.complete(msgs)
             return snippets

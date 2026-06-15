@@ -672,6 +672,7 @@ class MemoryArea:
         keep_recent: int = 10,
         min_candidates: int = 3,
         max_chars: int = 4000,
+        system_prompt: str | None = None,
     ) -> MemoryEntry | None:
         """Summarise older history into a single pinned entry to free space.
 
@@ -685,6 +686,9 @@ class MemoryArea:
             keep_recent: number of newest entries to leave untouched.
             min_candidates: minimum old entries required to bother summarising.
             max_chars: cap on the candidate text fed to the model.
+            system_prompt: optional override for the consolidation system prompt
+                (the P1-C prompt slot). Defaults to
+                :data:`autumn.core.memory.prompts.CONSOLIDATE_SYSTEM`.
 
         """
         async with self._history_lock:
@@ -699,18 +703,12 @@ class MemoryArea:
 
             joined = "\n".join(f"- {e.text}" for e in candidates)[:max_chars]
             from ..types import Message, Role
+            from .prompts import CONSOLIDATE_SYSTEM, consolidate_instruction
             messages = [
-                Message(
-                    role=Role.SYSTEM,
-                    content=(
-                        "You compress conversation memory. Summarise the entries "
-                        "into a compact, factual digest that preserves names, "
-                        "decisions, preferences and unresolved threads. Be terse."
-                    ),
-                ),
+                Message(role=Role.SYSTEM, content=system_prompt or CONSOLIDATE_SYSTEM),
                 Message(
                     role=Role.USER,
-                    content=f"Summarise these {len(candidates)} memory entries:\n\n{joined}",
+                    content=consolidate_instruction(len(candidates), joined),
                 ),
             ]
             summary_text = await api.complete(messages)
