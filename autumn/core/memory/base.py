@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..types import SearchResult
 from .dimensions import ActivationContext, Aim, Trigger, Use, UseMode, activation_score
+from .kinds import DERIVED_KINDS, KIND_ATOMIC_FACT
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -173,6 +174,36 @@ def _decode(raw: list | None) -> list[MemoryEntry]:
     ]
 
 
+def _parse_fact_array(raw: str) -> list[str]:
+    """Parse a model reply into a list of fact strings, tolerating fences/junk.
+
+    Accepts a bare JSON array, a fenced ```json block, or an array embedded in
+    prose (first ``[`` … last ``]``). Returns ``[]`` on anything unparseable, so
+    a malformed extraction is a no-op rather than an error.
+    """
+    import json
+    if not raw:
+        return []
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end == -1 or end < start:
+        return []
+    try:
+        arr = json.loads(text[start:end + 1])
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(arr, list):
+        return []
+    return [s for s in (str(x).strip() for x in arr) if s]
+
+
 def _evict(
     history: list[MemoryEntry],
     limit: int,
@@ -287,6 +318,11 @@ class MemoryArea:
         self._backend = backend
         self._vector: _VectorLayer | None = None
         self._lexical: _LexicalLayer | None = None
+        # P2-B: when True, append_history schedules indexing as a background task
+        # instead of awaiting it, so a slow/failing embedding never blocks (or
+        # breaks) the already-durable write. Default off = synchronous, unchanged.
+        self._async_index = False
+        self._index_tasks: set[asyncio.Task] = set()
         self._history_limit = history_limit
         # When set, importance decays by half every this-many seconds of age,
         # influencing eviction priority. None disables decay (default).
@@ -336,6 +372,57 @@ class MemoryArea:
     ) -> None:
         """Attach a lexical (BM25) layer for keyword search, fused into recall."""
         self._lexical = _LexicalLayer(store=store, auto_index=auto_index)
+
+    @property
+    def async_index(self) -> bool:
+        """Whether append_history indexes in the background (P2-B)."""
+        return self._async_index
+
+    def set_async_index(self, enabled: bool) -> None:
+        """Toggle non-blocking background indexing on append (P2-B).
+
+        When on, ``append_history`` returns as soon as the write is durable and
+        indexing (vector + lexical) runs in a background task; call
+        :meth:`flush_index` to wait for it (e.g. before a read that must see the
+        new entry, or on shutdown). Default off = synchronous, byte-identical to
+        before.
+        """
+        self._async_index = enabled
+
+    async def flush_index(self) -> None:
+        """Await any in-flight background indexing. No-op in synchronous mode."""
+        if self._index_tasks:
+            await asyncio.gather(*list(self._index_tasks), return_exceptions=True)
+
+    def _index_meta(self, entry: MemoryEntry) -> dict:
+        meta = {"type": "history", "area": self.name}
+        meta.update({f"tag:{t}": True for t in entry.tags})
+        return meta
+
+    async def _index_now(
+        self, entry: MemoryEntry, needs_vector: bool, needs_lexical: bool,
+    ) -> None:
+        """Index an entry into the enabled layers (synchronous path — unchanged)."""
+        if needs_vector:
+            await self.index(entry.id, entry.text, self._index_meta(entry))
+        if needs_lexical:
+            await self.lexical_index(entry.id, entry.text, self._index_meta(entry))
+
+    async def _index_safe(
+        self, entry: MemoryEntry, needs_vector: bool, needs_lexical: bool,
+    ) -> None:
+        """Best-effort indexing for the background path — never raises."""
+        try:
+            await self._index_now(entry, needs_vector, needs_lexical)
+        except Exception:
+            pass  # the write is already durable; a failed index is recoverable
+
+    def _schedule_index(
+        self, entry: MemoryEntry, needs_vector: bool, needs_lexical: bool,
+    ) -> None:
+        task = asyncio.create_task(self._index_safe(entry, needs_vector, needs_lexical))
+        self._index_tasks.add(task)
+        task.add_done_callback(self._index_tasks.discard)
 
     # ── namespaced key-value ──────────────────────────────────────────────────
 
@@ -502,15 +589,13 @@ class MemoryArea:
             )
             await self.set(_HISTORY_KEY, [e.to_dict() for e in history])
 
-        if self._vector is not None and self._vector.auto_index:
-            meta = {"type": "history", "area": self.name}
-            meta.update({f"tag:{t}": True for t in entry.tags})
-            await self.index(entry.id, entry.text, meta)
-
-        if self._lexical is not None and self._lexical.auto_index:
-            meta = {"type": "history", "area": self.name}
-            meta.update({f"tag:{t}": True for t in entry.tags})
-            await self.lexical_index(entry.id, entry.text, meta)
+        needs_vector = self._vector is not None and self._vector.auto_index
+        needs_lexical = self._lexical is not None and self._lexical.auto_index
+        if needs_vector or needs_lexical:
+            if self._async_index:
+                self._schedule_index(entry, needs_vector, needs_lexical)
+            else:
+                await self._index_now(entry, needs_vector, needs_lexical)
 
         return entry
 
@@ -836,6 +921,74 @@ class MemoryArea:
             except Exception:
                 pass
         return summary
+
+    async def extract_facts(
+        self,
+        api: ModelAPIInterface,
+        keep_recent: int = 0,
+        max_chars: int = 4000,
+        max_facts: int = 20,
+        system_prompt: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Extract atomic facts from history via A4 and store each as a new entry.
+
+        EverOS-style memory typing (RFC 4D-memory P2-A): a conversation turn is
+        broken into discrete, self-contained claims that recall can hit
+        independently. Each new entry is tagged ``atomic_fact`` and links back to
+        its sources in ``meta["from"]``. Framework-derived entries (existing
+        atomic facts / summaries) are skipped, so a pass never feeds on its own
+        output. Returns the created fact entries (possibly empty).
+
+        Unlike :meth:`consolidate`, this reads outside the history lock and adds
+        via :meth:`append_history`, so it never blocks concurrent turns and the
+        new facts are auto-indexed like any other entry.
+
+        Args:
+            api: an inference model (e.g. the A4 slot) exposing ``complete``.
+            keep_recent: leave this many newest entries out of the source set.
+            max_chars: cap on the source text fed to the model.
+            max_facts: cap on the number of facts stored from one pass.
+            system_prompt: optional override for the extraction prompt (P1-C slot).
+
+        """
+        from .prompts import ATOMIC_FACT_SYSTEM, atomic_fact_instruction
+
+        history = await self.get_history()
+        candidates = [e for e in history if not (set(e.tags) & DERIVED_KINDS)]
+        if keep_recent and keep_recent < len(candidates):
+            candidates = candidates[:-keep_recent]
+        elif keep_recent:
+            candidates = []
+        if not candidates:
+            return []
+
+        joined = "\n".join(f"- {e.text}" for e in candidates)[:max_chars]
+        if not joined.strip():
+            return []
+
+        from ..types import Message, Role
+        messages = [
+            Message(role=Role.SYSTEM, content=system_prompt or ATOMIC_FACT_SYSTEM),
+            Message(role=Role.USER, content=atomic_fact_instruction(joined)),
+        ]
+        facts = _parse_fact_array(await api.complete(messages))[:max_facts]
+        if not facts:
+            return []
+
+        source_ids = [e.id for e in candidates]
+        now = time.time()
+        created: list[MemoryEntry] = []
+        for fact in facts:
+            entry = MemoryEntry(
+                id=_new_id(),
+                content=fact,
+                timestamp=now,
+                importance=1.0,
+                tags=[KIND_ATOMIC_FACT],
+                meta={"from": source_ids},
+            )
+            created.append(await self.append_history(entry))
+        return created
 
     async def stats(self) -> dict:
         """Return a snapshot of this area's history for observability.

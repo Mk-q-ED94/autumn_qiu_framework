@@ -42,3 +42,20 @@ RECALL_SYNTH_SYSTEM = (
 def recall_synth_prompt(query: str, snippets: str) -> str:
     """The user message asking A4 to answer *query* from retrieved *snippets*."""
     return f"Using these memory entries, answer: {query!r}\n\n{snippets}\n\nBe concise."
+
+
+# ── atomic-fact extraction (MemoryArea.extract_facts) ─────────────────────────
+
+ATOMIC_FACT_SYSTEM = (
+    "You extract atomic facts from conversation memory. An atomic fact is a "
+    "short, self-contained, durable statement — a name, decision, preference, "
+    "constraint or commitment — that stands alone without surrounding context. "
+    "Ignore small talk and transient chatter. Respond with ONLY a JSON array of "
+    'strings, e.g. ["fact one", "fact two"]. Return [] when nothing is worth keeping.'
+)
+
+
+def atomic_fact_instruction(joined: str) -> str:
+    """The user message asking A4 to extract atomic facts from *joined* text."""
+    return f"Extract atomic facts from these memory entries:\n\n{joined}"
+
