@@ -375,6 +375,28 @@ PostgreSQL. The server host needs `npx` / `uvx` to launch the MCP binaries.
 In the macOS client this is the **Settings → 集成** tab: a credential form per
 platform with connect / update / disconnect and live status.
 
+## Security
+
+Two controls make the HTTP bridge safe to run beyond a single-user localhost box:
+
+- **API-key auth** — set `AUTUMN_API_KEY` and every endpoint except `/health`
+  requires the shared secret (`Authorization: Bearer <key>` or `X-API-Key: <key>`),
+  compared in constant time and read per request so it rotates without a restart.
+  Unset → open, exactly as before, so local runs are unaffected. The server warns
+  at startup if it binds beyond `127.0.0.1` with no key set. The desktop client
+  carries the key from **Settings → 服务器 → 访问密钥**.
+- **Read-only platform access by default** — connecting GitHub / GitLab / Slack / …
+  grants the agent only that platform's *read* surface. Mutating tools (create /
+  edit / delete / merge / push / post …) are withheld entirely until you pass
+  `write_enabled: true` on `POST /integrations/connect` (the **允许写操作** toggle in
+  the Settings → 集成 tab) and reconnect. Status reports `write_enabled` and how
+  many write tools are blocked, so the grant is always visible. The dangerous
+  capability is simply absent unless deliberately granted.
+
+Credentials live only in the server process (status never echoes them back) and
+in the client's local preferences. A Keychain-backed at-rest store for the client
+is the next planned hardening step.
+
 ## Plugins
 
 ```python
@@ -489,6 +511,20 @@ python -m pytest
 
 Current version: **0.2.2**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### Unreleased — security hardening
+
+- **API-key auth on the HTTP bridge** — set `AUTUMN_API_KEY` to require a shared
+  secret on every endpoint except `/health` (Bearer or `X-API-Key`, constant-time,
+  rotatable without a restart). Unset stays fully open for local single-user runs;
+  the server warns when it binds beyond localhost with no key set. The desktop
+  client sends it from Settings → 服务器.
+- **Read-only-by-default platform integrations** — a connected platform now
+  exposes only its read tools to the agent; mutating tools (create / edit / delete /
+  merge / push / post …) are withheld until the user grants write access
+  (`write_enabled`) and reconnects. Status surfaces `write_enabled` +
+  `blocked_tool_count`, and the 集成 tab gains a per-platform write toggle, so the
+  most dangerous capability is absent unless deliberately granted.
 
 ### 0.2.2 — 2026-06-13 · 4D memory (active memory), client redesign, platform integrations & quality pass
 
