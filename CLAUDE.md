@@ -34,6 +34,21 @@ skills/ + .claude/skills/   agent skills (see above)
 tests/               pytest suite
 ```
 
+## Architecture — A1–A4 / WP1–WP4
+
+Four model slots drive four workspaces (`autumn/core/workspace/`):
+
+| Slot | Workspace | Role |
+|------|-----------|------|
+| **A1** | **WP1** `wp1.py` (orchestration) | Entry + router. A Selector classifies the turn and picks a mission route — `direct` (answer conversationally) or `convert` (make a structured task). Runs the quality advisory (Checker). |
+| **A2** | **WP2** `wp2.py` (task) | The executor: a ReAct loop over enabled tools/skills, with per-task-type hints (CODE / SEARCH / WRITE / DATA / GENERAL). |
+| **A3** | **WP3** `wp3.py` (mission) | `answer_directly` (natural reply) or `convert_to_task` (reformat the mission into a task for WP2). The routing decision itself lives in WP1. |
+| **A4** | **WP4** `wp4.py` (memory) | Optional. Curator of *all* memory: cognitive ops (recall synthesis, consolidation) use A4; mechanical ops (forget/stats/pin) delegate to the `MemoryArea`. Owns the 4D push engine, the Mom1 access broker, project intelligence, and its own audit log. |
+
+WP1–WP3 each own one Mom zone (Mom1/2/3); WP2⇄WP3 share the `shared` zone. Wiring is in
+`autumn/core/framework.py`; model slots + behavior flags in `autumn/core/config.py`
+(`BehaviorConfig`, incl. `fourd_memory_enabled` / `fourd_push_on_turn`).
+
 ## Design language — "Paper & Clay"
 
 One calm, neutral canvas warmed by **a single clay/terracotta accent** (`#CC6645`).
@@ -55,6 +70,22 @@ Two different things, don't conflate them:
 - **Autumn runtime `Skill`/`Terr`** (`autumn/core/components/skill.py`) = Python callables
   exposed to A1/A2/A3 as LLM tools (e.g. `recall`, `remember`, fs/web ops).
 - **`.claude/skills/*` SKILL.md** = dev-time guidance for the agent building Autumn (you).
+
+## Adding a capability domain (Terr)
+
+A **Terr** (域, `autumn/core/components/terr.py`) bundles related tools/skills/MCP clients
+into one capability domain registered in a single call. The model sees the flat
+tool/skill schemas; the Terr description is surfaced in the system prompt.
+
+Convention (examples: `autumn/builtin/memory_terr.py`, `time_terr.py`):
+1. Write a factory `def my_terr(...) -> Terr:` that builds `Skill`s (name, description,
+   `handler`, `parameters=[ToolParameter(...)]`) and returns
+   `Terr(name=..., description=..., skills=[...], tools=[...])`.
+2. Register via `Autumn.add_terr(terr)` — it runs the MCP connect → bridge → register
+   pipeline. Don't connect MCP clients yourself in a sync context.
+3. Handlers return strings / JSON the model can read; mirror the existing builtin terrs'
+   docstring + parameter style. `PluginLoader.load_from_directory` auto-loads `.py` files
+   that define `Terr`/`Skill`/`Tool`/`Agent` objects.
 
 ## Dev commands
 
