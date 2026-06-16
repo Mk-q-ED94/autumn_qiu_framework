@@ -33,6 +33,7 @@ from ..memory.dimensions import ActivationContext, UseMode
 from .base import WorkspaceBase
 
 if TYPE_CHECKING:
+    from ..api.base import ModelAPIInterface
     from ..components.skill import Skill
     from ..memory.base import MemoryArea, MemoryEntry
     from ..memory.project import ProjectGoals, ProjectMemory, ProjectMeta
@@ -153,7 +154,7 @@ class WP4Mem(WorkspaceBase):
         # Optional callable returning the knowledge skills A4 may use in research().
         self._research_provider = research_provider
 
-    def _cognitive_api(self, source_chars: int = 0):
+    def _cognitive_api(self, source_chars: int = 0) -> "ModelAPIInterface | None":
         """Return the api to use for a heavy cognitive memory operation.
 
         Prefers the delegation_api (A1) over the local A4 model so the strong
@@ -711,12 +712,12 @@ class WP4Mem(WorkspaceBase):
                 ),
             ),
         ]
-        response = await self._cognitive_api().complete(messages)
+        response = await self._cognitive_api(0).complete(messages)
         try:
             data = json.loads(self._extract_json(response))
             meta.environment = ProjectEnvironment.from_dict(data)
         except (json.JSONDecodeError, ValueError, AttributeError):
-            pass  # leave environment unchanged if A4 returns unparseable output
+            pass  # leave environment unchanged if output is unparseable
         await zone.set_meta(meta)
         await self._log("infer_environment", "project", {"project_id": project_id})
         return meta

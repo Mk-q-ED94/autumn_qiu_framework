@@ -186,7 +186,7 @@ def _heuristic_classify(user_input: str) -> SelectorResult | None:
     is_short = len(text) <= 120
     is_question = (
         bool(_QUESTION_PATTERNS.search(text))
-        or _CHINESE_QUESTION.search(text) is not None
+        or bool(_CHINESE_QUESTION.search(text))
         or text.endswith("?")
         or text.endswith("？")
     )

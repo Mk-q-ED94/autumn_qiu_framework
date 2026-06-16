@@ -73,15 +73,8 @@ class WP3Mis(WorkspaceBase):
     def _lite_skills(self) -> list[Skill]:
         return self._skill_provider() if self._skill_provider else []
 
-    def _direct_system_for_turn(self, turn_context: str) -> str:
-        if not turn_context:
-            return self._direct_system
-        return f"{self._direct_system}\n\n---\n\n{turn_context}"
-
-    def _convert_system_for_turn(self, turn_context: str) -> str:
-        if not turn_context:
-            return self._convert_system
-        return f"{self._convert_system}\n\n---\n\n{turn_context}"
+    def _with_turn_context(self, base: str, turn_context: str) -> str:
+        return f"{base}\n\n---\n\n{turn_context}" if turn_context else base
 
     async def answer_directly(self, mission_input: str, turn_context: str = "") -> str:
         result, *_ = await self.answer_directly_with_trace(mission_input, turn_context)
@@ -106,7 +99,7 @@ class WP3Mis(WorkspaceBase):
                 name="WP3-Mis",
                 api=self.api,
                 skills=skills,
-                instructions=self._direct_system_for_turn(turn_context),
+                instructions=self._with_turn_context(self._direct_system, turn_context),
                 max_steps=self._lite_max_steps,
             )
             result = await agent.run(mission_input, memory=self.memory, steps=steps)
@@ -115,7 +108,7 @@ class WP3Mis(WorkspaceBase):
             completion_tokens = agent.total_completion_tokens or None
         else:
             messages = [
-                Message(role=Role.SYSTEM, content=self._direct_system_for_turn(turn_context)),
+                Message(role=Role.SYSTEM, content=self._with_turn_context(self._direct_system, turn_context)),
                 Message(role=Role.USER, content=mission_input),
             ]
             result = await self.api.complete(messages)
@@ -133,7 +126,7 @@ class WP3Mis(WorkspaceBase):
 
     async def convert_to_task(self, mission_input: str, turn_context: str = "") -> str:
         messages = [
-            Message(role=Role.SYSTEM, content=self._convert_system_for_turn(turn_context)),
+            Message(role=Role.SYSTEM, content=self._with_turn_context(self._convert_system, turn_context)),
             Message(role=Role.USER, content=mission_input),
         ]
         result = await self.api.complete(messages)
@@ -175,7 +168,7 @@ class WP3Mis(WorkspaceBase):
                     name="WP3-Mis",
                     api=self.api,
                     skills=skills,
-                    instructions=self._direct_system_for_turn(turn_context),
+                    instructions=self._with_turn_context(self._direct_system, turn_context),
                     max_steps=self._lite_max_steps,
                 )
                 result = await agent.run(mission_input, memory=self.memory, steps=steps)
@@ -192,7 +185,7 @@ class WP3Mis(WorkspaceBase):
             return
 
         messages = [
-            Message(role=Role.SYSTEM, content=self._direct_system_for_turn(turn_context)),
+            Message(role=Role.SYSTEM, content=self._with_turn_context(self._direct_system, turn_context)),
             Message(role=Role.USER, content=mission_input),
         ]
         buf: list[str] = []

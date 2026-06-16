@@ -375,9 +375,9 @@ class WP1Tot(WorkspaceBase):
         task_type: TaskType | None = None,
     ) -> SelectorResult:
         if input_type is not None:
-            selected_task_type = task_type if input_type == InputType.TASK else None
-            if input_type == InputType.TASK and selected_task_type is None:
-                selected_task_type = TaskType.GENERAL
+            selected_task_type = (
+                task_type or TaskType.GENERAL if input_type == InputType.TASK else None
+            )
             return SelectorResult(input_type, 1.0, selected_task_type)
 
         sel = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)

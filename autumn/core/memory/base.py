@@ -99,14 +99,14 @@ class MemoryEntry:
         ``effective_importance``, so enabling 4D scoring on un-annotated data
         changes nothing (modulo decay). Returns 0 when the trigger or aim vetoes.
         """
-        w = self.trigger.weight(self.timestamp, ctx.now, ctx, self.use.stats.last_used)
-        if w <= 0:
+        time_weight = self.trigger.weight(self.timestamp, ctx.now, ctx, self.use.stats.last_used)
+        if time_weight <= 0:
             return 0.0
-        a = self.aim.align(ctx)
-        if a <= 0:
+        aim_align = self.aim.align(ctx)
+        if aim_align <= 0:
             return 0.0
-        time_factor = w * self.effective_importance(ctx.now, half_life)
-        return activation_score(time_factor, a, self.use.utility())
+        time_factor = time_weight * self.effective_importance(ctx.now, half_life)
+        return activation_score(time_factor, aim_align, self.use.utility())
 
     def retention_score(
         self, now: float | None = None, half_life: float | None = None,
@@ -394,7 +394,7 @@ class MemoryArea:
         if self._index_tasks:
             await asyncio.gather(*list(self._index_tasks), return_exceptions=True)
 
-    def _index_meta(self, entry: MemoryEntry) -> dict:
+    def _index_meta(self, entry: MemoryEntry) -> dict[str, Any]:
         meta = {"type": "history", "area": self.name}
         meta.update({f"tag:{t}": True for t in entry.tags})
         return meta

@@ -108,6 +108,19 @@ def _apply_plan_hint(system: str, plan_hint: str | None) -> str:
     return f"{system}\n\n## A1 Suggested Approach\n{plan_hint}"
 
 
+def _compose_system(
+    base: str,
+    task_type: TaskType | None,
+    turn_context: str,
+    plan_hint: str | None,
+) -> str:
+    """Build the full WP2 system prompt: base + task hint + push context + plan."""
+    return _apply_plan_hint(
+        _apply_turn_context(_apply_hint(base, task_type), turn_context),
+        plan_hint,
+    )
+
+
 class WP2Tas(WorkspaceBase):
     """Task workspace. Executes structured, directly-actionable tasks.
 
@@ -237,10 +250,7 @@ class WP2Tas(WorkspaceBase):
         plan_hint: str | None = None,
     ) -> str:
         """Single completion — the original WP2 behavior, used when no tools exist."""
-        system = _apply_plan_hint(
-            _apply_turn_context(_apply_hint(self._system, task_type), turn_context),
-            plan_hint,
-        )
+        system = _compose_system(self._system, task_type, turn_context, plan_hint)
         messages = [
             Message(role=Role.SYSTEM, content=system),
             Message(role=Role.USER, content=task_input),
@@ -264,10 +274,7 @@ class WP2Tas(WorkspaceBase):
         totals are the agent loop's aggregate (0 when the provider doesn't return
         usage stats).
         """
-        instructions = _apply_plan_hint(
-            _apply_turn_context(_apply_hint(self._system, task_type), turn_context),
-            plan_hint,
-        )
+        instructions = _compose_system(self._system, task_type, turn_context, plan_hint)
         agent = Agent(
             name="WP2-Tas",
             api=self.api,
@@ -342,10 +349,7 @@ class WP2Tas(WorkspaceBase):
             yield stages
             return
 
-        system = _apply_plan_hint(
-            _apply_turn_context(_apply_hint(self._system, task_type), turn_context),
-            plan_hint,
-        )
+        system = _compose_system(self._system, task_type, turn_context, plan_hint)
         messages = [
             Message(role=Role.SYSTEM, content=system),
             Message(role=Role.USER, content=task_input),

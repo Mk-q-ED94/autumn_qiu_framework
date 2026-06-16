@@ -51,7 +51,7 @@ class EmbeddingConfig:
             api_key=key,
             base_url=os.environ[f"{prefix}BASE_URL"],
             model=os.environ[f"{prefix}MODEL"],
-            dimensions=int(os.environ.get(f"{prefix}DIMENSIONS", "1536")),
+            dimensions=_to_int(os.environ.get(f"{prefix}DIMENSIONS"), 1536),
         )
 
 
