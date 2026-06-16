@@ -6,29 +6,29 @@ this domain's skills (via :meth:`WP4Mem.research`) to gather facts it cannot
 recall — web search, document fetch, and a query into the local knowledge zone.
 
 The same skills are ordinary Terr skills, so A2/A3 can use them too once the
-domain is registered. Network access is the caller's responsibility — there is
-no SSRF guard (same posture as :mod:`autumn.builtin.web_terr`).
+domain is registered. Fetches go through the shared :mod:`autumn.builtin._http`
+helper, which streams a 2MB size cap and refuses private/loopback/metadata
+targets by default (set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to allow them).
 """
 from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
-from html import unescape
-
-import httpx
 
 from ..core.components.skill import Skill
 from ..core.components.terr import Terr
 from ..core.components.tool import ToolParameter
+from ._http import (
+    FetchError,
+    clean_inline,
+    ddg_unwrap,
+    is_text_content,
+    looks_like_html,
+    safe_fetch,
+    strip_html,
+)
 
-_DEFAULT_TIMEOUT = 15.0
-_MAX_BYTES = 2_000_000  # 2MB cap per response
 _DDG_HTML = "https://html.duckduckgo.com/html/"
-
-_TAG_RE = re.compile(r"<[^>]+>")
-_SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
-_STYLE_RE = re.compile(r"<style[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
-_WS_RE = re.compile(r"\s+")
 
 # DuckDuckGo HTML result anchors and snippets (no API key required).
 _RESULT_A_RE = re.compile(
@@ -41,17 +41,24 @@ _SNIPPET_RE = re.compile(
 )
 
 
-def _strip_html(html: str) -> str:
-    """Crude HTML → text: drop <script>/<style>, then tags, then collapse whitespace."""
-    no_scripts = _SCRIPT_RE.sub("", html)
-    no_styles = _STYLE_RE.sub("", no_scripts)
-    text = _TAG_RE.sub(" ", no_styles)
-    return _WS_RE.sub(" ", unescape(text)).strip()
+def _parse_ddg_results(html: str, count: int) -> list[tuple[str, str, str]]:
+    """Parse DDG HTML into ``[(title, url, snippet)]``, snippet aligned to its anchor.
 
-
-def _clean_inline(html_fragment: str) -> str:
-    """Strip tags from a small inline fragment (a title or snippet)."""
-    return _WS_RE.sub(" ", unescape(_TAG_RE.sub("", html_fragment))).strip()
+    DDG hrefs are ``/l/?uddg=`` redirectors (unwrapped to the real destination),
+    and snippet/title pairing is positional in the source — so each snippet is
+    taken from the window *between this result anchor and the next* rather than a
+    parallel ``findall``, which silently misaligns when a result lacks a snippet.
+    """
+    anchors = list(_RESULT_A_RE.finditer(html))
+    results: list[tuple[str, str, str]] = []
+    for i, m in enumerate(anchors[:count]):
+        url = ddg_unwrap(m.group(1))
+        title = clean_inline(m.group(2)) or "(untitled)"
+        window_end = anchors[i + 1].start() if i + 1 < len(anchors) else len(html)
+        sm = _SNIPPET_RE.search(html, m.end(), window_end)
+        snippet = clean_inline(sm.group(1)) if sm else ""
+        results.append((title, url, snippet))
+    return results
 
 
 async def _ddg_search(query: str, max_results: int = 5) -> str:
@@ -65,27 +72,22 @@ async def _ddg_search(query: str, max_results: int = 5) -> str:
     except (TypeError, ValueError):
         count = 5
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=_DEFAULT_TIMEOUT) as client:
-            resp = await client.post(
-                _DDG_HTML,
-                data={"q": query},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Autumn/0.3)"},
-            )
-            resp.raise_for_status()
-            html = resp.text
-    except httpx.HTTPError as e:
+        _, html, _ = await safe_fetch(
+            _DDG_HTML,
+            method="POST",
+            data={"q": query},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; Autumn/0.3)"},
+        )
+    except FetchError as e:
         return f"[web_search failed: {e}]"
 
-    titles = _RESULT_A_RE.findall(html)
-    snippets = [_clean_inline(s) for s in _SNIPPET_RE.findall(html)]
-    if not titles:
+    results = _parse_ddg_results(html, count)
+    if not results:
         return f"[web_search: no results for {query!r}]"
 
     lines: list[str] = []
-    for i, (href, raw_title) in enumerate(titles[:count]):
-        title = _clean_inline(raw_title) or "(untitled)"
-        snippet = snippets[i] if i < len(snippets) else ""
-        line = f"{i + 1}. {title} — {href}"
+    for i, (title, url, snippet) in enumerate(results):
+        line = f"{i + 1}. {title} — {url}"
         if snippet:
             line += f"\n   {snippet}"
         lines.append(line)
@@ -95,17 +97,13 @@ async def _ddg_search(query: str, max_results: int = 5) -> str:
 async def _fetch_document(url: str, max_chars: int = 20_000) -> str:
     """Skill: fetch a URL and return readable text (HTML stripped if needed)."""
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=_DEFAULT_TIMEOUT) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            if len(resp.content) > _MAX_BYTES:
-                return f"[fetch_document failed: response exceeds {_MAX_BYTES} bytes]"
-            body = resp.text
-    except httpx.HTTPError as e:
+        _, body, content_type = await safe_fetch(url)
+    except FetchError as e:
         return f"[fetch_document failed: {e}]"
 
-    looks_html = "<" in body[:512] and ">" in body[:512]
-    text = _strip_html(body) if looks_html else body
+    if not is_text_content(content_type):
+        return f"[fetch_document: non-text content-type {content_type!r}; nothing to read]"
+    text = strip_html(body) if looks_like_html(content_type, body) else body
     try:
         limit = max(500, int(max_chars))
     except (TypeError, ValueError):

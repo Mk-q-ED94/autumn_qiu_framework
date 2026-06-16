@@ -167,11 +167,23 @@ class MemoryEntry:
 
 
 def _decode(raw: list | None) -> list[MemoryEntry]:
-    """Decode a stored history list into MemoryEntry objects (legacy-tolerant)."""
-    return [
-        MemoryEntry.from_dict(e) if isinstance(e, dict) else e
-        for e in (raw or [])
-    ]
+    """Decode a stored history list into MemoryEntry objects (legacy-tolerant).
+
+    A single corrupt/partial entry (e.g. a truncated row, or markdown
+    frontmatter that lost a required field) is skipped rather than allowed to
+    raise — one unreadable entry must not brick append/recall for the whole
+    zone, which is the tolerance the docstring on ``from_dict`` promises.
+    """
+    out: list[MemoryEntry] = []
+    for e in (raw or []):
+        if not isinstance(e, dict):
+            out.append(e)
+            continue
+        try:
+            out.append(MemoryEntry.from_dict(e))
+        except (KeyError, TypeError, ValueError):
+            continue  # drop the bad entry; keep the rest of the zone readable
+    return out
 
 
 def _parse_fact_array(raw: str) -> list[str]:
@@ -1134,7 +1146,11 @@ class MemoryArea:
         if not joined.strip():
             return None
 
-        current = await self.get_profile(scope) or ""
+        # Derive the current profile from the history we already decoded rather
+        # than calling get_profile() (which would decode the whole zone again).
+        profile_tags = set(self._profile_tags(scope))
+        profile_matches = [e for e in history if profile_tags.issubset(set(e.tags))]
+        current = profile_matches[-1].text if profile_matches else ""
         from ..types import Message, Role
         messages = [
             Message(role=Role.SYSTEM, content=system_prompt or PROFILE_SYSTEM),

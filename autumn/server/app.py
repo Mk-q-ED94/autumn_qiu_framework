@@ -639,7 +639,9 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
 
 
 def _trace_payload(run: WorkflowRun) -> dict:
-    return json.loads(_trace_response(run).model_dump_json())
+    # mode="json" yields a JSON-ready dict directly, avoiding a serialize-then-
+    # reparse round-trip on every streamed trace event.
+    return _trace_response(run).model_dump(mode="json")
 
 
 # Paths reachable without the API key even when AUTUMN_API_KEY is set, so a

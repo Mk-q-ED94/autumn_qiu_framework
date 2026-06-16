@@ -246,7 +246,10 @@ class Autumn:
             self.a3, self.mom3,
             direct_prompt=p.wp3_direct,
             convert_prompt=p.wp3_convert,
-            skill_provider=self._collect_a3_skills if b.lite_skills_on() else None,
+            # Always wire the provider; it re-reads lite_skills_on() each turn and
+            # returns [] when the master switch / whitelist is off, so the gate
+            # stays live (a runtime config flip takes effect) like every other.
+            skill_provider=self._collect_a3_skills,
         )
         self.wp1 = WP1Tot(
             self.a1, self.mom1, self.wp2, self.wp3,

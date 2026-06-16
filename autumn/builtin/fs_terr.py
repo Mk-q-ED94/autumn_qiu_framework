@@ -20,6 +20,15 @@ _MAX_READ_BYTES = 2_000_000  # 2MB per read
 _MAX_WRITE_BYTES = 2_000_000  # 2MB per write
 
 
+def _within_root(p: Path, root_resolved: Path) -> bool:
+    """True when ``p``'s real (symlink-resolved) path stays under the sandbox root."""
+    try:
+        p.resolve().relative_to(root_resolved)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _resolve_sandboxed(root: Path, relative: str) -> Path:
     """Resolve ``relative`` under ``root``, rejecting traversal outside root."""
     if os.path.isabs(relative):
@@ -84,7 +93,13 @@ def fs_terr(root: str | Path) -> Terr:
         if not target.is_dir():
             raise NotADirectoryError(f"not a directory: {path}")
         if recursive:
-            entries = sorted(p for p in target.rglob("*"))
+            # rglob can descend through a symlinked subdirectory and surface
+            # paths outside the sandbox — drop any entry whose real path escapes
+            # root so a recursive listing can't disclose external files.
+            entries = [
+                p for p in sorted(target.rglob("*"))
+                if _within_root(p, root_resolved)
+            ]
         else:
             entries = sorted(target.iterdir())
         return [_stat_summary(p) for p in entries]
