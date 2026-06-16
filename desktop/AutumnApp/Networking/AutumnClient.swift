@@ -715,11 +715,22 @@ final class AutumnClient {
             throw AutumnClientError.badStatus(-1)
         }
         guard (200..<300).contains(http.statusCode) else {
-            if let body = try? JSONDecoder().decode([String: String].self, from: data),
-               let detail = body["detail"], !detail.isEmpty {
-                throw AutumnClientError.serverError(detail)
-            }
-            throw AutumnClientError.badStatus(http.statusCode)
+            let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+            let detail = decoded?["detail"].flatMap { $0.isEmpty ? nil : $0 }
+            throw AutumnClientError.serverError(friendlyMessage(http.statusCode, detail: detail))
+        }
+    }
+
+    /// Turn a non-2xx status into a clear, actionable message. 0.3.0's server
+    /// adds 413 (body too large) and enforces the optional API key (401); these
+    /// get tailored guidance rather than a bare status code.
+    private static func friendlyMessage(_ code: Int, detail: String?) -> String {
+        switch code {
+        case 401: return "未授权：请在设置中填写正确的 API Key。"
+        case 413: return "输入过大：内容超出服务器请求上限，请缩短后重试。"
+        case 502: return "上游模型出错：" + (detail ?? "请稍后重试")
+        case 503: return detail ?? "服务尚未配置模型，请在设置中配置 A1–A3 后重试。"
+        default: return detail ?? "HTTP 状态码: \(code)"
         }
     }
 }
