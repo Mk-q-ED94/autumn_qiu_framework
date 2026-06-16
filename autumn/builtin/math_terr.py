@@ -31,6 +31,21 @@ _UNARY_OPS: dict[type, Any] = {
     ast.USub: operator.neg,
 }
 
+# DoS ceilings — the AST grammar is safe from code execution, but ``**`` and
+# ``factorial`` can still ask for an astronomically large integer that hangs the
+# event loop / exhausts memory. Bound them before the expensive op runs.
+_MAX_POW_EXPONENT = 10_000
+_MAX_FACTORIAL = 10_000
+_MAX_INT_BITS = 256_000  # ~77k decimal digits — generous for honest math, bounded
+
+
+def _guard_int(value: Any) -> Any:
+    """Reject an integer result whose magnitude has grown past the ceiling."""
+    if isinstance(value, int) and value.bit_length() > _MAX_INT_BITS:
+        raise ValueError("integer result too large")
+    return value
+
+
 _CONSTANTS: dict[str, float] = {
     "pi": math.pi,
     "e": math.e,
@@ -84,7 +99,17 @@ def _eval_node(node: ast.AST) -> Any:
         op = _BIN_OPS.get(type(node.op))
         if op is None:
             raise ValueError(f"unsupported operator: {type(node.op).__name__}")
-        return op(_eval_node(node.left), _eval_node(node.right))
+        left = _eval_node(node.left)
+        right = _eval_node(node.right)
+        if isinstance(node.op, ast.Pow):
+            # Bound the exponent (and the estimated result size) *before* the
+            # power is computed, so ``2 ** 99999999`` is rejected, not evaluated.
+            if isinstance(right, int) and abs(right) > _MAX_POW_EXPONENT:
+                raise ValueError("exponent too large")
+            if isinstance(left, int) and isinstance(right, int) and right > 0:
+                if max(left.bit_length(), 1) * right > _MAX_INT_BITS:
+                    raise ValueError("power result too large")
+        return _guard_int(op(left, right))
     if isinstance(node, ast.UnaryOp):
         op = _UNARY_OPS.get(type(node.op))
         if op is None:
@@ -94,7 +119,9 @@ def _eval_node(node: ast.AST) -> Any:
         if not isinstance(node.func, ast.Name) or node.func.id not in _FUNCS:
             raise ValueError("function call not allowed")
         args = [_eval_node(a) for a in node.args]
-        return _FUNCS[node.func.id](*args)
+        if node.func.id == "factorial" and args and isinstance(args[0], (int, float)) and args[0] > _MAX_FACTORIAL:
+            raise ValueError("factorial argument too large")
+        return _guard_int(_FUNCS[node.func.id](*args))
     raise ValueError(f"unsupported syntax: {type(node).__name__}")
 
 

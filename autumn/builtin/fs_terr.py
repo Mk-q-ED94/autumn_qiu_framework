@@ -15,18 +15,10 @@ from typing import Any
 
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
+from ..core.security import is_within_root as _within_root
 
 _MAX_READ_BYTES = 2_000_000  # 2MB per read
 _MAX_WRITE_BYTES = 2_000_000  # 2MB per write
-
-
-def _within_root(p: Path, root_resolved: Path) -> bool:
-    """True when ``p``'s real (symlink-resolved) path stays under the sandbox root."""
-    try:
-        p.resolve().relative_to(root_resolved)
-        return True
-    except (ValueError, OSError):
-        return False
 
 
 def _resolve_sandboxed(root: Path, relative: str) -> Path:

@@ -3,102 +3,42 @@
 ``web_terr`` and ``knowledge_terr`` both fetch model-supplied URLs. Centralising
 the fetch path here means the streamed size cap, the SSRF guard, redirect
 re-validation and the HTML stripper live in one audited place instead of being
-copy-pasted (and drifting) across the two domains.
-
-SSRF posture
-------------
-By default a fetch is refused when the target resolves to a private, loopback,
-link-local, reserved or multicast address — the cloud-metadata endpoint
-(``169.254.169.254``) and ``localhost`` services are the classic exfiltration
-targets when the model chooses the URL. Literal-IP and obvious-internal-host
-checks run without DNS so they work offline; a hostname is additionally resolved
-opportunistically (a resolution that fails — e.g. no network — is not treated as
-a block, so the check never produces false negatives that depend on the
-environment). Set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to disable the guard for
-deployments that legitimately fetch internal hosts.
+copy-pasted (and drifting) across the two domains. The SSRF host policy and the
+``FetchError`` type live in :mod:`autumn.core.security` (the central security
+module) and are re-exported here for callers; this module owns only the
+httpx-specific fetch and the HTML helpers.
 """
 from __future__ import annotations
 
-import asyncio
-import ipaddress
-import os
 import re
-import socket
 from html import unescape
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
-_DEFAULT_TIMEOUT = 15.0
-_MAX_BYTES = 2_000_000  # 2MB cap per response
+from ..core.security import (
+    DEFAULT_HTTP_TIMEOUT as _DEFAULT_TIMEOUT,
+)
+from ..core.security import (
+    MAX_FETCH_BYTES as _MAX_BYTES,
+)
+from ..core.security import (
+    FetchError,
+    assert_url_allowed,
+)
+
 _MAX_REDIRECTS = 5
 
-# Hostnames that always denote the local machine / an internal network and
-# should be refused without needing a DNS round-trip.
-_INTERNAL_HOST_SUFFIXES = (".local", ".internal", ".localhost")
-_INTERNAL_HOST_EXACT = frozenset({"localhost"})
-
-
-class FetchError(Exception):
-    """Raised when a fetch is refused or fails; the message is model-readable."""
-
-
-def _allow_private() -> bool:
-    return os.environ.get("AUTUMN_ALLOW_PRIVATE_NETWORK", "").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
-
-
-def _ip_is_internal(ip: ipaddress._BaseAddress) -> bool:
-    return (
-        ip.is_private or ip.is_loopback or ip.is_link_local
-        or ip.is_reserved or ip.is_multicast or ip.is_unspecified
-    )
-
-
-async def assert_url_allowed(url: str) -> str:
-    """Validate scheme + host of *url* for SSRF. Returns the hostname.
-
-    Raises :class:`FetchError` for a non-http(s) scheme, a missing host, an
-    obviously-internal hostname, a literal private/loopback/link-local IP, or a
-    hostname that resolves (when resolvable) to such an address.
-    """
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        raise FetchError(f"unsupported URL scheme {parts.scheme or '(none)'!r}; only http/https allowed")
-    host = parts.hostname
-    if not host:
-        raise FetchError("URL has no host")
-    if _allow_private():
-        return host
-
-    lowered = host.lower()
-    if lowered in _INTERNAL_HOST_EXACT or lowered.endswith(_INTERNAL_HOST_SUFFIXES):
-        raise FetchError(f"refusing to fetch internal host {host!r} (set AUTUMN_ALLOW_PRIVATE_NETWORK=1 to allow)")
-
-    # Literal IP — check without DNS so the guard works offline.
-    try:
-        if _ip_is_internal(ipaddress.ip_address(host)):
-            raise FetchError(f"refusing to fetch private/internal address {host} (set AUTUMN_ALLOW_PRIVATE_NETWORK=1 to allow)")
-        return host
-    except ValueError:
-        pass  # not a literal IP — fall through to opportunistic DNS
-
-    # Hostname: resolve opportunistically. A resolution failure is not a block
-    # (the actual request will fail on its own); a resolution that lands on an
-    # internal address is.
-    try:
-        infos = await asyncio.get_running_loop().getaddrinfo(host, None)
-    except (socket.gaierror, OSError):
-        return host
-    for info in infos:
-        addr = info[4][0]
-        try:
-            if _ip_is_internal(ipaddress.ip_address(addr)):
-                raise FetchError(f"refusing to fetch {host!r}: resolves to internal address {addr} (set AUTUMN_ALLOW_PRIVATE_NETWORK=1 to allow)")
-        except ValueError:
-            continue
-    return host
+__all__ = [
+    "FetchError",
+    "assert_url_allowed",
+    "safe_fetch",
+    "strip_html",
+    "clean_inline",
+    "looks_like_html",
+    "is_text_content",
+    "ddg_unwrap",
+]
 
 
 async def safe_fetch(
