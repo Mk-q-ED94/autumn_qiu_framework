@@ -34,6 +34,17 @@ public sealed record WorkflowStage(
 {
     [JsonIgnore] public string KindOrStage => string.IsNullOrEmpty(Kind) ? "stage" : Kind!;
 
+    /// <summary>Per-stage glyph. Keyed on kind first, then the WP1 stage id so
+    /// the 0.3.0 plan / supervise steps read distinctly (matches web + macOS).</summary>
+    [JsonIgnore]
+    public string Glyph =>
+        KindOrStage == "push" ? "✦"
+        : KindOrStage == "agent" ? "◉"
+        : KindOrStage == "tool" ? "⬡"
+        : Id.StartsWith("wp1.plan") ? "❖"
+        : Id.Contains("supervise") ? "⊙"
+        : "●";
+
     /// <summary>Upper-cased workspace label for the trace row ("WP1"…).</summary>
     [JsonIgnore] public string WorkspaceLabel => (Workspace ?? "").ToUpperInvariant();
 
@@ -103,6 +114,10 @@ public sealed record WorkflowTrace(
             if (AgentStageCount > 0) parts.Add($"{AgentStageCount} Agent");
             var dur = DesignSystem.Autumn.Format.Duration(TotalDurationMs);
             if (dur.Length > 0) parts.Add(dur);
+            var tok = DesignSystem.Autumn.Format.Tokens(TotalPromptTokens, TotalCompletionTokens);
+            if (tok.Length > 0) parts.Add(tok);
+            var cost = DesignSystem.Autumn.Format.Cost(TotalCostUsd);
+            if (cost.Length > 0) parts.Add(cost);
             return string.Join("   ·   ", parts);
         }
     }

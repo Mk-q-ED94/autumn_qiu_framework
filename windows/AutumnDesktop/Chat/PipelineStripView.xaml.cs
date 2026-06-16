@@ -122,6 +122,9 @@ public sealed partial class PipelineStripView : UserControl
         if (dur.Length > 0) parts.Add(dur);
         var tok = Autumn.Format.Tokens(stage.PromptTokens, stage.CompletionTokens);
         if (tok.Length > 0) parts.Add(tok);
+        var cost = Autumn.Format.Cost(stage.CostUsd);
+        if (cost.Length > 0) parts.Add(cost);
+        if (stage.SourceTerr is { Length: > 0 } terr) parts.Add($"Terr: {terr}");
         return string.Join("  ·  ", parts);
     }
 

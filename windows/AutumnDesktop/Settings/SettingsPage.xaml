@@ -44,6 +44,9 @@
                         <TextBox Header="Server URL"
                                  Text="{x:Bind ViewModel.Settings.ServerUrl, Mode=TwoWay,
                                         UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox x:Name="ServerKey"
+                                     Header="API Key（服务器 AUTUMN_API_KEY，留空则不认证）"
+                                     PasswordChanged="ServerKey_PasswordChanged" />
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <TextBlock Text="{x:Bind ViewModel.ServerManager.StatusText, Mode=OneWay}"
                                        Opacity="0.8" VerticalAlignment="Center" />

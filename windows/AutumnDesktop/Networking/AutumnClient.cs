@@ -36,12 +36,16 @@ public sealed class AutumnClient
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public AutumnClient(Uri baseUrl)
+    public AutumnClient(Uri baseUrl, string? apiKey = null)
     {
         _baseUrl = baseUrl;
         // No per-request timeout on the shared client — streaming endpoints run
         // long. Short-lived calls pass a CancellationToken with their own deadline.
         _http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        // Carry the server's shared secret (AUTUMN_API_KEY) when one is set so a
+        // secured 0.3.0 server accepts our requests. Empty → no header, unchanged.
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            _http.DefaultRequestHeaders.Add("X-API-Key", apiKey);
     }
 
     private Uri Url(string path) => new(_baseUrl, path);
@@ -208,22 +212,34 @@ public sealed class AutumnClient
     private static async Task EnsureOkAsync(HttpResponseMessage resp)
     {
         if (resp.IsSuccessStatusCode) return;
-        // FastAPI surfaces errors as {"detail": "..."} — prefer that message.
+        int code = (int)resp.StatusCode;
+        // FastAPI surfaces errors as {"detail": "..."} — read that when present.
+        string? detail = null;
         try
         {
             var body = await resp.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("detail", out var detail) &&
-                detail.ValueKind == JsonValueKind.String &&
-                detail.GetString() is { Length: > 0 } msg)
+            if (doc.RootElement.TryGetProperty("detail", out var d) &&
+                d.ValueKind == JsonValueKind.String &&
+                d.GetString() is { Length: > 0 } msg)
             {
-                throw new AutumnClientException(msg, (int)resp.StatusCode);
+                detail = msg;
             }
         }
-        catch (AutumnClientException) { throw; }
-        catch { /* fall through to status-code error */ }
-        throw new AutumnClientException($"HTTP 状态码: {(int)resp.StatusCode}", (int)resp.StatusCode);
+        catch { /* non-JSON body — fall back to the status code */ }
+        throw new AutumnClientException(FriendlyMessage(code, detail), code);
     }
+
+    /// <summary>Turn a non-2xx status into actionable guidance. 0.3.0 adds 413
+    /// (body too large) and enforces the optional API key (401).</summary>
+    private static string FriendlyMessage(int code, string? detail) => code switch
+    {
+        401 => "未授权：请在「设置 · 服务器」中填写正确的 API Key。",
+        413 => "输入过大：内容超出服务器请求上限，请缩短后重试。",
+        502 => "上游模型出错：" + (detail ?? "请稍后重试"),
+        503 => detail ?? "服务尚未配置模型，请在「设置 · 模型」中配置 A1–A3。",
+        _ => detail ?? $"HTTP 状态码: {code}",
+    };
 
     private static CancellationTokenSource LinkedTimeout(CancellationToken ct, TimeSpan timeout)
     {

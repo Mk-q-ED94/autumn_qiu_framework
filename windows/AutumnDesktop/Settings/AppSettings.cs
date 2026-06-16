@@ -28,6 +28,8 @@ public sealed partial class ProviderSettings : ObservableObject
 public sealed partial class AppSettings : ObservableObject
 {
     [ObservableProperty] private string _serverUrl = "http://127.0.0.1:8765";
+    // Server shared secret (AUTUMN_API_KEY). Empty → no auth header is sent.
+    [ObservableProperty] private string _apiKey = "";
     [ObservableProperty] private string _missionRoute = "auto";
     [ObservableProperty] private bool _a4Enabled;
 

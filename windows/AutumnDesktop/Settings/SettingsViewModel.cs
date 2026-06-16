@@ -30,7 +30,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (!Uri.TryCreate(App.Settings.ServerUrl, UriKind.Absolute, out var baseUrl))
             throw new AutumnClientException("服务器 URL 无效");
-        return new AutumnClient(baseUrl);
+        return new AutumnClient(baseUrl, App.Settings.ApiKey);
     }
 
     [RelayCommand]

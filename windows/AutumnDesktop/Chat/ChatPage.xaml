@@ -83,6 +83,8 @@
                                             Background="{x:Bind Workspace, Converter={StaticResource WorkspaceToBrush}}" />
                                     <StackPanel Grid.Column="1" Spacing="2">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{x:Bind Glyph}" FontSize="11" VerticalAlignment="Center"
+                                                       Foreground="{x:Bind Workspace, Converter={StaticResource WorkspaceToBrush}}" />
                                             <TextBlock Text="{x:Bind WorkspaceLabel}" FontSize="10"
                                                        FontWeight="SemiBold" VerticalAlignment="Center"
                                                        Foreground="{x:Bind Workspace, Converter={StaticResource WorkspaceToBrush}}" />

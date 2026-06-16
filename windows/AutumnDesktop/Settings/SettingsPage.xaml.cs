@@ -16,6 +16,7 @@ public sealed partial class SettingsPage : Page
         InitializeComponent();
         Loaded += (_, _) =>
         {
+            ServerKey.Password = ViewModel.Settings.ApiKey;
             A1Key.Password = ViewModel.Settings.A1.ApiKey;
             A2Key.Password = ViewModel.Settings.A2.ApiKey;
             A3Key.Password = ViewModel.Settings.A3.ApiKey;
@@ -39,6 +40,9 @@ public sealed partial class SettingsPage : Page
         IntegrationsTabContent.Visibility = ReferenceEquals(next, TabIntegrations) ? Visibility.Visible : Visibility.Collapsed;
         AdvancedTabContent.Visibility     = ReferenceEquals(next, TabAdvanced)     ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    private void ServerKey_PasswordChanged(object sender, RoutedEventArgs e)
+        => ViewModel.Settings.ApiKey = ServerKey.Password;
 
     private void A1Key_PasswordChanged(object sender, RoutedEventArgs e)
         => ViewModel.Settings.A1.ApiKey = A1Key.Password;
