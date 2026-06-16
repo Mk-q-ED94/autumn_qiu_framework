@@ -161,7 +161,7 @@ export function ChatView({ conversation, settings, onUpdateConversation, onError
       });
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        onError(String(err));
+        onError(err instanceof Error ? err.message : String(err));
         onUpdateConversation({
           id: conversation.id,
           messages: updatedMessages.map((m) =>
