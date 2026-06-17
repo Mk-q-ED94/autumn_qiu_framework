@@ -744,6 +744,14 @@ def _extract_api_key(request: Request) -> str:
     return ""
 
 
+# Monotonic HTTP-surface revision. Bump whenever the API gains a capability a
+# managed client may depend on. A locally-managed desktop client compares this
+# against the minimum it needs and auto-restarts a server that predates a
+# feature it uses (e.g. an old process left running across a `git pull`).
+#   1 — MCP inline-connect surface (/mcps/status|connect|{id}, enriched catalog)
+API_REVISION = 1
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Autumn HTTP API", version="0.2.2", lifespan=lifespan)
     app.add_middleware(
@@ -781,6 +789,9 @@ def create_app() -> FastAPI:
             "status": "ok",
             "configured": app.state.autumn is not None,
             "last_error": app.state.last_error,
+            # Lets a managed client tell a fresh server from a stale leftover.
+            "api_revision": API_REVISION,
+            "version": app.version,
         }
 
     @app.post("/models", response_model=ModelsResponse)

@@ -282,13 +282,22 @@ def unconfigured_client():
 def test_health_unconfigured(unconfigured_client):
     r = unconfigured_client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "configured": False, "last_error": None}
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["configured"] is False
+    assert body["last_error"] is None
+    # Capability marker for managed clients (stale-server auto-restart).
+    assert isinstance(body["api_revision"], int) and body["api_revision"] >= 1
 
 
 def test_health_configured(configured_client):
     r = configured_client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok", "configured": True, "last_error": None}
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["configured"] is True
+    assert body["last_error"] is None
+    assert isinstance(body["api_revision"], int) and body["api_revision"] >= 1
 
 
 # ── /models ───────────────────────────────────────────────────────────────────

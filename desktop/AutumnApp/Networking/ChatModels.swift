@@ -414,10 +414,22 @@ struct HealthResponse: Decodable {
     let status: String
     let configured: Bool
     let lastError: String?
+    /// HTTP-surface revision the server advertises. Absent on older servers
+    /// (decodes to 0), which is exactly how a managed client spots a stale one.
+    let apiRevision: Int
 
     enum CodingKeys: String, CodingKey {
         case status, configured
         case lastError = "last_error"
+        case apiRevision = "api_revision"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        configured = try c.decode(Bool.self, forKey: .configured)
+        lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        apiRevision = try c.decodeIfPresent(Int.self, forKey: .apiRevision) ?? 0
     }
 }
 
