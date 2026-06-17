@@ -311,20 +311,90 @@ struct TerrMCP: Decodable, Identifiable, Equatable {
     var id: String { name }
 }
 
+/// One input in an MCP's connect form (`fields[]` from `GET /mcps/catalog`).
+struct McpField: Decodable, Identifiable, Equatable {
+    let key: String
+    let label: String
+    let secret: Bool
+    let optional: Bool
+    let placeholder: String
+
+    var id: String { key }
+
+    init(key: String, label: String, secret: Bool = false,
+         optional: Bool = false, placeholder: String = "") {
+        self.key = key
+        self.label = label
+        self.secret = secret
+        self.optional = optional
+        self.placeholder = placeholder
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        label = try c.decode(String.self, forKey: .label)
+        secret = try c.decodeIfPresent(Bool.self, forKey: .secret) ?? false
+        optional = try c.decodeIfPresent(Bool.self, forKey: .optional) ?? false
+        placeholder = try c.decodeIfPresent(String.self, forKey: .placeholder) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, label, secret, optional, placeholder
+    }
+}
+
+/// A short setup tutorial for an MCP (`setup` from `GET /mcps/catalog`).
+struct McpSetup: Decodable, Equatable {
+    let summary: String
+    let steps: [String]
+    let docURL: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case summary, steps
+        case docURL = "doc_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+        steps = try c.decodeIfPresent([String].self, forKey: .steps) ?? []
+        docURL = try c.decodeIfPresent(String.self, forKey: .docURL)
+    }
+}
+
 /// An entry from the server's built-in MCP catalog (`GET /mcps/catalog`) — an
-/// official MCP server the framework knows how to launch, with the arguments it
-/// needs. Browsing aid; not the same as a registered TerrMCP.
+/// official MCP server the framework knows how to launch, with the config it
+/// needs and a setup tutorial. Drives the Terr-page intro + inline config.
 struct KnownMCP: Decodable, Identifiable, Equatable {
     let id: String
     let name: String
     let description: String
     let factory: String
+    /// "platform" (external account), "local" (a path on the host), or "keyless".
+    let category: String
     let requiredArgs: [String]
+    let fields: [McpField]
+    let setup: McpSetup?
 
-    var needsCredentials: Bool { !requiredArgs.isEmpty }
+    /// True when the MCP takes configuration before it can connect.
+    var needsConfig: Bool { !fields.isEmpty }
+    var isKeyless: Bool { fields.isEmpty }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        factory = try c.decode(String.self, forKey: .factory)
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? "keyless"
+        requiredArgs = try c.decodeIfPresent([String].self, forKey: .requiredArgs) ?? []
+        fields = try c.decodeIfPresent([McpField].self, forKey: .fields) ?? []
+        setup = try c.decodeIfPresent(McpSetup.self, forKey: .setup)
+    }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, factory
+        case id, name, description, factory, category, fields, setup
         case requiredArgs = "required_args"
     }
 }
@@ -344,10 +414,22 @@ struct HealthResponse: Decodable {
     let status: String
     let configured: Bool
     let lastError: String?
+    /// HTTP-surface revision the server advertises. Absent on older servers
+    /// (decodes to 0), which is exactly how a managed client spots a stale one.
+    let apiRevision: Int
 
     enum CodingKeys: String, CodingKey {
         case status, configured
         case lastError = "last_error"
+        case apiRevision = "api_revision"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        configured = try c.decode(Bool.self, forKey: .configured)
+        lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        apiRevision = try c.decodeIfPresent(Int.self, forKey: .apiRevision) ?? 0
     }
 }
 

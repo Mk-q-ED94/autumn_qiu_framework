@@ -509,16 +509,45 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.3.0**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.3.1**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### 0.3.1 — 2026-06-17 · Client optimization & adaptation
+
+Polishes the desktop client and turns the MCP catalog into a place you can
+actually learn about and switch on servers — plus the server-side surface that
+backs it. Layers on top of the 0.3.0 framework.
+
+- **Per-MCP intro, inline config & setup tutorials** — the 能力域 (Terr) page's
+  MCP catalog is now expandable: each MCP shows what it does, a live connection
+  badge, an inline credential/path form (read-only by default with a write
+  toggle), and a step-by-step setup tutorial with a doc link. Keyless utilities
+  connect with one click; configured ones connect after their form is filled.
+- **Generalized MCP connection** — new `/mcps/status`, `/mcps/connect`,
+  `/mcps/{id}` bring *any* catalog MCP online (not just the six credentialed
+  platforms), sharing the platform-integration runtime so connection state is
+  consistent across Settings and the Terr page. `GET /mcps/catalog` now carries
+  category, form fields and the tutorial.
+- **Stale-server resilience** — the server advertises an `api_revision` on
+  `/health`; the desktop app detects a reachable-but-old local server (e.g. one
+  left running across a `git pull`) and **auto-restarts it** from the repo,
+  killing only the process *listening* on the port. Where it can't (remote /
+  unmanaged), the Terr page shows a clear "restart your server" notice and maps a
+  bare 404 to an actionable message instead of "not found".
+- **Desktop design polish (macOS)** — motion unified on the `Autumn.motion`
+  tokens; `accessibilityReduceMotion` honoured on every looping animation; shared
+  press-scale + hover states on buttons; the window title-bar material no longer
+  overshoots and covers the Memory / Terrs / Settings toolbars.
+- **Docs** — `docs/local-build-test.md` documents the pull → build → test loop
+  across the framework, macOS, web and Windows clients.
+- **Tests** — 842 passing (adds `tests/test_server_mcps.py`), ruff clean.
 
 ### 0.3.0 — 2026-06-17 · Cooperative multi-model workflow + central security
 
 Turns the A1–A4 pipeline into a **two-way cooperative workflow**: A1 (组长) now
 leads — planning, supervising and delegating — instead of only bookending the
 route. Every feature sits behind a gate; the `COOPERATIVE_WORKFLOW` master switch
-(off) reverts the whole layer to 0.2.x behaviour. Builds on 0.2.3's 4D memory and
-HTTP-bridge security.
+(off) reverts the whole layer to 0.2.x behaviour.
 
 - **Task / Mission boundary, by executor** — TASK → A2 (heavy code work),
   MISSION → A3 (all other general work: writing, analysis, summarisation, docs);

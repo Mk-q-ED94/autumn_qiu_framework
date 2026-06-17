@@ -144,115 +144,254 @@ def mcp_everything(*, binary: str = "npx") -> StdioMCPClient:
     )
 
 
-# A flat description list useful for desktop pickers — keep in sync with the
-# factories above.
+# ── catalog metadata ─────────────────────────────────────────────────────────
+#
+# Each catalog entry carries everything a client needs to *introduce* an MCP and
+# (where applicable) configure it inline:
+#
+#   category          "platform" (external account, secret token), "local"
+#                     (a path on the server host), or "keyless" (one-click, no
+#                     config).
+#   fields            input form for the connect args — empty for keyless MCPs.
+#   setup             a short, human tutorial: a one-line summary, ordered steps,
+#                     and an optional documentation URL.
+#   required_args     kept for back-compat with older clients.
+
+
+def _field(key: str, label: str, *, secret: bool = False,
+           optional: bool = False, placeholder: str = "") -> dict:
+    return {
+        "key": key,
+        "label": label,
+        "secret": secret,
+        "optional": optional,
+        "placeholder": placeholder,
+    }
+
+
+def _setup(summary: str, steps: list[str], doc_url: str | None = None) -> dict:
+    return {"summary": summary, "steps": steps, "doc_url": doc_url}
+
+
+def _entry(
+    id: str, name: str, description: str, factory: str, *,
+    category: str,
+    fields: list[dict] | None = None,
+    setup: dict | None = None,
+) -> dict:
+    fields = fields or []
+    return {
+        "id": id,
+        "name": name,
+        "description": description,
+        "factory": factory,
+        "category": category,
+        "needs_credentials": bool(fields),
+        "fields": fields,
+        "setup": setup,
+        # Required positional/credential args, derived from the form fields.
+        "required_args": [f["key"] for f in fields if not f.get("optional")],
+    }
+
+
+# A flat, richly-described list — the single source clients render from. Keep in
+# sync with the factories above.
 KNOWN_MCPS: list[dict] = [
-    {
-        "id": "filesystem",
-        "name": "Filesystem (MCP)",
-        "description": "Read/write/list operations over a chosen directory.",
-        "factory": "mcp_filesystem",
-        "required_args": ["root"],
-    },
-    {
-        "id": "fetch",
-        "name": "HTTP Fetch (MCP)",
-        "description": "Generic HTTP GET/HEAD for retrieving web pages.",
-        "factory": "mcp_fetch",
-        "required_args": [],
-    },
-    {
-        "id": "git",
-        "name": "Git (MCP)",
-        "description": "Inspect and manipulate a local git repository.",
-        "factory": "mcp_git",
-        "required_args": ["repo"],
-    },
-    {
-        "id": "sqlite",
-        "name": "SQLite (MCP)",
-        "description": "Run read/write queries against a SQLite file.",
-        "factory": "mcp_sqlite",
-        "required_args": ["db_path"],
-    },
-    {
-        "id": "brave_search",
-        "name": "Brave Search (MCP)",
-        "description": "Web search via the Brave Search API.",
-        "factory": "mcp_brave_search",
-        "required_args": ["api_key"],
-    },
-    {
-        "id": "github",
-        "name": "GitHub (MCP)",
-        "description": "GitHub API access for issues, PRs, files, search.",
-        "factory": "mcp_github",
-        "required_args": ["token"],
-    },
-    {
-        "id": "puppeteer",
-        "name": "Puppeteer (MCP)",
-        "description": "Headless browser automation for JS-heavy pages.",
-        "factory": "mcp_puppeteer",
-        "required_args": [],
-    },
-    {
-        "id": "memory",
-        "name": "Memory (MCP)",
-        "description": "Persistent key-value memory via the official MCP memory server.",
-        "factory": "mcp_memory",
-        "required_args": [],
-    },
-    {
-        "id": "postgres",
-        "name": "PostgreSQL (MCP)",
-        "description": "Read-only SQL queries against a PostgreSQL database.",
-        "factory": "mcp_postgres",
-        "required_args": ["connection_string"],
-    },
-    {
-        "id": "slack",
-        "name": "Slack (MCP)",
-        "description": "Post and read messages across Slack channels.",
-        "factory": "mcp_slack",
-        "required_args": ["bot_token", "team_id"],
-    },
-    {
-        "id": "gitlab",
-        "name": "GitLab (MCP)",
-        "description": "GitLab API access for projects, issues, and merge requests.",
-        "factory": "mcp_gitlab",
-        "required_args": ["token"],
-    },
-    {
-        "id": "google_maps",
-        "name": "Google Maps (MCP)",
-        "description": "Geocoding, place search, and directions via Google Maps.",
-        "factory": "mcp_google_maps",
-        "required_args": ["api_key"],
-    },
-    {
-        "id": "sequential_thinking",
-        "name": "Sequential Thinking (MCP)",
-        "description": "Structured step-by-step reasoning scaffold. No credentials needed.",
-        "factory": "mcp_sequential_thinking",
-        "required_args": [],
-    },
-    {
-        "id": "time",
-        "name": "Time (MCP)",
-        "description": "Current time and timezone conversion.",
-        "factory": "mcp_time",
-        "required_args": [],
-    },
-    {
-        "id": "everything",
-        "name": "Everything (MCP)",
-        "description": "Reference server exercising every MCP feature; useful for testing.",
-        "factory": "mcp_everything",
-        "required_args": [],
-    },
+    # ── local resources (a path on the server host) ──────────────────────────
+    _entry(
+        "filesystem", "Filesystem (MCP)",
+        "Read/write/list operations over a chosen directory.",
+        "mcp_filesystem", category="local",
+        fields=[_field("root", "目录路径", placeholder="/Users/you/Documents")],
+        setup=_setup(
+            "让 agent 在你指定的目录内读写文件。",
+            [
+                "确认服务器主机已安装 npx（Node.js 18+）。",
+                "在上方填入要授权的目录绝对路径，例如 /Users/you/Documents。",
+                "默认只读；如需让 agent 创建 / 修改 / 删除文件，请打开“允许写操作”。",
+                "点击连接。",
+            ],
+            "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+        ),
+    ),
+    _entry(
+        "git", "Git (MCP)",
+        "Inspect and manipulate a local git repository.",
+        "mcp_git", category="local",
+        fields=[_field("repo", "Git 仓库路径", placeholder="/Users/you/project")],
+        setup=_setup(
+            "让 agent 查看与操作一个本地 git 仓库。",
+            [
+                "确认服务器主机已安装 uvx（uv）。",
+                "填入本地 git 仓库的绝对路径。",
+                "默认只读（log / diff / status 等）；commit 等写操作需打开“允许写操作”。",
+                "点击连接。",
+            ],
+            "https://github.com/modelcontextprotocol/servers/tree/main/src/git",
+        ),
+    ),
+    _entry(
+        "sqlite", "SQLite (MCP)",
+        "Run read/write queries against a SQLite file.",
+        "mcp_sqlite", category="local",
+        fields=[_field("db_path", "SQLite 文件路径", placeholder="/Users/you/data.db")],
+        setup=_setup(
+            "对一个 SQLite 数据库文件执行查询。",
+            [
+                "确认服务器主机已安装 uvx（uv）。",
+                "填入 .db 文件的绝对路径（不存在会新建）。",
+                "默认只读查询；写入需打开“允许写操作”。",
+                "点击连接。",
+            ],
+            "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
+        ),
+    ),
+    # ── platforms (external account behind a secret) ─────────────────────────
+    _entry(
+        "github", "GitHub (MCP)",
+        "GitHub API access for issues, PRs, files, search.",
+        "mcp_github", category="platform",
+        fields=[_field("token", "Personal Access Token", secret=True, placeholder="ghp_…")],
+        setup=_setup(
+            "用个人访问令牌授权 Autumn 读写你的 GitHub。",
+            [
+                "打开 GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)。",
+                "点击 Generate new token，按需勾选 repo 等 scope。",
+                "复制 ghp_ 开头的令牌，粘贴到上方 Personal Access Token。",
+                "默认只读；如需创建 / 修改 issue、PR、文件，请打开“允许写操作”后再连接。",
+            ],
+            "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
+        ),
+    ),
+    _entry(
+        "gitlab", "GitLab (MCP)",
+        "GitLab API access for projects, issues, and merge requests.",
+        "mcp_gitlab", category="platform",
+        fields=[
+            _field("token", "Personal Access Token", secret=True, placeholder="glpat-…"),
+            _field("api_url", "API URL（自托管填写，官方云可留空）",
+                   optional=True, placeholder="https://gitlab.example.com/api/v4"),
+        ],
+        setup=_setup(
+            "访问 GitLab 项目、issue 与合并请求。",
+            [
+                "打开 GitLab → 用户设置 → Access Tokens。",
+                "创建令牌，勾选 api scope。",
+                "复制并粘贴到 Personal Access Token。",
+                "自托管实例在 API URL 填 https://你的域名/api/v4；官方云 gitlab.com 留空即可。",
+            ],
+            "https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html",
+        ),
+    ),
+    _entry(
+        "slack", "Slack (MCP)",
+        "Post and read messages across Slack channels.",
+        "mcp_slack", category="platform",
+        fields=[
+            _field("bot_token", "Bot Token", secret=True, placeholder="xoxb-…"),
+            _field("team_id", "Team ID", placeholder="T0…"),
+        ],
+        setup=_setup(
+            "读取与发送 Slack 频道消息。",
+            [
+                "在 api.slack.com/apps 创建 App，添加 Bot Token Scopes（chat:write、channels:read 等）。",
+                "安装到工作区，复制 xoxb- 开头的 Bot Token。",
+                "在工作区设置中找到 Team ID（T 开头）。",
+                "把两者分别填入上方字段。",
+            ],
+            "https://api.slack.com/authentication/token-types",
+        ),
+    ),
+    _entry(
+        "brave_search", "Brave Search (MCP)",
+        "Web search via the Brave Search API.",
+        "mcp_brave_search", category="platform",
+        fields=[_field("api_key", "API Key", secret=True, placeholder="BSA…")],
+        setup=_setup(
+            "通过 Brave Search API 进行网页搜索。",
+            [
+                "访问 https://brave.com/search/api/ 注册并创建订阅（含免费额度）。",
+                "在控制台生成 API Key。",
+                "粘贴到上方 API Key。",
+                "点击连接。",
+            ],
+            "https://brave.com/search/api/",
+        ),
+    ),
+    _entry(
+        "google_maps", "Google Maps (MCP)",
+        "Geocoding, place search, and directions via Google Maps.",
+        "mcp_google_maps", category="platform",
+        fields=[_field("api_key", "API Key", secret=True, placeholder="AIza…")],
+        setup=_setup(
+            "地理编码、地点检索与路线规划。",
+            [
+                "在 Google Cloud Console 启用 Maps / Geocoding / Places API。",
+                "APIs & Services → Credentials → 创建 API Key。",
+                "建议为该 Key 限制可用 API 与来源。",
+                "粘贴到上方 API Key。",
+            ],
+            "https://developers.google.com/maps/documentation",
+        ),
+    ),
+    _entry(
+        "postgres", "PostgreSQL (MCP)",
+        "Read-only SQL queries against a PostgreSQL database.",
+        "mcp_postgres", category="platform",
+        fields=[_field("connection_string", "Connection String", secret=True,
+                       placeholder="postgresql://user:pass@host:5432/db")],
+        setup=_setup(
+            "对 PostgreSQL 数据库执行只读 SQL 查询。",
+            [
+                "准备形如 postgresql://user:pass@host:5432/dbname 的连接串。",
+                "建议使用只读账户。",
+                "粘贴到上方 Connection String。",
+                "点击连接。",
+            ],
+            "https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNSTRING",
+        ),
+    ),
+    # ── keyless utilities (one-click, no configuration) ──────────────────────
+    _entry(
+        "fetch", "HTTP Fetch (MCP)",
+        "Generic HTTP GET/HEAD for retrieving web pages.",
+        "mcp_fetch", category="keyless",
+        setup=_setup("无需凭据，点击连接即可让 agent 抓取网页（GET/HEAD）。需服务器安装 uvx。", []),
+    ),
+    _entry(
+        "puppeteer", "Puppeteer (MCP)",
+        "Headless browser automation for JS-heavy pages.",
+        "mcp_puppeteer", category="keyless",
+        setup=_setup("无需凭据。提供无头浏览器自动化，适合 JS 重的页面。需服务器安装 npx，首次会下载 Chromium。", []),
+    ),
+    _entry(
+        "memory", "Memory (MCP)",
+        "Persistent key-value memory via the official MCP memory server.",
+        "mcp_memory", category="keyless",
+        setup=_setup("无需凭据。基于官方 memory server 的持久化键值记忆。需服务器安装 npx。", []),
+    ),
+    _entry(
+        "sequential_thinking", "Sequential Thinking (MCP)",
+        "Structured step-by-step reasoning scaffold. No credentials needed.",
+        "mcp_sequential_thinking", category="keyless",
+        setup=_setup("无需凭据。提供结构化分步推理脚手架。需服务器安装 npx。", []),
+    ),
+    _entry(
+        "time", "Time (MCP)",
+        "Current time and timezone conversion.",
+        "mcp_time", category="keyless",
+        setup=_setup("无需凭据。当前时间与时区换算。需服务器安装 uvx。", []),
+    ),
+    _entry(
+        "everything", "Everything (MCP)",
+        "Reference server exercising every MCP feature; useful for testing.",
+        "mcp_everything", category="keyless",
+        setup=_setup("无需凭据。参考 / 测试服务器，覆盖所有 MCP 特性，用于联调。需服务器安装 npx。", []),
+    ),
 ]
+
+
+MCP_BY_ID: dict[str, dict] = {entry["id"]: entry for entry in KNOWN_MCPS}
 
 
 __all__ = [
@@ -272,4 +411,5 @@ __all__ = [
     "mcp_time",
     "mcp_everything",
     "KNOWN_MCPS",
+    "MCP_BY_ID",
 ]

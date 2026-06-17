@@ -143,6 +143,7 @@ private struct WorkflowStageRow: View {
     // keep the WP1/clay identity while giving each a distinct glyph.
     private var isPlan: Bool { stage.id.hasPrefix("wp1.plan") }
     private var isSupervise: Bool { stage.id.contains("supervise") }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     var body: some View {
@@ -188,7 +189,7 @@ private struct WorkflowStageRow: View {
             .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
         }
         .onAppear {
-            if stage.status == "active" {
+            if stage.status == "active" && !reduceMotion {
                 withAnimation(Autumn.motion.pulse) { pulse = true }
             }
         }

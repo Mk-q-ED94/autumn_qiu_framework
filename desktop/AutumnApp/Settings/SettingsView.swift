@@ -79,6 +79,9 @@ struct SettingsView: View {
             tabContent
         }
         .navigationTitle("设置")
+        // Same flush `.bar` tab bar as Memory/Terrs — hide the window title
+        // bar's automatic material so it can't overshoot and cover the top edge.
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .onAppear {
             Task { await checkConnection() }
             Task { await loadFourD() }

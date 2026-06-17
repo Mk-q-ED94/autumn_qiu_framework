@@ -271,6 +271,51 @@ final class AutumnClient {
         return try JSONDecoder().decode([KnownMCP].self, from: data)
     }
 
+    /// Per-MCP connection state across the full catalog (`GET /mcps/status`).
+    /// Shares the same runtime as platform integrations.
+    func mcpStatus() async throws -> [IntegrationStatus] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("mcps/status"))
+        request.timeoutInterval = 20
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode([IntegrationStatus].self, from: data)
+    }
+
+    /// Bring any catalog MCP online — keyless (no args) or configured.
+    @discardableResult
+    func connectMcp(
+        id: String,
+        args: [String: String],
+        writeEnabled: Bool = false
+    ) async throws -> IntegrationStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("mcps/connect"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Spawning the MCP subprocess (npx/uvx download on first run) can be slow.
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(
+            IntegrationConnectBody(id: id, args: args, writeEnabled: writeEnabled)
+        )
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(IntegrationStatus.self, from: data)
+    }
+
+    @discardableResult
+    func disconnectMcp(id: String) async throws -> IntegrationStatus {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("mcps").appendingPathComponent(id)
+        )
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 30
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(IntegrationStatus.self, from: data)
+    }
+
     // ── platform integrations ─────────────────────────────────────────────────
 
     func integrationCatalog() async throws -> [IntegrationCatalogEntry] {

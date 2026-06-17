@@ -21,6 +21,7 @@ import SwiftUI
 struct PipelineStripView: View {
     let trace: WorkflowTrace
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
     @State private var hoveredStageID: String?
 
@@ -52,7 +53,8 @@ struct PipelineStripView: View {
                 pulse = false
                 return
             }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            guard !reduceMotion else { return }
+            withAnimation(Autumn.motion.pulse) {
                 pulse.toggle()
             }
         }

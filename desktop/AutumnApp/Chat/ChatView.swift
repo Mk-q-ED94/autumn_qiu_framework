@@ -7,6 +7,7 @@ struct ChatView: View {
     @EnvironmentObject private var projectStore: ProjectStore
     @FocusState private var composerFocused: Bool
     @State private var inspectorVisible: Bool = false
+    @State private var isRunButtonHovered = false
 
     init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
         _vm = StateObject(wrappedValue: ChatViewModel(
@@ -283,8 +284,10 @@ struct ChatView: View {
                               ? AnyShapeStyle(Autumn.colors.danger)
                               : AnyShapeStyle(Autumn.colors.brandGradient))
                 )
+                .brightness(isRunButtonHovered ? 0.07 : 0)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AutumnPressButtonStyle())
+        .onHover { h in withAnimation(Autumn.motion.soft) { isRunButtonHovered = h } }
         .disabled(!vm.isRunning && vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .help(vm.isRunning ? "停止生成" : "发送")
     }
@@ -342,6 +345,7 @@ private struct MessageRow: View {
 }
 
 private struct TypingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: Int = 0
     private let dots = 3
 
@@ -351,11 +355,12 @@ private struct TypingIndicator: View {
                 Circle()
                     .fill(Color.secondary)
                     .frame(width: 5, height: 5)
-                    .opacity(phase == i ? 1 : 0.3)
+                    .opacity(reduceMotion ? 0.6 : (phase == i ? 1 : 0.3))
             }
         }
         .frame(height: 18)
         .task {
+            guard !reduceMotion else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 320_000_000)
                 phase = (phase + 1) % dots

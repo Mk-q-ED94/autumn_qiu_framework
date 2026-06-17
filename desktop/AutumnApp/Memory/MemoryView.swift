@@ -29,6 +29,12 @@ struct MemoryView: View {
             }
         }
         .navigationTitle(navTitle)
+        // The custom `.bar` toolbar sits flush at the top of the detail pane.
+        // Without this, macOS paints the window title bar's automatic
+        // translucent material on scroll/focus changes, and it overshoots down
+        // to cover the toolbar's top edge (the stray white strip). The custom
+        // toolbar already provides its own separation, so hide the system one.
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .task { await refreshCurrentMode() }
         .onChange(of: vm.viewMode) { _, _ in
             Task { await refreshCurrentMode() }

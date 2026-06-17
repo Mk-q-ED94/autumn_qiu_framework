@@ -95,7 +95,7 @@ private struct StatusPanel: View {
         let s = localServer.statusText
         if s.contains("已") { return .success }
         if s.contains("失败") { return .danger }
-        if s.contains("启动中") || s.contains("检测中") { return .warning }
+        if s.contains("启动中") || s.contains("检测中") || s.contains("更新") { return .warning }
         return .neutral
     }
 }
