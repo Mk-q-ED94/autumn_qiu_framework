@@ -139,6 +139,7 @@ private struct WorkflowStageRow: View {
     private var isTool: Bool { stage.kind == "tool" }
     private var isAgent: Bool { stage.kind == "agent" }
     private var isPush: Bool { stage.kind == "push" }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     var body: some View {
@@ -184,7 +185,7 @@ private struct WorkflowStageRow: View {
             .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
         }
         .onAppear {
-            if stage.status == "active" {
+            if stage.status == "active" && !reduceMotion {
                 withAnimation(Autumn.motion.pulse) { pulse = true }
             }
         }

@@ -150,6 +150,7 @@ private struct AgentDot: View {
     let label: String
     let state: ModelConnectionState
     let tooltip: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     var body: some View {
@@ -177,7 +178,8 @@ private struct AgentDot: View {
         .help(tooltip)
         .task(id: state) {
             guard state == .connecting else { pulse = false; return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            guard !reduceMotion else { return }
+            withAnimation(Autumn.motion.pulse) {
                 pulse.toggle()
             }
         }

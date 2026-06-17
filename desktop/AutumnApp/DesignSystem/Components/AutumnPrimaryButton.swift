@@ -1,6 +1,16 @@
 import SwiftUI
 
-/// Primary action button with subtle press feedback.
+/// ButtonStyle that adds a subtle 0.97× scale on press, used by all Autumn
+/// custom buttons so keyboard and pointer interactions feel the same.
+struct AutumnPressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0, anchor: .center)
+            .animation(Autumn.motion.snappy, value: configuration.isPressed)
+    }
+}
+
+/// Primary action button with gradient fill, hover brightness, and press scale.
 struct AutumnPrimaryButton<Label: View>: View {
     enum Size {
         case small, regular, large
@@ -35,6 +45,8 @@ struct AutumnPrimaryButton<Label: View>: View {
     let action: () -> Void
     @ViewBuilder var label: () -> Label
 
+    @State private var isHovering = false
+
     init(
         size: Size = .regular,
         isLoading: Bool = false,
@@ -65,9 +77,11 @@ struct AutumnPrimaryButton<Label: View>: View {
                 in: RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
             )
             .autumnShadow(Autumn.shadow.subtle)
+            .brightness(isHovering && !isLoading ? 0.05 : 0)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AutumnPressButtonStyle())
         .disabled(isLoading)
+        .onHover { h in withAnimation(Autumn.motion.soft) { isHovering = h } }
     }
 }
 
@@ -90,7 +104,7 @@ struct AutumnGhostButton<Label: View>: View {
                         .fill(isHovering ? Autumn.colors.surfaceHover : Autumn.colors.surfaceElevated)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AutumnPressButtonStyle())
         .onHover { hovering in
             withAnimation(Autumn.motion.soft) { isHovering = hovering }
         }
