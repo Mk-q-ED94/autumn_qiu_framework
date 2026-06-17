@@ -1,13 +1,14 @@
 """Web / HTTP capability domain.
 
 Uses ``httpx`` (already a core Autumn dependency) so no new install is needed.
-Tools are opt-in because they make network requests. There is no SSRF
-protection — the caller is responsible for restricting which hosts the model
-can talk to via firewall/proxy rules.
+Tools are opt-in because they make network requests. Fetches go through the
+shared :mod:`autumn.builtin._http` helper, which streams a 2MB size cap and
+refuses private/loopback/metadata targets by default (the model picks the URL);
+set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to fetch internal hosts.
 """
 from __future__ import annotations
 
-import re
+import json
 from typing import Any
 
 import httpx
@@ -15,43 +16,31 @@ import httpx
 from ..core.components.skill import Skill
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
-
-_DEFAULT_TIMEOUT = 15.0
-_MAX_BYTES = 2_000_000  # 2MB cap per response
-
-_TAG_RE = re.compile(r"<[^>]+>")
-_SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
-_STYLE_RE = re.compile(r"<style[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
-_WS_RE = re.compile(r"\s+")
-
-
-def _strip_html(html: str) -> str:
-    """Crude HTML → text: drops <script>/<style>, then tags, then collapses whitespace."""
-    no_scripts = _SCRIPT_RE.sub("", html)
-    no_styles = _STYLE_RE.sub("", no_scripts)
-    text = _TAG_RE.sub(" ", no_styles)
-    return _WS_RE.sub(" ", text).strip()
+from ._http import (
+    _DEFAULT_TIMEOUT,
+    FetchError,
+    assert_url_allowed,
+    looks_like_html,
+    safe_fetch,
+    strip_html,
+)
 
 
 async def _http_get(url: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        if len(resp.content) > _MAX_BYTES:
-            raise ValueError(f"response exceeds {_MAX_BYTES} bytes")
-        return resp.text
+    _, body, _ = await safe_fetch(url, timeout=timeout)
+    return body
 
 
 async def _http_get_json(url: str, timeout: float = _DEFAULT_TIMEOUT) -> Any:
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        if len(resp.content) > _MAX_BYTES:
-            raise ValueError(f"response exceeds {_MAX_BYTES} bytes")
-        return resp.json()
+    _, body, _ = await safe_fetch(url, timeout=timeout)
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as e:
+        raise FetchError(f"response was not valid JSON: {e}") from e
 
 
 async def _http_head(url: str, timeout: float = _DEFAULT_TIMEOUT) -> dict[str, Any]:
+    await assert_url_allowed(url)
     async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
         resp = await client.head(url)
         # Don't raise — HEAD on 4xx is common; surface the status to the model.
@@ -64,9 +53,8 @@ async def _http_head(url: str, timeout: float = _DEFAULT_TIMEOUT) -> dict[str, A
 
 async def _fetch_text(url: str, timeout: float = _DEFAULT_TIMEOUT, max_chars: int = 20_000) -> str:
     """Skill: GET ``url`` and return readable text (HTML stripped if needed)."""
-    html_or_text = await _http_get(url, timeout=timeout)
-    looks_html = "<" in html_or_text[:512] and ">" in html_or_text[:512]
-    text = _strip_html(html_or_text) if looks_html else html_or_text
+    _, body, content_type = await safe_fetch(url, timeout=timeout)
+    text = strip_html(body) if looks_like_html(content_type, body) else body
     if len(text) > max_chars:
         return text[:max_chars] + f"\n[truncated at {max_chars} chars]"
     return text
@@ -75,8 +63,9 @@ async def _fetch_text(url: str, timeout: float = _DEFAULT_TIMEOUT, max_chars: in
 def web_terr() -> Terr:
     """Build the ``web`` Terr — HTTP GET / HEAD / JSON fetch + text-extract skill.
 
-    Network access is the caller's responsibility — there is no host
-    allowlist or SSRF guard. Use a proxy or container if you need that.
+    Fetches stream a 2MB cap and refuse private/loopback/metadata hosts by
+    default (the model picks the URL). Set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to
+    permit internal hosts; a proxy/container is still wise for stronger control.
     """
     return Terr(
         name="web",

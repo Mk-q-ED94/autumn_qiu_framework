@@ -183,7 +183,14 @@ class MarkdownBackend(MemoryBackend):
                     json.dumps(entry, sort_keys=True, ensure_ascii=False).encode()
                 ).hexdigest()[:16])
                 keep_ids.add(eid)
-                _atomic_write(area_dir / f"{eid}.md", _entry_to_md(entry))
+                md = _entry_to_md(entry)
+                target = area_dir / f"{eid}.md"
+                # Skip the atomic-write (temp file + rename + fsync) when the
+                # on-disk content is already identical — a single-entry change
+                # (reinforce / annotate / pin) then rewrites one file, not all N.
+                if target.is_file() and target.read_text(encoding="utf-8") == md:
+                    continue
+                _atomic_write(target, md)
             # Drop entry files that are no longer present (eviction / forget).
             for p in area_dir.glob("*.md"):
                 if p.is_file() and p.stem not in keep_ids:

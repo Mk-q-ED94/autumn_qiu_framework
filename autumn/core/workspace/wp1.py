@@ -1,8 +1,8 @@
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
-from typing import Literal
+from collections.abc import AsyncIterator, Callable
+from typing import TYPE_CHECKING, Literal
 
 from ..components.selector import Selector
 from ..interaction import UserInteraction
@@ -20,7 +20,48 @@ from .base import WorkspaceBase
 from .wp2 import WP2Tas
 from .wp3 import WP3Mis
 
+if TYPE_CHECKING:
+    from ..memory.access import Mom1AccessBroker
+    from ..memory.project import ProjectMemory
+    from .wp4 import WP4Mem
+
 _ADVISORY_PREFIX = "\n\n---\n[质量提示] "
+
+
+def _strip_check_marker(checked: str) -> str:
+    """Extract the clean output from a [CHECK_FAILED(...): ...]\n\n<output> string."""
+    idx = checked.find("]\n\n")
+    return checked[idx + 3:] if idx != -1 else checked
+
+
+def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) -> tuple[str, str]:
+    """Return (clean_output, stage_detail) from a checker.validate result."""
+    if ok:
+        return checked, passed_label
+    clean = _strip_check_marker(checked)
+    # Extract the issues text from between ": " and "]"
+    start = checked.find(": ")
+    end = checked.find("]")
+    issues = checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
+    return clean, f"{failed_label}: {issues}"
+
+_PLAN_TASK_SYSTEM = """\
+You are A1, the orchestrating coordinator in the Autumn framework.
+A2 (the code executor) is about to work on the task below. Before it starts,
+briefly outline the approach — 3 to 6 numbered steps — so A2 has a clear direction.
+
+Write only the numbered steps. One step per line. Each step: one short action sentence.
+No introduction, no markdown headers, no commentary after the steps."""
+
+_SUPERVISE_SYSTEM = """\
+You are A1, supervising A2 (the executor) as it works through a task step by step.
+You are shown the original task and A2's latest action plus its result.
+
+If A2 is on track, reply with exactly: CONTINUE
+If A2 is off course, drifting, repeating itself, or mishandling an error, reply
+with ONE short corrective instruction (a single sentence) telling it what to do
+next. Do not restate the whole plan. Do not praise. Output only CONTINUE or the
+single instruction."""
 
 _AUTO_ROUTE_SYSTEM = """\
 You are a routing agent in the Autumn framework.
@@ -100,19 +141,39 @@ class WP1Tot(WorkspaceBase):
         memory,
         wp2: WP2Tas,
         wp3: WP3Mis,
+        wp4: "WP4Mem | None" = None,
+        projects: "ProjectMemory | None" = None,
+        mom1_access: "Mom1AccessBroker | None" = None,
         interaction: UserInteraction | None = None,
         selector_prompt: str | None = None,
         headless_mission_route: MissionRoute | Literal["auto"] = "auto",
         validate_before_stream: bool = True,
         confirm_threshold: float = 0.75,
+        task_planning: bool = False,
+        supervision: bool = False,
+        archive: bool = False,
+        capability_provider: Callable[[], str] | None = None,
     ):
         super().__init__(api, memory)
         self.wp2 = wp2
         self.wp3 = wp3
-        self.selector = Selector(api, system_prompt=selector_prompt, confirm_threshold=confirm_threshold)
+        # 0.3.0 cooperative-workflow wiring: A1 (组长) holds handles to the
+        # memory-management workspace, project memory, and the Mom1 access broker
+        # so it can supervise execution, query memory state, and lead project
+        # parameter discussions instead of appearing only at route + final check.
+        self.wp4 = wp4
+        self.projects = projects
+        self.mom1_access = mom1_access
+        self.selector = Selector(
+            api, system_prompt=selector_prompt, confirm_threshold=confirm_threshold,
+            capability_provider=capability_provider,
+        )
         self.interaction = interaction
         self._headless_route = headless_mission_route
         self._validate_before_stream = validate_before_stream
+        self._task_planning = task_planning
+        self._supervision = supervision
+        self._archive = archive
 
     async def process(
         self,
@@ -161,21 +222,33 @@ class WP1Tot(WorkspaceBase):
 
         if input_type == InputType.TASK:
             t = time.perf_counter()
+            plan_hint = await self._plan_task(user_input, task_type)
+            if plan_hint:
+                stages.append(_make_stage(
+                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_hint.splitlines())} 步）",
+                    "WP1", t, self.api,
+                ))
+            interventions: list[dict] = []
+            supervisor = self._build_supervisor(user_input, interventions)
+            sup_started = time.perf_counter()
+            t = time.perf_counter()
             result, tool_stages, wp2_prompt, wp2_completion = (
                 await self.wp2.process_with_trace(
                     user_input, task_type=task_type, turn_context=push_context,
+                    plan_hint=plan_hint, supervisor=supervisor,
                 )
             )
             stages.extend(tool_stages)
+            stages.extend(self._supervision_stages(interventions, sup_started))
             stages.append(WorkflowStage(
                 id="wp2.task", title="A2 执行任务", detail="WP2 已完成结构化任务执行",
                 workspace="WP2", duration_ms=_duration_ms(t),
                 prompt_tokens=wp2_prompt, completion_tokens=wp2_completion,
             ))
             t = time.perf_counter()
-            final = await self._wp1_check(result)
+            final, check_detail = await self._wp1_check(result)
             stages.append(_make_stage(
-                "wp1.final_check", "A1 最终检查", "WP1 已完成最终质量检查", "WP1", t, self.api,
+                "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
             ))
             chosen_route = None
         else:
@@ -191,6 +264,10 @@ class WP1Tot(WorkspaceBase):
             "route": chosen_route.value if chosen_route else None,
             "output": final,
         })
+        # Archive the outcome to A4's curated shared memory (0.3.0 hand-off).
+        await self._archive_execution(
+            "wp2" if input_type == InputType.TASK else "wp3", user_input, final,
+        )
         return WorkflowRun(
             output=final,
             input_type=input_type,
@@ -223,14 +300,17 @@ class WP1Tot(WorkspaceBase):
 
         if route == MissionRoute.DIRECT:
             t = time.perf_counter()
-            result = await self.wp3.answer_directly(mission_input, turn_context=push_context)
+            result, wp3_tool_stages, *_ = await self.wp3.answer_directly_with_trace(
+                mission_input, turn_context=push_context,
+            )
+            stages.extend(wp3_tool_stages)
             stages.append(_make_stage(
                 "wp3.direct", "A3 直接回答", "WP3 已生成 mission 回答", "WP3", t, self.wp3.api,
             ))
             t = time.perf_counter()
-            final = await self._wp1_check(result)
+            final, check_detail = await self._wp1_check(result)
             stages.append(_make_stage(
-                "wp1.final_check", "A1 最终检查", "WP1 已完成最终质量检查", "WP1", t, self.api,
+                "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
             ))
             return final, route
 
@@ -241,16 +321,21 @@ class WP1Tot(WorkspaceBase):
         ))
         if self.wp3.checker:
             t = time.perf_counter()
-            _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+            wp3_ok, wp3_checked = await self.wp3.checker.validate(task_form, self.wp3.memory)
+            task_form, wp3_detail = _check_detail(
+                wp3_ok, wp3_checked, "WP3 转换检查通过", "WP3 转换检查发现问题（已尽力修正）",
+            )
             stages.append(_make_stage(
-                "wp3.check", "WP3 检查", "转换后的任务已通过 WP3 检查", "WP3", t, self.wp3.api,
+                "wp3.check", "WP3 检查", wp3_detail, "WP3", t, self.wp3.api,
             ))
         if self.checker:
             t = time.perf_counter()
-            _, task_form = await self.checker.validate(task_form, self.memory)
+            a1_ok, a1_checked = await self.checker.validate(task_form, self.memory)
+            task_form, a1_detail = _check_detail(
+                a1_ok, a1_checked, "A1 交接检查通过", "A1 交接检查发现问题（已尽力修正）",
+            )
             stages.append(_make_stage(
-                "wp1.handoff_check", "A1 交接检查",
-                "A1 已检查 mission 到 task 的交接内容", "WP1", t, self.api,
+                "wp1.handoff_check", "A1 交接检查", a1_detail, "WP1", t, self.api,
             ))
 
         t = time.perf_counter()
@@ -264,9 +349,9 @@ class WP1Tot(WorkspaceBase):
             prompt_tokens=wp2_prompt, completion_tokens=wp2_completion,
         ))
         t = time.perf_counter()
-        final = await self._wp1_check(result)
+        final, check_detail = await self._wp1_check(result)
         stages.append(_make_stage(
-            "wp1.final_check", "A1 最终检查", "WP1 已完成最终质量检查", "WP1", t, self.api,
+            "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
         ))
         return final, route
 
@@ -290,9 +375,9 @@ class WP1Tot(WorkspaceBase):
         task_type: TaskType | None = None,
     ) -> SelectorResult:
         if input_type is not None:
-            selected_task_type = task_type if input_type == InputType.TASK else None
-            if input_type == InputType.TASK and selected_task_type is None:
-                selected_task_type = TaskType.GENERAL
+            selected_task_type = (
+                task_type or TaskType.GENERAL if input_type == InputType.TASK else None
+            )
             return SelectorResult(input_type, 1.0, selected_task_type)
 
         sel = await self.selector.classify_and_maybe_confirm(user_input, self.interaction)
@@ -322,10 +407,94 @@ class WP1Tot(WorkspaceBase):
         except (json.JSONDecodeError, KeyError, ValueError):
             return MissionRoute.DIRECT
 
-    async def _wp1_check(self, output: str) -> str:
-        if self.checker:
-            _, output = await self.checker.validate(output, self.memory)
-        return output
+    async def _plan_task(self, user_input: str, task_type: TaskType | None) -> str | None:
+        """Ask A1 to generate a step-by-step execution plan before dispatching to WP2.
+
+        Returns the plan text (to inject as WP2's plan_hint) or None when planning
+        is disabled, the model call fails, or the output is empty.
+        """
+        if not self._task_planning:
+            return None
+        messages = [
+            Message(role=Role.SYSTEM, content=_PLAN_TASK_SYSTEM),
+            Message(role=Role.USER, content=user_input),
+        ]
+        try:
+            plan = await self.api.complete(messages, max_tokens=256)
+            return plan.strip() or None
+        except Exception:
+            return None
+
+    def _build_supervisor(self, user_input: str, interventions: list[dict]):
+        """Build an A1 supervisor callback for the WP2 agent loop, or None.
+
+        Returns None unless supervision is enabled and A1 has an api. The callback
+        reviews A2's latest step and returns a short corrective instruction (or
+        nothing when on track). Each intervention is recorded in ``interventions``
+        so the caller can surface it as a trace stage.
+        """
+        if not self._supervision or self.api is None:
+            return None
+
+        async def supervise(iteration: int, steps: list) -> str | None:
+            if not steps:
+                return None
+            last = steps[-1]
+            args = ", ".join(f"{k}={v}" for k, v in getattr(last, "arguments", {}).items())
+            result = getattr(last, "result", "")
+            if len(result) > 400:
+                result = result[:400] + "…"
+            review = (
+                f"Original task:\n{user_input}\n\n"
+                f"A2's latest action (step {iteration + 1}): {getattr(last, 'name', '?')}({args})\n"
+                f"Result: {result}"
+            )
+            messages = [
+                Message(role=Role.SYSTEM, content=_SUPERVISE_SYSTEM),
+                Message(role=Role.USER, content=review),
+            ]
+            try:
+                reply = (await self.api.complete(messages, max_tokens=80)).strip()
+            except Exception:
+                return None
+            if not reply or reply.upper().startswith("CONTINUE"):
+                return None
+            interventions.append({"iteration": iteration, "guidance": reply})
+            return reply
+
+        return supervise
+
+    def _supervision_stages(self, interventions: list[dict], started: float) -> list[WorkflowStage]:
+        """Render recorded A1 supervision interventions as trace stages."""
+        stages: list[WorkflowStage] = []
+        for i, item in enumerate(interventions):
+            stages.append(WorkflowStage(
+                id=f"wp1.supervise.{i}",
+                title="A1 监督介入",
+                detail=f"步骤 {item['iteration'] + 1}：{item['guidance']}",
+                workspace="WP1",
+                kind="stage",
+                duration_ms=_duration_ms(started),
+            ))
+        return stages
+
+    async def _archive_execution(self, source: str, user_input: str, output: str) -> None:
+        """Hand a completed turn's outcome to A4 for a shared-zone summary.
+
+        Best-effort and gated by the archive flag + a wired WP4; never raises.
+        """
+        if not self._archive or self.wp4 is None:
+            return
+        try:
+            await self.wp4.record_execution_summary(source, user_input, output)
+        except Exception:
+            pass
+
+    async def _wp1_check(self, output: str) -> tuple[str, str]:
+        if not self.checker:
+            return output, "WP1 已完成最终质量检查"
+        ok, checked = await self.checker.validate(output, self.memory)
+        return _check_detail(ok, checked, "WP1 质量检查通过", "WP1 质量检查发现问题（已尽力修正）")
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
@@ -404,10 +573,21 @@ class WP1Tot(WorkspaceBase):
             "wp1.select", "A1 分类", _classify_detail(input_type, task_type), "WP1", t, self.api,
         ))
 
+        interventions: list[dict] = []
+        sup_started = time.perf_counter()
         if input_type == InputType.TASK:
+            t = time.perf_counter()
+            plan_hint = await self._plan_task(user_input, task_type)
+            if plan_hint:
+                stages.append(_make_stage(
+                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_hint.splitlines())} 步）",
+                    "WP1", t, self.api,
+                ))
+            supervisor = self._build_supervisor(user_input, interventions)
             task_started = time.perf_counter()
             gen = self.wp2.stream_with_trace(
                 user_input, task_type=task_type, chunk_size=chunk_size, turn_context=push_context,
+                plan_hint=plan_hint, supervisor=supervisor,
             )
             chosen_route: MissionRoute | None = None
         else:
@@ -430,17 +610,21 @@ class WP1Tot(WorkspaceBase):
                 ))
                 if self.wp3.checker:
                     t = time.perf_counter()
-                    _, task_form = await self.wp3.checker.validate(task_form, self.wp3.memory)
+                    wp3_ok, wp3_checked = await self.wp3.checker.validate(task_form, self.wp3.memory)
+                    task_form, wp3_detail = _check_detail(
+                        wp3_ok, wp3_checked, "WP3 转换检查通过", "WP3 转换检查发现问题（已尽力修正）",
+                    )
                     stages.append(_make_stage(
-                        "wp3.check", "WP3 检查",
-                        "转换后的任务已通过 WP3 检查", "WP3", t, self.wp3.api,
+                        "wp3.check", "WP3 检查", wp3_detail, "WP3", t, self.wp3.api,
                     ))
                 if self.checker:
                     t = time.perf_counter()
-                    _, task_form = await self.checker.validate(task_form, self.memory)
+                    a1_ok, a1_checked = await self.checker.validate(task_form, self.memory)
+                    task_form, a1_detail = _check_detail(
+                        a1_ok, a1_checked, "A1 交接检查通过", "A1 交接检查发现问题（已尽力修正）",
+                    )
                     stages.append(_make_stage(
-                        "wp1.handoff_check", "A1 交接检查",
-                        "A1 已检查 mission 到 task 的交接内容", "WP1", t, self.api,
+                        "wp1.handoff_check", "A1 交接检查", a1_detail, "WP1", t, self.api,
                     ))
                 task_started = time.perf_counter()
                 gen = self.wp2.stream_with_trace(
@@ -457,12 +641,14 @@ class WP1Tot(WorkspaceBase):
 
         if input_type == InputType.TASK:
             stages.extend(tool_stages)
+            stages.extend(self._supervision_stages(interventions, sup_started))
             stages.append(WorkflowStage(
                 id="wp2.task", title="A2 执行任务",
                 detail="WP2 已完成结构化任务执行",
                 workspace="WP2", duration_ms=_duration_ms(task_started),
             ))
         elif chosen_route == MissionRoute.DIRECT:
+            stages.extend(tool_stages)
             stages.append(WorkflowStage(
                 id="wp3.direct", title="A3 直接回答",
                 detail="WP3 已生成 mission 回答",
@@ -499,6 +685,9 @@ class WP1Tot(WorkspaceBase):
             "route": chosen_route.value if chosen_route else None,
             "output": final_output,
         })
+        await self._archive_execution(
+            "wp2" if input_type == InputType.TASK else "wp3", user_input, final_output,
+        )
         yield WorkflowRun(
             output=final_output,
             input_type=input_type,

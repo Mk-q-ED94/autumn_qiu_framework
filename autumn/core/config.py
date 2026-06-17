@@ -51,7 +51,7 @@ class EmbeddingConfig:
             api_key=key,
             base_url=os.environ[f"{prefix}BASE_URL"],
             model=os.environ[f"{prefix}MODEL"],
-            dimensions=int(os.environ.get(f"{prefix}DIMENSIONS", "1536")),
+            dimensions=_to_int(os.environ.get(f"{prefix}DIMENSIONS"), 1536),
         )
 
 
@@ -133,6 +133,15 @@ class BehaviorConfig:
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
+    # 0.3.0 cooperative workflow
+    cooperative_workflow: bool = True  # Master switch; False reverts every 0.3.0 cooperative feature to 0.2.x behaviour
+    a3_lite_skills: list[str] = field(default_factory=list)  # Skills A3 may call on the direct path (empty = off)
+    a1_task_planning: bool = False  # A1 generates a step plan before dispatching to A2 (adds one A1 call per task)
+    a1_supervision: bool = False  # A1 reviews each A2 ReAct step and may inject guidance (one A1 call per tool step)
+    archive_executions: bool = True  # A1 hands each turn's outcome to A4 for a shared-zone execution summary
+    a4_delegate_to_a1: bool = True  # A4's heavy cognitive ops (consolidate/evolve/project) use A1 instead of A4
+    a4_delegation_threshold: int = 2000  # Min source chars before A4 delegates to A1; smaller ops stay on local A4
+    a4_knowledge_terr: bool = False  # Register a web-retrieval Terr and give A4 a research() path over it
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -160,7 +169,46 @@ class BehaviorConfig:
                 env("LEXICAL_RECALL_ENABLED"), cls.lexical_recall_enabled
             ),
             async_index=_to_bool(env("ASYNC_INDEX"), cls.async_index),
+            cooperative_workflow=_to_bool(env("COOPERATIVE_WORKFLOW"), cls.cooperative_workflow),
+            a3_lite_skills=[
+                s.strip() for s in (env("A3_LITE_SKILLS") or "").split(",") if s.strip()
+            ],
+            a1_task_planning=_to_bool(env("A1_TASK_PLANNING"), cls.a1_task_planning),
+            a1_supervision=_to_bool(env("A1_SUPERVISION"), cls.a1_supervision),
+            archive_executions=_to_bool(env("ARCHIVE_EXECUTIONS"), cls.archive_executions),
+            a4_delegate_to_a1=_to_bool(env("A4_DELEGATE_TO_A1"), cls.a4_delegate_to_a1),
+            a4_delegation_threshold=_to_int(
+                env("A4_DELEGATION_THRESHOLD"), cls.a4_delegation_threshold,
+            ),
+            a4_knowledge_terr=_to_bool(env("A4_KNOWLEDGE_TERR"), cls.a4_knowledge_terr),
         )
+
+    # ── cooperative-workflow effective gates (master switch applied) ─────────────
+    # Each feature flag only takes effect when the master ``cooperative_workflow``
+    # is also on, so a single switch reverts the whole 0.3.0 layer to 0.2.x.
+
+    @property
+    def task_planning_on(self) -> bool:
+        return self.cooperative_workflow and self.a1_task_planning
+
+    @property
+    def supervision_on(self) -> bool:
+        return self.cooperative_workflow and self.a1_supervision
+
+    @property
+    def archive_on(self) -> bool:
+        return self.cooperative_workflow and self.archive_executions
+
+    @property
+    def delegate_on(self) -> bool:
+        return self.cooperative_workflow and self.a4_delegate_to_a1
+
+    @property
+    def knowledge_terr_on(self) -> bool:
+        return self.cooperative_workflow and self.a4_knowledge_terr
+
+    def lite_skills_on(self) -> list[str]:
+        return self.a3_lite_skills if self.cooperative_workflow else []
 
 
 @dataclass
@@ -213,12 +261,24 @@ class AutumnConfig:
         a4_key = env("A4_API_KEY")
         a4: ModelConfig | None = None
         if a4_key:
-            a4 = ModelConfig(
-                api_key=a4_key,
-                base_url=env("A4_BASE_URL", "http://127.0.0.1:11434"),
-                model=env("A4_MODEL", ""),
-                protocol=Protocol(env("A4_PROTOCOL", "openai")),
-            )
+            a4_model = env("A4_MODEL", "")
+            if not a4_model:
+                import warnings
+                warnings.warn(
+                    "A4_API_KEY is set but A4_MODEL is empty — A4 will be disabled. "
+                    "Set A4_MODEL to a valid model name to enable memory operations.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            else:
+                a4 = ModelConfig(
+                    api_key=a4_key,
+                    base_url=env("A4_BASE_URL", "http://127.0.0.1:11434"),
+                    model=a4_model,
+                    protocol=Protocol(env("A4_PROTOCOL", "openai")),
+                    input_price_per_1m=_to_float(os.environ.get(f"{prefix}A4_INPUT_PRICE")),
+                    output_price_per_1m=_to_float(os.environ.get(f"{prefix}A4_OUTPUT_PRICE")),
+                )
 
         return cls(
             a1=ModelConfig.from_env(f"{prefix}A1"),

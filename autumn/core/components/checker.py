@@ -82,11 +82,13 @@ class Checker:
         try:
             resp = await self.api.complete(messages, max_tokens=128)
             data = json.loads(resp.strip())
+            if not isinstance(data, dict):
+                return True, ""
             if data.get("ok"):
                 return True, ""
             return False, data.get("issues", "quality check failed")
-        except (json.JSONDecodeError, KeyError):
-            return True, ""  # parse failure → pass through rather than loop forever
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            return True, ""  # unparseable / non-str response → pass through rather than loop forever
 
     async def _correct(self, output: str, issues: str) -> str:
         messages = [

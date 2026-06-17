@@ -7,6 +7,16 @@ import httpx
 from ..types import Message, Protocol, Role, ToolCall
 
 _RETRY_DELAYS = [1, 2, 4]  # delays between attempts; total = 1 + len(_RETRY_DELAYS) tries
+# 4xx statuses that *can* succeed on retry (throttling / transient conflicts);
+# every other 4xx is a permanent client error and is not retried.
+_RETRYABLE_4XX = frozenset({408, 409, 425, 429})
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header expressed as integer seconds, else None."""
+    if value and value.strip().isdigit():
+        return float(value.strip())
+    return None
 
 
 class ModelAPIInterface:
@@ -46,10 +56,15 @@ class ModelAPIInterface:
         if prompt is None and completion is None:
             self.last_usage = None
             return
-        self.last_usage = {
-            "prompt_tokens": int(prompt) if prompt is not None else 0,
-            "completion_tokens": int(completion) if completion is not None else 0,
-        }
+        try:
+            self.last_usage = {
+                "prompt_tokens": int(prompt) if prompt is not None else 0,
+                "completion_tokens": int(completion) if completion is not None else 0,
+            }
+        except (TypeError, ValueError):
+            # A successful model call must not fail just because usage came back
+            # in an odd shape (e.g. a string that isn't a number).
+            self.last_usage = None
 
     # ── client ────────────────────────────────────────────────────────────────
 
@@ -114,8 +129,19 @@ class ModelAPIInterface:
                 resp = await client.post(endpoint, json=payload)
                 resp.raise_for_status()
                 return resp.json()
-            except httpx.HTTPError as e:
+            except httpx.HTTPStatusError as e:
                 last_error = e
+                status = e.response.status_code
+                # A permanent client error (bad key, bad model, malformed
+                # request) can never succeed on retry — fail fast instead of
+                # burning the whole backoff budget on it.
+                if status < 500 and status not in _RETRYABLE_4XX:
+                    raise
+                wait = _parse_retry_after(e.response.headers.get("retry-after"))
+                if wait is not None:
+                    await asyncio.sleep(min(wait, 30))
+            except httpx.HTTPError as e:
+                last_error = e  # network error / timeout — retryable
         raise last_error  # type: ignore[misc]
 
     # ── completion ────────────────────────────────────────────────────────────
@@ -129,13 +155,20 @@ class ModelAPIInterface:
 
     def _extract_content(self, data: dict) -> str:
         if self.protocol == Protocol.OPENAI:
-            return data["choices"][0]["message"]["content"] or ""
+            choices = data.get("choices") or []
+            if not choices:
+                return ""  # malformed/empty body → no content rather than KeyError
+            return (choices[0].get("message") or {}).get("content") or ""
         # Anthropic responses can interleave text + tool_use blocks; join all text.
         return "".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
     async def stream_complete(self, messages: list[Message], **kwargs) -> AsyncIterator[str]:
+        # Streaming does not parse a usage block, so clear any usage left over
+        # from a prior non-streaming call — otherwise a streamed turn would be
+        # mis-attributed the previous turn's token counts.
+        self.last_usage = None
         endpoint, payload = self._build_request(messages, **kwargs)
         payload["stream"] = True
         client = self._get_client()
@@ -217,26 +250,29 @@ class ModelAPIInterface:
 
     def _parse_tool_response(self, data: dict) -> tuple[str, list[ToolCall]]:
         if self.protocol == Protocol.OPENAI:
-            msg = data["choices"][0]["message"]
+            choices = data.get("choices") or []
+            if not choices:
+                return "", []  # malformed/empty body → "done, no actions"
+            msg = choices[0].get("message") or {}
             text = msg.get("content") or ""
-            raw_calls = msg.get("tool_calls") or []
-            calls = [
-                ToolCall(
-                    id=tc["id"],
-                    name=tc["function"]["name"],
-                    arguments=json.loads(tc["function"]["arguments"]),
-                )
-                for tc in raw_calls
-            ]
+            calls = []
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    args = {}  # tolerate a model that emits non-JSON arguments
+                calls.append(ToolCall(id=tc.get("id", ""), name=fn.get("name", ""), arguments=args))
             return text, calls
 
         # Anthropic
         tool_calls = []
         text_parts = []
         for block in data.get("content", []):
-            if block["type"] == "tool_use":
+            btype = block.get("type")
+            if btype == "tool_use":
                 tool_calls.append(ToolCall(id=block["id"], name=block["name"], arguments=block["input"]))
-            elif block["type"] == "text":
+            elif btype == "text":
                 text_parts.append(block["text"])
         return "".join(text_parts), tool_calls
 

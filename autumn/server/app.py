@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
 from ..core.memory.project import project_context, reset_current_project, set_current_project
+from ..core.security import MAX_REQUEST_BYTES, redact_secrets
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
 from . import integrations as integrations_mod
 
@@ -613,11 +614,37 @@ def _curator_with_model_or_400(autumn: Autumn):
     return wp4
 
 
+def _known_secrets(request: Request) -> list[str]:
+    """Collect the literal secrets (API keys) that must never appear in an error
+    surfaced to a client: the server's own auth key plus every model slot's key.
+    """
+    secrets: list[str] = []
+    env_key = os.environ.get("AUTUMN_API_KEY", "").strip()
+    if env_key:
+        secrets.append(env_key)
+    autumn = getattr(request.app.state, "autumn", None)
+    cfg = getattr(autumn, "config", None)
+    if cfg is not None:
+        for slot in ("a1", "a2", "a3", "a4"):
+            mc = getattr(cfg, slot, None)
+            key = getattr(mc, "api_key", None)
+            if key:
+                secrets.append(key)
+    return secrets
+
+
+def _safe_error(request: Request, exc: Exception | str) -> str:
+    """Render an exception/message for a client with secrets redacted."""
+    raw = str(exc) or (exc.__class__.__name__ if isinstance(exc, Exception) else "error")
+    return redact_secrets(raw, _known_secrets(request))
+
+
 def _record_failure(request: Request, exc: Exception) -> HTTPException:
     """Stash a short failure summary on app.state so /health can report it,
-    then return a 502 the caller can `raise from exc`.
+    then return a 502 the caller can `raise from exc`. The summary is redacted
+    so a leaked upstream error can't expose an API key via /health.
     """
-    message = str(exc) or exc.__class__.__name__
+    message = _safe_error(request, exc)
     request.app.state.last_error = message
     return HTTPException(status_code=502, detail=message)
 
@@ -639,7 +666,9 @@ def _trace_response(run: WorkflowRun) -> TraceResponse:
 
 
 def _trace_payload(run: WorkflowRun) -> dict:
-    return json.loads(_trace_response(run).model_dump_json())
+    # mode="json" yields a JSON-ready dict directly, avoiding a serialize-then-
+    # reparse round-trip on every streamed trace event.
+    return _trace_response(run).model_dump(mode="json")
 
 
 # Paths reachable without the API key even when AUTUMN_API_KEY is set, so a
@@ -658,14 +687,51 @@ def _extract_api_key(request: Request) -> str:
     return ""
 
 
+def _cors_origins() -> list[str]:
+    """Allowed CORS origins from ``AUTUMN_CORS_ORIGINS`` (comma-separated).
+
+    Defaults to ``*`` (unchanged) so existing clients keep working; operators
+    can lock the API to known origins without touching code.
+    """
+    raw = os.environ.get("AUTUMN_CORS_ORIGINS", "*").strip()
+    if not raw or raw == "*":
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+def _max_body_bytes() -> int:
+    """Inbound request-body ceiling from ``AUTUMN_MAX_BODY_BYTES`` (default 4MB)."""
+    raw = os.environ.get("AUTUMN_MAX_BODY_BYTES", "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    return MAX_REQUEST_BYTES
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Autumn HTTP API", version="0.2.3", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _limits_and_headers(request: Request, call_next):
+        """Reject oversized request bodies (cheap DoS / cost-amplification guard)
+        and stamp conservative security headers on every response."""
+        content_length = request.headers.get("content-length")
+        if content_length and content_length.isdigit():
+            if int(content_length) > _max_body_bytes():
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"Request body exceeds {_max_body_bytes()} bytes."},
+                )
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
 
     @app.middleware("http")
     async def _enforce_api_key(request: Request, call_next):
@@ -873,8 +939,9 @@ def create_app() -> FastAPI:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                request.app.state.last_error = str(exc)
-                payload = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                message = _safe_error(request, exc)
+                request.app.state.last_error = message
+                payload = json.dumps({"error": message}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
                 yield "data: [DONE]\n\n"
             finally:

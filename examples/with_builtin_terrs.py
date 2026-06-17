@@ -10,9 +10,7 @@ import os
 from autumn import (
     Autumn, AutumnConfig, ModelConfig, Protocol,
     # safe always-on
-    time_terr, math_terr, text_terr, data_terr,
-    # opt-in
-    web_terr, fs_terr, memory_terr,
+    time_terr, math_terr,
     # one-line helpers
     register_safe_builtins, register_builtins,
 )

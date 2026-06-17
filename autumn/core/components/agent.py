@@ -1,12 +1,38 @@
 import asyncio
 import time
 import warnings
+from collections.abc import Awaitable, Callable
 
 from ..api.base import ModelAPIInterface
 from ..types import AgentStep, Protocol
 from .skill import Skill
 from .terr import Terr
 from .tool import Tool
+
+# A1 supervision hook: given (iteration_index, steps_so_far), return guidance to
+# inject into the loop, or None/"" to let the agent continue untouched.
+Supervisor = Callable[[int, "list[AgentStep]"], Awaitable["str | None"]]
+
+
+def _inject_note(msgs: list[dict], note: str) -> None:
+    """Append a supervisor note to the running message list, provider-agnostically.
+
+    The injection point is right after the tool-result follow-up. The shape of
+    that last message differs per provider, so we adapt:
+      * Anthropic — tool results live in a user message whose content is a list of
+        blocks; we add a text block.
+      * Hermes — tool results are a user message with string content; we append.
+      * OpenAI — tool results are separate ``role:"tool"`` messages; a fresh user
+        message is the valid next turn.
+    """
+    last = msgs[-1] if msgs else None
+    content = last.get("content") if isinstance(last, dict) else None
+    if isinstance(content, list):
+        content.append({"type": "text", "text": note})
+    elif isinstance(last, dict) and last.get("role") == "user" and isinstance(content, str):
+        last["content"] = f"{content}\n\n{note}"
+    else:
+        msgs.append({"role": "user", "content": note})
 
 _DEFAULT_MAX_STEPS = 10
 _MAX_HISTORY_CONTEXT = 5
@@ -196,12 +222,24 @@ class Agent:
         duration_ms = round((time.perf_counter() - started) * 1000, 1)
         return str(result), duration_ms, callable_obj
 
-    async def run(self, task: str, memory=None, steps: list[AgentStep] | None = None) -> str:
+    async def run(
+        self,
+        task: str,
+        memory=None,
+        steps: list[AgentStep] | None = None,
+        supervisor: "Supervisor | None" = None,
+    ) -> str:
         """Run the ReAct loop and return the final answer.
 
         If ``steps`` is provided, each tool/skill invocation is appended to it
         as an :class:`AgentStep` — letting callers surface the agent's actions
         in a workflow trace without changing the string return value.
+
+        ``supervisor`` (0.3.0) is an optional coordinator hook (A1). After each
+        iteration that issued tool calls, it is invoked with the iteration index
+        and the steps so far; a non-empty string it returns is injected into the
+        conversation as guidance the model sees on its next turn. Used to let A1
+        watch and steer A2 mid-execution.
 
         After ``run`` returns, ``self.total_prompt_tokens`` and
         ``self.total_completion_tokens`` hold the summed token usage across all
@@ -235,7 +273,7 @@ class Agent:
         self.total_prompt_tokens: int = 0
         self.total_completion_tokens: int = 0
 
-        for _ in range(self.max_steps):
+        for iteration in range(self.max_steps):
             text, tool_calls = await self.api.complete_with_tools_raw(
                 msgs, tool_schemas, system=api_system,
             )
@@ -284,5 +322,12 @@ class Agent:
 
             msgs.append(self.api.build_assistant_tool_message(text, tool_calls))
             msgs.extend(self.api.build_tool_result_messages(tool_calls, results))
+
+            # A1 supervision: after the tool results land, let the coordinator
+            # inspect progress and optionally inject guidance for the next turn.
+            if supervisor is not None:
+                guidance = await supervisor(iteration, steps if steps is not None else [])
+                if guidance:
+                    _inject_note(msgs, f"[A1 supervisor] {guidance}")
 
         return "[agent: max steps reached without a final answer]"

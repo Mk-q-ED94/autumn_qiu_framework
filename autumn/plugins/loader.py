@@ -70,7 +70,14 @@ class PluginLoader:
                 continue
             spec = importlib.util.spec_from_file_location(path.stem, path)
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            try:
+                spec.loader.exec_module(module)
+            except Exception as e:  # noqa: BLE001 — one broken plugin must not abort the rest
+                warnings.warn(
+                    f"Failed to load plugin {path.name!r}: {type(e).__name__}: {e}. Skipping.",
+                    stacklevel=2,
+                )
+                continue
             for attr_name in dir(module):
                 obj = getattr(module, attr_name)
                 if isinstance(obj, Terr):

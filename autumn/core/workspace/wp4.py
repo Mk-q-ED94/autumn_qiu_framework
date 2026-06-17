@@ -33,6 +33,7 @@ from ..memory.dimensions import ActivationContext, UseMode
 from .base import WorkspaceBase
 
 if TYPE_CHECKING:
+    from ..api.base import ModelAPIInterface
     from ..components.skill import Skill
     from ..memory.base import MemoryArea, MemoryEntry
     from ..memory.project import ProjectGoals, ProjectMemory, ProjectMeta
@@ -135,10 +136,57 @@ class WP4Mem(WorkspaceBase):
         memory: MemoryArea,
         zones: dict[str, MemoryArea],
         projects: ProjectMemory | None = None,
+        delegation_api=None,
+        delegation_threshold: int = 0,
+        research_provider=None,
     ):
         super().__init__(api, memory)
         self._zones: dict[str, MemoryArea] = dict(zones)
         self._projects = projects
+        # When set, heavy cognitive operations (consolidation, evolution, profile
+        # synthesis, project discussion) are delegated to this stronger model api
+        # rather than calling the weak local A4 model. Set by framework.py to A1.
+        self._delegation_api = delegation_api
+        # Below this many source chars an op stays on the local A4 model even when
+        # delegation is configured — small jobs aren't worth the strong model. 0 =
+        # always delegate when an api is set.
+        self._delegation_threshold = max(0, delegation_threshold)
+        # Optional callable returning the knowledge skills A4 may use in research().
+        self._research_provider = research_provider
+
+    def _cognitive_api(self, source_chars: int = 0) -> "ModelAPIInterface | None":
+        """Return the api to use for a heavy cognitive memory operation.
+
+        Prefers the delegation_api (A1) over the local A4 model so the strong
+        cloud model handles reasoning the weak local model does poorly. When a
+        delegation threshold is set, an operation whose source material is shorter
+        than the threshold stays on the local A4 (cheaper, and small jobs don't
+        need the strong model). ``source_chars=0`` means "size unknown" and always
+        delegates when an api is available.
+        """
+        if self._delegation_api is None:
+            return self.api
+        if (
+            self._delegation_threshold > 0
+            and 0 < source_chars < self._delegation_threshold
+        ):
+            return self.api
+        return self._delegation_api
+
+    async def _zone_source_chars(self, area: str, keep_recent: int = 0) -> int:
+        """Estimate the source size (chars) an op will summarise over a zone.
+
+        Used to decide threshold-gated delegation for ops whose prompt is built
+        inside :class:`MemoryArea`. Best-effort: returns 0 (→ delegate) on any
+        error or unexpected history shape, so it can never break the op it sizes.
+        """
+        try:
+            entries = await self._resolve(area).get_history()
+            if keep_recent and len(entries) > keep_recent:
+                entries = entries[:-keep_recent]
+            return sum(len(getattr(e, "text", "") or "") for e in entries)
+        except Exception:
+            return 0
 
     # ── model availability ──────────────────────────────────────────────────────
 
@@ -333,7 +381,11 @@ class WP4Mem(WorkspaceBase):
                 content=f"Annotate these {len(entries)} memory entries:\n\n{listing}",
             ),
         ]
-        response = await self.api.complete(messages)
+        try:
+            response = await self._cognitive_api(len(listing)).complete(messages)
+        except Exception:
+            await self._log("annotate", area, {"annotated": 0, "scanned": len(entries)})
+            return {"annotated": 0, "scanned": len(entries)}
         try:
             data = json.loads(self._extract_json(response))
         except (json.JSONDecodeError, ValueError):
@@ -380,8 +432,9 @@ class WP4Mem(WorkspaceBase):
             raise RuntimeError(
                 "Memory consolidation needs the A4 model slot; none is configured.",
             )
+        api = self._cognitive_api(await self._zone_source_chars(area, keep_recent))
         summary = await self._resolve(area).consolidate(
-            self.api, keep_recent=keep_recent, min_candidates=min_candidates,
+            api, keep_recent=keep_recent, min_candidates=min_candidates,
         )
         await self._log(
             "consolidate",
@@ -427,8 +480,9 @@ class WP4Mem(WorkspaceBase):
             raise RuntimeError(
                 "Atomic-fact extraction needs the A4 model slot; none is configured.",
             )
+        api = self._cognitive_api(await self._zone_source_chars(area, keep_recent))
         facts = await self._resolve(area).extract_facts(
-            self.api, keep_recent=keep_recent, max_facts=max_facts,
+            api, keep_recent=keep_recent, max_facts=max_facts,
         )
         await self._log("extract_facts", area, {"facts": len(facts)})
         return facts
@@ -450,8 +504,9 @@ class WP4Mem(WorkspaceBase):
             raise RuntimeError(
                 "Memory self-evolution needs the A4 model slot; none is configured.",
             )
+        api = self._cognitive_api(await self._zone_source_chars(area))
         skills = await self._resolve(area).evolve(
-            self.api, min_count=min_count, min_cluster=min_cluster, max_skills=max_skills,
+            api, min_count=min_count, min_cluster=min_cluster, max_skills=max_skills,
         )
         await self._log("evolve", area, {"skills": len(skills)})
         return skills
@@ -474,7 +529,8 @@ class WP4Mem(WorkspaceBase):
             raise RuntimeError(
                 "Profile synthesis needs the A4 model slot; none is configured.",
             )
-        profile = await self._resolve(area).synthesize_profile(self.api, scope=scope)
+        api = self._cognitive_api(await self._zone_source_chars(area))
+        profile = await self._resolve(area).synthesize_profile(api, scope=scope)
         await self._log(
             "synthesize_profile", area, {"scope": scope, "updated": profile is not None},
         )
@@ -577,7 +633,9 @@ class WP4Mem(WorkspaceBase):
             ),
             Message(role=Role.USER, content=user_input),
         ]
-        result = await self.api.complete(messages)
+        # Project parameter discussion is a deliberate "discuss with A1" decision
+        # (0.3.0): always delegate when configured, regardless of the size threshold.
+        result = await self._cognitive_api(0).complete(messages)
         return result.strip()
 
     async def draft_goals(self, user_input: str, project_id: str) -> ProjectGoals:
@@ -609,7 +667,7 @@ class WP4Mem(WorkspaceBase):
                 content=f"{desc_context}Goals description: {user_input}",
             ),
         ]
-        response = await self.api.complete(messages)
+        response = await self._cognitive_api(0).complete(messages)  # project discussion → always A1
         try:
             data = json.loads(self._extract_json(response))
             return ProjectGoals.from_dict(data)
@@ -654,12 +712,12 @@ class WP4Mem(WorkspaceBase):
                 ),
             ),
         ]
-        response = await self.api.complete(messages)
+        response = await self._cognitive_api(0).complete(messages)
         try:
             data = json.loads(self._extract_json(response))
             meta.environment = ProjectEnvironment.from_dict(data)
         except (json.JSONDecodeError, ValueError, AttributeError):
-            pass  # leave environment unchanged if A4 returns unparseable output
+            pass  # leave environment unchanged if output is unparseable
         await zone.set_meta(meta)
         await self._log("infer_environment", "project", {"project_id": project_id})
         return meta
@@ -694,4 +752,80 @@ class WP4Mem(WorkspaceBase):
                 content=f"Using these memory entries, answer: {query!r}\n\n{snippets}",
             ),
         ]
-        return await self.api.complete(messages)
+        return await self._cognitive_api().complete(messages)
+
+    # ── execution archive (0.3.0 — A1 → A4 hand-off) ────────────────────────────
+
+    async def record_execution_summary(
+        self,
+        source: str,
+        user_input: str,
+        output: str,
+        area: str = "shared",
+    ) -> "MemoryEntry | None":
+        """Archive one completed turn's outcome into a cross-workspace zone.
+
+        This is the curated end of the cooperative loop: after A2/A3 finish, A1
+        (the coordinator) hands the result to A4, which records it where every
+        workspace can later recall it. Written to the ``shared`` zone by default
+        (per RFC §7.5 — Mom1 is A1-private; summaries should be cross-visible).
+
+        Best-effort: never raises into the workflow. Returns the stored entry, or
+        ``None`` when nothing was written (empty output or a storage error).
+        """
+        if not output.strip():
+            return None
+        try:
+            entry = await self._resolve(area).append_history(
+                {
+                    "ts": time.time(),
+                    "source": source,
+                    "input": user_input,
+                    "output": output,
+                },
+                tags=["execution_summary", source],
+            )
+        except Exception:
+            return None
+        await self._log("record_execution_summary", area, {"source": source})
+        return entry
+
+    # ── research (0.3.0 — A4's external-retrieval augmentation) ──────────────────
+
+    @property
+    def can_research(self) -> bool:
+        """True when a knowledge-retrieval skill set is wired for :meth:`research`."""
+        return self._research_provider is not None and self.has_model
+
+    async def research(self, query: str, max_steps: int = 4) -> str:
+        """Answer *query* by letting A4 drive a bounded knowledge-retrieval loop.
+
+        A4 is a weak local model, so heavy reasoning is delegated to A1 via
+        ``_cognitive_api``; this method instead gives A4's slot an *external*
+        capability — web search / document fetch — that no local model has on its
+        own. The retrieval skills come from ``research_provider`` (the knowledge
+        Terr). Returns a plain-text answer, or a clear message when unavailable.
+        """
+        if self._research_provider is None:
+            return "[research unavailable: no knowledge Terr is configured]"
+        skills = self._research_provider()
+        if not skills:
+            return "[research unavailable: knowledge Terr has no skills]"
+        from ..components.agent import Agent
+
+        api = self._cognitive_api(0)  # retrieval reasoning → strong model when available
+        if api is None:
+            return "[research unavailable: no model slot configured]"
+        agent = Agent(
+            name="A4-Research",
+            api=api,
+            skills=skills,
+            instructions=(
+                "You are A4's research assistant. Use the knowledge tools to gather "
+                "external information, then answer concisely and cite what you found."
+            ),
+            max_steps=max_steps,
+        )
+        result = await agent.run(query, memory=self.memory)
+        await self._log("research", "shared", {"query": query[:120]})
+        return result

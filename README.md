@@ -509,9 +509,52 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.2.3**. Autumn follows semantic versioning; while `0.x`,
-minor versions add features and may adjust APIs. **Next up: `0.3.0`**, a larger
-release currently in planning.
+Current version: **0.3.0**. Autumn follows semantic versioning; while `0.x`,
+minor versions add features and may adjust APIs.
+
+### 0.3.0 — 2026-06-17 · Cooperative multi-model workflow + central security
+
+Turns the A1–A4 pipeline into a **two-way cooperative workflow**: A1 (组长) now
+leads — planning, supervising and delegating — instead of only bookending the
+route. Every feature sits behind a gate; the `COOPERATIVE_WORKFLOW` master switch
+(off) reverts the whole layer to 0.2.x behaviour. Builds on 0.2.3's 4D memory and
+HTTP-bridge security.
+
+- **Task / Mission boundary, by executor** — TASK → A2 (heavy code work),
+  MISSION → A3 (all other general work: writing, analysis, summarisation, docs);
+  A3 still escalates heavier missions via convert.
+- **A1 leads the pipeline** — A1 gains handles to WP4, project memory and the
+  Mom1 access broker, so it supervises execution and leads project discussions
+  rather than only appearing at the route / final-check ends.
+- **A1 task planning** — before dispatching a TASK, A1 drafts a 3–6 step plan
+  injected as a WP2 system hint; surfaced as a `wp1.plan` trace stage. Gated by
+  `A1_TASK_PLANNING`.
+- **A1 supervision** — after each ReAct step A1 reviews A2's action and may inject
+  corrective guidance (provider-agnostic); surfaced as `wp1.supervise` stages.
+  Gated by `A1_SUPERVISION`.
+- **Capability-aware routing** — the Selector sees a digest of enabled Terr
+  domains when classifying, so routing reflects what the agent can actually do.
+- **A3 lite toolset** — A3 gains a bounded (≤4-step, whitelist-gated) skill loop
+  so it can call recall / time / etc. before answering, on both the streaming and
+  non-streaming direct paths. Set via `A3_LITE_SKILLS`.
+- **A4 cognitive delegation** — WP4's heavy cognitive ops (consolidate / evolve /
+  extract_facts / synthesize_profile / annotate) and project-parameter discussion
+  prefer the strong A1 over the weak local A4, with a size threshold keeping small
+  ops local. Gated by `A4_DELEGATE_TO_A1` (on).
+- **A4 knowledge Terr + research** — a new `knowledge_terr` (web_search /
+  fetch_document / knowledge_base_query) and a bounded `WP4.research()` loop give
+  A4 external retrieval. Gated by `A4_KNOWLEDGE_TERR`.
+- **Execution archive** — each turn's outcome is written to the shared zone
+  (`wp4.push`), so the team accrues a searchable history. Gated by
+  `ARCHIVE_EXECUTIONS`.
+- **Central security module** — `autumn/core/security.py` consolidates the SSRF
+  guard, secret redaction, path sandboxing and resource limits used across the
+  network Terrs and the HTTP bridge, plus broadened protections (math-DoS bounds,
+  request body-size limit, security headers, configurable CORS).
+- **Full-module optimization + robustness pass** — memory decode tolerance, API
+  retry/usage hardening, network-Terr dedup with SSRF re-validation on redirects,
+  framework-wiring fixes.
+- **Tests** — 983 passing (adds `tests/test_cooperative_workflow.py`), ruff clean.
 
 ### 0.2.3 — 2026-06-15 · EverOS-inspired 4D memory + HTTP-bridge security hardening
 

@@ -4,6 +4,7 @@ _EXPORTS = {
     "Autumn": ("autumn.core.framework", "Autumn"),
     "AutumnConfig": ("autumn.core.config", "AutumnConfig"),
     "ModelConfig": ("autumn.core.config", "ModelConfig"),
+    "BehaviorConfig": ("autumn.core.config", "BehaviorConfig"),
     "WorkspacePrompts": ("autumn.core.config", "WorkspacePrompts"),
     "StorageConfig": ("autumn.core.config", "StorageConfig"),
     "EmbeddingConfig": ("autumn.core.config", "EmbeddingConfig"),
@@ -40,6 +41,7 @@ _EXPORTS = {
     "web_terr": ("autumn.builtin", "web_terr"),
     "fs_terr": ("autumn.builtin", "fs_terr"),
     "memory_terr": ("autumn.builtin", "memory_terr"),
+    "knowledge_terr": ("autumn.builtin", "knowledge_terr"),
     "register_safe_builtins": ("autumn.builtin", "register_safe_builtins"),
     "register_builtins": ("autumn.builtin", "register_builtins"),
 }

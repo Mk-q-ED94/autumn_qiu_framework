@@ -26,6 +26,7 @@ under a reserved key inside its zone:
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -211,6 +212,9 @@ class ProjectZone(MemoryArea):
             fourd_enabled=fourd_enabled,
         )
         self.project_id = project_id
+        # Serialises read-modify-write of the __meta__ blob so two concurrent
+        # update_meta/add_file/remove_file calls cannot lose one another's edit.
+        self._meta_lock = asyncio.Lock()
 
     # ── metadata ──────────────────────────────────────────────────────────────
 
@@ -233,35 +237,38 @@ class ProjectZone(MemoryArea):
 
             await zone.update_meta(goals={"master": "ship v2"})  # long_term unchanged
         """
-        meta = await self.get_meta()
-        for key, value in kwargs.items():
-            if key == "goals" and isinstance(value, dict):
-                d = meta.goals.to_dict()
-                d.update(value)
-                meta.goals = ProjectGoals.from_dict(d)
-            elif key == "environment" and isinstance(value, dict):
-                d = meta.environment.to_dict()
-                d.update(value)
-                meta.environment = ProjectEnvironment.from_dict(d)
-            elif hasattr(meta, key):
-                setattr(meta, key, value)
-        await self.set_meta(meta)
-        return meta
+        async with self._meta_lock:
+            meta = await self.get_meta()
+            for key, value in kwargs.items():
+                if key == "goals" and isinstance(value, dict):
+                    d = meta.goals.to_dict()
+                    d.update(value)
+                    meta.goals = ProjectGoals.from_dict(d)
+                elif key == "environment" and isinstance(value, dict):
+                    d = meta.environment.to_dict()
+                    d.update(value)
+                    meta.environment = ProjectEnvironment.from_dict(d)
+                elif hasattr(meta, key):
+                    setattr(meta, key, value)
+            await self.set_meta(meta)
+            return meta
 
     async def add_file(self, path: str) -> None:
         """Append ``path`` to the project's file list (idempotent)."""
-        meta = await self.get_meta()
-        if path not in meta.files:
-            meta.files.append(path)
-            await self.set_meta(meta)
+        async with self._meta_lock:
+            meta = await self.get_meta()
+            if path not in meta.files:
+                meta.files.append(path)
+                await self.set_meta(meta)
 
     async def remove_file(self, path: str) -> None:
         """Remove ``path`` from the project's file list. No-op if not present."""
-        meta = await self.get_meta()
-        new_files = [f for f in meta.files if f != path]
-        if len(new_files) != len(meta.files):
-            meta.files = new_files
-            await self.set_meta(meta)
+        async with self._meta_lock:
+            meta = await self.get_meta()
+            new_files = [f for f in meta.files if f != path]
+            if len(new_files) != len(meta.files):
+                meta.files = new_files
+                await self.set_meta(meta)
 
 
 class ProjectMemory:

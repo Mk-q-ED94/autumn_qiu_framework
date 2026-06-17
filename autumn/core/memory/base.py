@@ -99,14 +99,14 @@ class MemoryEntry:
         ``effective_importance``, so enabling 4D scoring on un-annotated data
         changes nothing (modulo decay). Returns 0 when the trigger or aim vetoes.
         """
-        w = self.trigger.weight(self.timestamp, ctx.now, ctx, self.use.stats.last_used)
-        if w <= 0:
+        time_weight = self.trigger.weight(self.timestamp, ctx.now, ctx, self.use.stats.last_used)
+        if time_weight <= 0:
             return 0.0
-        a = self.aim.align(ctx)
-        if a <= 0:
+        aim_align = self.aim.align(ctx)
+        if aim_align <= 0:
             return 0.0
-        time_factor = w * self.effective_importance(ctx.now, half_life)
-        return activation_score(time_factor, a, self.use.utility())
+        time_factor = time_weight * self.effective_importance(ctx.now, half_life)
+        return activation_score(time_factor, aim_align, self.use.utility())
 
     def retention_score(
         self, now: float | None = None, half_life: float | None = None,
@@ -167,11 +167,23 @@ class MemoryEntry:
 
 
 def _decode(raw: list | None) -> list[MemoryEntry]:
-    """Decode a stored history list into MemoryEntry objects (legacy-tolerant)."""
-    return [
-        MemoryEntry.from_dict(e) if isinstance(e, dict) else e
-        for e in (raw or [])
-    ]
+    """Decode a stored history list into MemoryEntry objects (legacy-tolerant).
+
+    A single corrupt/partial entry (e.g. a truncated row, or markdown
+    frontmatter that lost a required field) is skipped rather than allowed to
+    raise — one unreadable entry must not brick append/recall for the whole
+    zone, which is the tolerance the docstring on ``from_dict`` promises.
+    """
+    out: list[MemoryEntry] = []
+    for e in (raw or []):
+        if not isinstance(e, dict):
+            out.append(e)
+            continue
+        try:
+            out.append(MemoryEntry.from_dict(e))
+        except (KeyError, TypeError, ValueError):
+            continue  # drop the bad entry; keep the rest of the zone readable
+    return out
 
 
 def _parse_fact_array(raw: str) -> list[str]:
@@ -394,7 +406,7 @@ class MemoryArea:
         if self._index_tasks:
             await asyncio.gather(*list(self._index_tasks), return_exceptions=True)
 
-    def _index_meta(self, entry: MemoryEntry) -> dict:
+    def _index_meta(self, entry: MemoryEntry) -> dict[str, Any]:
         meta = {"type": "history", "area": self.name}
         meta.update({f"tag:{t}": True for t in entry.tags})
         return meta
@@ -896,7 +908,10 @@ class MemoryArea:
                     content=consolidate_instruction(len(candidates), joined),
                 ),
             ]
-            summary_text = await api.complete(messages)
+            try:
+                summary_text = await api.complete(messages)
+            except Exception:
+                return None  # A4 unavailable — skip consolidation rather than corrupt memory
 
             summary = MemoryEntry(
                 id=_new_id(),
@@ -971,7 +986,10 @@ class MemoryArea:
             Message(role=Role.SYSTEM, content=system_prompt or ATOMIC_FACT_SYSTEM),
             Message(role=Role.USER, content=atomic_fact_instruction(joined)),
         ]
-        facts = _parse_fact_array(await api.complete(messages))[:max_facts]
+        try:
+            facts = _parse_fact_array(await api.complete(messages))[:max_facts]
+        except Exception:
+            return []  # A4 unavailable — return empty rather than raise into caller
         if not facts:
             return []
 
@@ -996,6 +1014,7 @@ class MemoryArea:
         min_count: int = 2,
         min_cluster: int = 2,
         max_skills: int = 10,
+        max_chars: int = 4000,
         system_prompt: str | None = None,
     ) -> list[MemoryEntry]:
         """Distil recurring, proven-useful memories into reusable skills (P3-A).
@@ -1037,12 +1056,15 @@ class MemoryArea:
         for intent, members in clusters.items():
             if len(members) < min_cluster or len(created) >= max_skills:
                 continue
-            joined = "\n".join(f"- {e.text}" for e in members)
+            joined = "\n".join(f"- {e.text}" for e in members)[:max_chars]
             messages = [
                 Message(role=Role.SYSTEM, content=system_prompt or EVOLVE_SYSTEM),
                 Message(role=Role.USER, content=evolve_instruction(intent, joined)),
             ]
-            rule = (await api.complete(messages)).strip()
+            try:
+                rule = (await api.complete(messages)).strip()
+            except Exception:
+                continue  # A4 unavailable for this cluster — skip rather than abort
             if not rule:
                 continue
             cues = sorted({c for e in members for c in e.trigger.cues})
@@ -1124,13 +1146,20 @@ class MemoryArea:
         if not joined.strip():
             return None
 
-        current = await self.get_profile(scope) or ""
+        # Derive the current profile from the history we already decoded rather
+        # than calling get_profile() (which would decode the whole zone again).
+        profile_tags = set(self._profile_tags(scope))
+        profile_matches = [e for e in history if profile_tags.issubset(set(e.tags))]
+        current = profile_matches[-1].text if profile_matches else ""
         from ..types import Message, Role
         messages = [
             Message(role=Role.SYSTEM, content=system_prompt or PROFILE_SYSTEM),
             Message(role=Role.USER, content=profile_instruction(current, joined)),
         ]
-        updated = (await api.complete(messages)).strip()
+        try:
+            updated = (await api.complete(messages)).strip()
+        except Exception:
+            return None  # A4 unavailable — leave existing profile intact
         if not updated:
             return None
         await self.set_profile(updated, scope=scope)

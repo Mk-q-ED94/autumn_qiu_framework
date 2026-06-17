@@ -1,8 +1,8 @@
 // ── Workflow trace types (mirrors autumn/core/types.py + server schema) ────────
 
-export type WorkspaceId = "WP1" | "WP2" | "WP3";
+export type WorkspaceId = "WP1" | "WP2" | "WP3" | "WP4";
 export type StageStatus = "pending" | "active" | "completed" | "failed";
-export type StageKind = "stage" | "tool" | "agent";
+export type StageKind = "stage" | "tool" | "agent" | "push";
 
 export interface WorkflowStage {
   id: string;
@@ -70,6 +70,13 @@ export interface Terr {
 
 export type MemoryArea = "mom1" | "mom2" | "mom3";
 export type MemoryEntry = unknown; // raw from backend
+
+/** Runtime 4D-memory flags (GET /memory/4d/status, POST /memory/4d/config). */
+export interface FourDStatus {
+  fourd_memory_enabled: boolean;
+  fourd_push_on_turn: boolean;
+  mom1_access_enabled: boolean;
+}
 
 // ── Server config ─────────────────────────────────────────────────────────────
 

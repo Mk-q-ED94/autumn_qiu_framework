@@ -148,6 +148,13 @@ class HermesAPIInterface(ModelAPIInterface):
 
     # ── ModelAPIInterface overrides ────────────────────────────────────────────
 
+    async def complete(self, messages, **kwargs) -> str:
+        """Strip <thinking> blocks so memory ops and plain calls get clean output."""
+        text = await super().complete(messages, **kwargs)
+        clean, thinking = self._extract_thinking(text)
+        self.last_thinking = thinking
+        return clean
+
     async def complete_with_tools_raw(
         self,
         messages: list[dict],
