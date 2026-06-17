@@ -671,6 +671,7 @@ def _trace_payload(run: WorkflowRun) -> dict:
     return _trace_response(run).model_dump(mode="json")
 
 
+
 # Paths reachable without the API key even when AUTUMN_API_KEY is set, so a
 # container/uptime probe never has to carry the secret.
 _AUTH_EXEMPT_PATHS = frozenset({"/health"})

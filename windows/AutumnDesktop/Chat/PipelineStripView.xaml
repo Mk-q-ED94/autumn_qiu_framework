@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="AutumnDesktop.Chat.PipelineStripView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Compact horizontal timeline — one 6px-tall pill capsule per non-tool stage,
+         coloured by workspace (WP1=clay, WP2=amber, WP3=slate, WP4=memory),
+         followed by optional 4D / Agent / tool-count chips. Built entirely in
+         code-behind so capsule Opacity can be toggled by a DispatcherTimer for
+         the active-pulse animation without needing ObservableObject on each item. -->
+    <StackPanel x:Name="StagesPanel"
+                Orientation="Horizontal"
+                Spacing="4"
+                VerticalAlignment="Center" />
+</UserControl>

@@ -266,7 +266,7 @@ final class AutumnClient {
         var request = URLRequest(url: baseURL.appendingPathComponent("mcps/catalog"))
         request.timeoutInterval = 20
 
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode([KnownMCP].self, from: data)
     }
@@ -277,7 +277,7 @@ final class AutumnClient {
         var request = URLRequest(url: baseURL.appendingPathComponent("integrations/catalog"))
         request.timeoutInterval = 20
 
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode([IntegrationCatalogEntry].self, from: data)
     }
@@ -286,13 +286,13 @@ final class AutumnClient {
         var request = URLRequest(url: baseURL.appendingPathComponent("integrations/status"))
         request.timeoutInterval = 20
 
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode([IntegrationStatus].self, from: data)
     }
 
     @discardableResult
-    func connectIntegration(
+func connectIntegration(
         id: String,
         args: [String: String],
         writeEnabled: Bool = false
@@ -302,7 +302,7 @@ final class AutumnClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Spawning the MCP subprocess (npx download on first run) can be slow.
         request.timeoutInterval = 120
-        request.httpBody = try JSONEncoder().encode(
+request.httpBody = try JSONEncoder().encode(
             IntegrationConnectBody(id: id, args: args, writeEnabled: writeEnabled)
         )
 
@@ -319,7 +319,7 @@ final class AutumnClient {
         request.httpMethod = "DELETE"
         request.timeoutInterval = 30
 
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(IntegrationStatus.self, from: data)
     }
@@ -362,7 +362,7 @@ final class AutumnClient {
     func fetch4DStatus() async throws -> FourDStatus {
         var request = URLRequest(url: baseURL.appendingPathComponent("memory/4d/status"))
         request.timeoutInterval = 15
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(FourDStatus.self, from: data)
     }
@@ -381,7 +381,7 @@ final class AutumnClient {
                 mom1AccessEnabled: mom1AccessEnabled
             )
         )
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(FourDStatus.self, from: data)
     }
@@ -394,7 +394,7 @@ final class AutumnClient {
         request.httpBody = try JSONEncoder().encode(
             PushPreviewRequestBody(area: area.rawValue, query: query, k: 5)
         )
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(PushPreviewResponse.self, from: data)
     }
@@ -413,7 +413,7 @@ final class AutumnClient {
         request.httpBody = try JSONEncoder().encode(
             AnnotateRequestBody(entryId: entryID, mode: mode, intent: intent, cues: cues)
         )
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(AnnotateResult.self, from: data)
     }
@@ -426,7 +426,7 @@ final class AutumnClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 120
         request.httpBody = try JSONEncoder().encode(AutoAnnotateRequestBody(n: n, onlyUnannotated: true))
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(AutoAnnotateResult.self, from: data)
     }
@@ -444,7 +444,7 @@ final class AutumnClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
 
-        let (data, response) = try await Self.session.data(for: request)
+let (data, response) = try await Self.session.data(for: request)
         try Self.requireOK(response, data: data)
         return try JSONDecoder().decode(AccessLogResponse.self, from: data)
     }

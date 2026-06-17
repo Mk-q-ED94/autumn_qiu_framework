@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AutumnDesktop.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ds="using:AutumnDesktop.DesignSystem"
+    Title="Autumn 秋">
+
+    <!--
+    Shell layout:
+      Row 0 (48 px) │ Custom title bar — full-width drag region, brand mark left,
+                    │ system caption buttons appear at top-right automatically.
+      Row 1 (*)     │ Sidebar (240 px, Col 0) + Content frame (Col 1)
+
+    ExtendsContentIntoTitleBar = true and SetTitleBar(TitleBar) are called in
+    code-behind. The sidebar and title bar share AutumnSidebarBrush so they form
+    a single left-hand panel with no visible seam.
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />   <!-- title bar -->
+            <RowDefinition Height="*" />    <!-- body -->
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ── Custom title bar ─────────────────────────────────────────────
+             Spans both columns. SetTitleBar() makes the whole strip draggable;
+             the system positions caption buttons (close/min/max) at top-right
+             automatically and excludes them from the drag hit-test. -->
+        <Grid x:Name="TitleBar"
+              Grid.Row="0" Grid.ColumnSpan="2"
+              Background="{ThemeResource AutumnSidebarBrush}">
+            <!-- Brand mark sits in the 240 px sidebar column -->
+            <StackPanel Orientation="Horizontal" Spacing="10"
+                        VerticalAlignment="Center" Margin="16,0,0,0">
+                <Border Width="28" Height="28" CornerRadius="8"
+                        Background="{StaticResource AutumnBrandGradientBrush}">
+                    <TextBlock Text="秋" Foreground="White" FontSize="15" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Autumn" FontWeight="SemiBold" FontSize="14" />
+                    <TextBlock Text="协作工作台" FontSize="9"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- ── Sidebar ──────────────────────────────────────────────────────
+             Hand-drawn panel using AutumnNavItem; no NavigationView in sight.
+             The warm AutumnSidebarBrush connects visually to the title bar above. -->
+        <Grid Grid.Row="1" Grid.Column="0"
+              Background="{ThemeResource AutumnSidebarBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />    <!-- primary nav -->
+                <RowDefinition Height="Auto" /> <!-- footer (settings + status) -->
+            </Grid.RowDefinitions>
+
+            <!-- Primary navigation items -->
+            <StackPanel Grid.Row="0" Padding="8,8,8,0" Spacing="2">
+                <ds:AutumnNavItem x:Name="NavChat"
+                                   Glyph="&#xE8BD;" Label="协作"
+                                   Tag="Chat" IsSelected="True"
+                                   Selected="NavItem_Selected" />
+                <ds:AutumnNavItem x:Name="NavMemory"
+                                   Glyph="&#xE81C;" Label="记忆"
+                                   Tag="Memory"
+                                   Selected="NavItem_Selected" />
+            </StackPanel>
+
+            <!-- Footer: settings nav + separator + agent health -->
+            <StackPanel Grid.Row="1" Padding="8,0,8,16" Spacing="4">
+                <ds:AutumnNavItem x:Name="NavSettings"
+                                   Glyph="&#xE713;" Label="设置"
+                                   Tag="Settings"
+                                   Selected="NavItem_Selected" />
+
+                <Rectangle Height="1"
+                           Fill="{ThemeResource CardStrokeColorDefaultBrush}"
+                           Margin="4,4" Opacity="0.5" />
+
+                <!-- A1 / A2 / A3 / A4 slot indicators -->
+                <StackPanel Orientation="Horizontal" Spacing="10" Padding="12,4">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                 Fill="{StaticResource AutumnClayBrush}" Opacity="0.6" />
+                        <TextBlock Text="A1" FontSize="10"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                 Fill="{StaticResource AutumnWarningBrush}" Opacity="0.6" />
+                        <TextBlock Text="A2" FontSize="10"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                 Fill="{StaticResource AutumnSlateBrush}" Opacity="0.6" />
+                        <TextBlock Text="A3" FontSize="10"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5" Opacity="0.38">
+                        <Ellipse Width="6" Height="6" VerticalAlignment="Center"
+                                 Fill="{StaticResource AutumnMemoryBrush}" />
+                        <TextBlock Text="A4" FontSize="10"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Text="Paper &amp; Clay · v0.2.2" FontSize="9" Padding="12,0,0,0"
+                           Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ── Content frame ─────────────────────────────────────────────── -->
+        <Frame x:Name="ContentFrame" Grid.Row="1" Grid.Column="1" />
+
+        <!-- Sidebar / content divider — a single hairline separates the panels. -->
+        <Rectangle Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                   Width="1" HorizontalAlignment="Right"
+                   Fill="{ThemeResource CardStrokeColorDefaultBrush}"
+                   Opacity="0.6" />
+    </Grid>
+</Window>

@@ -52,6 +52,7 @@ def is_write_tool(name: str) -> bool:
     """True when a tool name reads as a mutating action on the platform."""
     return any(token in _WRITE_VERBS for token in _name_tokens(name))
 
+
 # The subset of the MCP catalog that represents an external account / platform
 # the agent can act on with a user-supplied credential. Each entry maps to a
 # catalog factory plus the fields that factory needs. ``fields`` drives the
