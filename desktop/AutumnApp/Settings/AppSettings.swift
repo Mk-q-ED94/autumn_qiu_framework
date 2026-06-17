@@ -125,6 +125,26 @@ final class AppSettings: ObservableObject {
         return args
     }
 
+    /// Collect the saved `{field_key: value}` map for a catalog MCP, dropping
+    /// empties. Shares the `<id>.<field>` keyspace with `integrationArgs`, so a
+    /// credential typed in either Settings or the Terr page is reused in both.
+    func mcpArgs(for mcp: KnownMCP) -> [String: String] {
+        var args: [String: String] = [:]
+        for field in mcp.fields {
+            let value = integrationValue(mcp.id, field.key).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { args[field.key] = value }
+        }
+        return args
+    }
+
+    /// True when every required field for a catalog MCP has a saved value.
+    func hasRequiredMcpArgs(for mcp: KnownMCP) -> Bool {
+        mcp.fields.allSatisfy { field in
+            field.optional ||
+            !integrationValue(mcp.id, field.key).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     private static func loadIntegrationCredentials() -> [String: String] {
         guard let data = UserDefaults.standard.data(forKey: integrationCredentialsKey),
               let decoded = try? JSONDecoder().decode([String: String].self, from: data)

@@ -104,11 +104,11 @@ struct TerrsView: View {
                     if !vm.catalog.isEmpty {
                         sectionHeader("可用 MCP 目录", systemImage: "square.grid.2x2")
                             .padding(.top, Autumn.spacing.sm)
-                        Text("框架已知的官方 MCP 服务器。在服务端用对应工厂函数注册后即可在上方启用。")
+                        Text("框架已知的官方 MCP 服务器。展开任意一项查看介绍；无需凭据的可一键连接，需配置的可直接在此填写并连接。")
                             .font(Autumn.typography.caption)
                             .foregroundStyle(.secondary)
                         ForEach(vm.catalog) { mcp in
-                            KnownMCPRow(mcp: mcp)
+                            KnownMCPRow(mcp: mcp, vm: vm, settings: vm.settings)
                         }
                     }
                 }
@@ -356,41 +356,279 @@ private struct InvocationChips: View {
     }
 }
 
-// MARK: - MCP catalog row
+// MARK: - MCP catalog row (intro + inline config + tutorial)
 
 private struct KnownMCPRow: View {
     let mcp: KnownMCP
+    @ObservedObject var vm: TerrsViewModel
+    @ObservedObject var settings: AppSettings
+
+    @State private var isExpanded = false
+    @State private var showTutorial = false
+    /// Pending write-access choice; mirrors the server when connected, takes
+    /// effect on the next (re)connect.
+    @State private var writeEnabled = false
+
+    private var status: IntegrationStatus? { vm.status(for: mcp) }
+    private var connected: Bool { status?.connected == true }
+    private var isBusy: Bool { vm.isConnecting(mcp) }
 
     var body: some View {
         AutumnCard(emphasis: .subtle, padding: Autumn.spacing.md) {
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
-                HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.sm) {
-                    Text(mcp.name)
-                        .font(Autumn.typography.bodyMedium)
-                    AutumnChip(mcp.factory, color: Autumn.colors.muted, size: .compact)
-                    credentialChip
-                }
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                // Only the header toggles expansion, so taps inside the config
+                // form never collapse the card or fight its controls.
+                header
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
+                    }
+
                 Text(mcp.description)
                     .font(Autumn.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if mcp.needsCredentials {
-                    Text("参数：\(mcp.requiredArgs.joined(separator: ", "))")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.tertiary)
+
+                if isExpanded {
+                    Divider()
+                    detail.transition(.opacity)
                 }
             }
+        }
+        .onAppear { writeEnabled = status?.writeEnabled ?? false }
+        .onChange(of: status?.writeEnabled) { _, newValue in
+            writeEnabled = newValue ?? false
+        }
+    }
+
+    // ── header ────────────────────────────────────────────────────────────────
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.sm) {
+            Text(mcp.name)
+                .font(Autumn.typography.bodyMedium)
+            AutumnChip(mcp.factory, color: Autumn.colors.muted, size: .compact)
+            credentialChip
+            Spacer(minLength: Autumn.spacing.xs)
+            if connected {
+                AutumnChip("已连接 · \(status?.toolCount ?? 0)",
+                           icon: "checkmark.circle.fill",
+                           color: Autumn.colors.success, size: .compact)
+            }
+            if isBusy {
+                ProgressView().controlSize(.small)
+            }
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
     }
 
     @ViewBuilder
     private var credentialChip: some View {
-        if mcp.needsCredentials {
-            AutumnChip("需凭据", icon: "key.fill",
-                       color: Autumn.colors.warning, size: .compact)
-        } else {
-            AutumnChip("无需凭据", icon: "checkmark.seal.fill",
-                       color: Autumn.colors.success, size: .compact)
+        switch mcp.category {
+        case "platform":
+            AutumnChip("需凭据", icon: "key.fill", color: Autumn.colors.warning, size: .compact)
+        case "local":
+            AutumnChip("需路径", icon: "folder.fill", color: Autumn.colors.info, size: .compact)
+        default:
+            AutumnChip("无需凭据", icon: "checkmark.seal.fill", color: Autumn.colors.success, size: .compact)
         }
+    }
+
+    // ── expanded detail ─────────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private var detail: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            if let summary = mcp.setup?.summary, !summary.isEmpty {
+                Text(summary)
+                    .font(Autumn.typography.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if connected {
+                connectedSummary
+            }
+
+            if mcp.needsConfig {
+                ForEach(mcp.fields) { field in
+                    fieldEditor(field)
+                }
+            }
+
+            writeAccessControl
+
+            tutorialDisclosure
+
+            if let err = vm.mcpErrors[mcp.id], !err.isEmpty {
+                Label(err, systemImage: "exclamationmark.triangle")
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(Autumn.colors.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            actions
+        }
+    }
+
+    private var connectedSummary: some View {
+        HStack(spacing: Autumn.spacing.xs) {
+            if status?.writeEnabled == true {
+                AutumnBadge("可写", icon: "pencil", tone: .warning)
+            } else {
+                AutumnBadge(blockedBadgeText, icon: "lock.fill", tone: .neutral)
+            }
+        }
+    }
+
+    private var blockedBadgeText: String {
+        let blocked = status?.blockedToolCount ?? 0
+        return blocked > 0 ? "只读 · 屏蔽 \(blocked) 个写工具" : "只读"
+    }
+
+    @ViewBuilder
+    private func fieldEditor(_ field: McpField) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: Autumn.spacing.xs) {
+                Text(field.label)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                if field.optional {
+                    Text("可选")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            if field.secret {
+                SecureField(field.placeholder.isEmpty ? field.label : field.placeholder,
+                            text: binding(for: field.key))
+                    .textFieldStyle(.roundedBorder)
+            } else {
+                TextField(field.placeholder.isEmpty ? field.label : field.placeholder,
+                          text: binding(for: field.key))
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+            }
+        }
+    }
+
+    private var writeAccessControl: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(isOn: $writeEnabled) {
+                Text("允许写操作（创建 / 编辑 / 删除 / 发送）")
+                    .font(Autumn.typography.caption)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            Text(writeEnabled
+                 ? "Agent 可调用该 MCP 的写工具，连接后立即生效。"
+                 : "默认只读：写工具被屏蔽。开启后需（重新）连接才生效。")
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // ── tutorial ────────────────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private var tutorialDisclosure: some View {
+        if let setup = mcp.setup, !setup.steps.isEmpty {
+            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                Button {
+                    withAnimation(Autumn.motion.soft) { showTutorial.toggle() }
+                } label: {
+                    HStack(spacing: Autumn.spacing.xs) {
+                        Image(systemName: "book")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(showTutorial ? "收起配置教程" : "查看配置教程")
+                            .font(Autumn.typography.captionStrong)
+                        Image(systemName: showTutorial ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundStyle(Autumn.colors.accent)
+                }
+                .buttonStyle(.plain)
+
+                if showTutorial {
+                    VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                        ForEach(Array(setup.steps.enumerated()), id: \.offset) { idx, step in
+                            stepRow(index: idx + 1, text: step)
+                        }
+                        if let doc = setup.docURL, let url = URL(string: doc) {
+                            Link(destination: url) {
+                                HStack(spacing: Autumn.spacing.xs) {
+                                    Image(systemName: "arrow.up.right.square")
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Text("官方文档")
+                                        .font(Autumn.typography.caption)
+                                }
+                            }
+                        }
+                    }
+                    .padding(Autumn.spacing.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                            .fill(Autumn.colors.surfaceElevated)
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+        }
+    }
+
+    private func stepRow(index: Int, text: String) -> some View {
+        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+            Text("\(index)")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(Autumn.colors.accent)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(Autumn.colors.accent.opacity(0.14)))
+            Text(text)
+                .font(Autumn.typography.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // ── actions ──────────────────────────────────────────────────────────────────
+
+    private var actions: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            if connected {
+                Button(role: .destructive) {
+                    Task { await vm.disconnectMCP(mcp) }
+                } label: { Text("断开") }
+                .disabled(isBusy)
+            }
+            Spacer()
+            Button {
+                Task { await vm.connectMCP(mcp, writeEnabled: writeEnabled) }
+            } label: {
+                if isBusy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(connected ? "重新连接" : (mcp.isKeyless ? "连接" : "保存并连接"))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isBusy || !canConnect)
+        }
+    }
+
+    private var canConnect: Bool {
+        mcp.isKeyless || settings.hasRequiredMcpArgs(for: mcp)
+    }
+
+    // ── bindings ─────────────────────────────────────────────────────────────────
+
+    private func binding(for key: String) -> Binding<String> {
+        Binding(
+            get: { settings.integrationValue(mcp.id, key) },
+            set: { settings.setIntegrationValue(mcp.id, key, $0) }
+        )
     }
 }

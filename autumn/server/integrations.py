@@ -52,71 +52,44 @@ def is_write_tool(name: str) -> bool:
     """True when a tool name reads as a mutating action on the platform."""
     return any(token in _WRITE_VERBS for token in _name_tokens(name))
 
-# The subset of the MCP catalog that represents an external account / platform
-# the agent can act on with a user-supplied credential. Each entry maps to a
-# catalog factory plus the fields that factory needs. ``fields`` drives the
-# client's input form; ``secret`` masks the value, ``optional`` relaxes the
-# required check.
+# The connect machinery is catalog-driven: any entry in ``KNOWN_MCPS`` can be
+# brought online (keyless ones with no args, configured ones via their fields).
+# ``MCP_BY_ID`` is the single source of factory + field metadata.
+_MCP_BY_ID: dict[str, dict] = _cat.MCP_BY_ID
+
+# The "platform" subset — external accounts behind a secret token. This is the
+# narrower surface the Settings → 集成 tab exposes via /integrations/*; it keeps
+# its own curated display names so that UI reads "GitHub", not "GitHub (MCP)".
+_PLATFORMS: list[dict] = [
+    {"id": "github", "name": "GitHub", "description": "读写 issues、Pull Request、仓库文件与代码搜索。"},
+    {"id": "gitlab", "name": "GitLab", "description": "访问项目、issues 与合并请求。"},
+    {"id": "slack", "name": "Slack", "description": "读取与发送频道消息。"},
+    {"id": "brave_search", "name": "Brave Search", "description": "通过 Brave Search API 进行网页搜索。"},
+    {"id": "google_maps", "name": "Google Maps", "description": "地理编码、地点检索与路线规划。"},
+    {"id": "postgres", "name": "PostgreSQL", "description": "对 PostgreSQL 数据库执行只读 SQL 查询。"},
+]
+
+# Compose the platform view: curated name/description, factory + fields pulled
+# from the catalog so the two never drift.
 INTEGRATIONS: list[dict] = [
     {
-        "id": "github",
-        "name": "GitHub",
-        "description": "读写 issues、Pull Request、仓库文件与代码搜索。",
-        "factory": "mcp_github",
-        "fields": [
-            {"key": "token", "label": "Personal Access Token", "secret": True, "optional": False},
-        ],
-    },
-    {
-        "id": "gitlab",
-        "name": "GitLab",
-        "description": "访问项目、issues 与合并请求。",
-        "factory": "mcp_gitlab",
-        "fields": [
-            {"key": "token", "label": "Personal Access Token", "secret": True, "optional": False},
-            {"key": "api_url", "label": "API URL（自托管可留空）", "secret": False, "optional": True},
-        ],
-    },
-    {
-        "id": "slack",
-        "name": "Slack",
-        "description": "读取与发送频道消息。",
-        "factory": "mcp_slack",
-        "fields": [
-            {"key": "bot_token", "label": "Bot Token", "secret": True, "optional": False},
-            {"key": "team_id", "label": "Team ID", "secret": False, "optional": False},
-        ],
-    },
-    {
-        "id": "brave_search",
-        "name": "Brave Search",
-        "description": "通过 Brave Search API 进行网页搜索。",
-        "factory": "mcp_brave_search",
-        "fields": [
-            {"key": "api_key", "label": "API Key", "secret": True, "optional": False},
-        ],
-    },
-    {
-        "id": "google_maps",
-        "name": "Google Maps",
-        "description": "地理编码、地点检索与路线规划。",
-        "factory": "mcp_google_maps",
-        "fields": [
-            {"key": "api_key", "label": "API Key", "secret": True, "optional": False},
-        ],
-    },
-    {
-        "id": "postgres",
-        "name": "PostgreSQL",
-        "description": "对 PostgreSQL 数据库执行只读 SQL 查询。",
-        "factory": "mcp_postgres",
-        "fields": [
-            {"key": "connection_string", "label": "Connection String", "secret": True, "optional": False},
-        ],
-    },
+        "id": p["id"],
+        "name": p["name"],
+        "description": p["description"],
+        "factory": _MCP_BY_ID[p["id"]]["factory"],
+        "fields": _MCP_BY_ID[p["id"]]["fields"],
+    }
+    for p in _PLATFORMS
 ]
 
 _BY_ID: dict[str, dict] = {entry["id"]: entry for entry in INTEGRATIONS}
+
+
+def _meta(mcp_id: str) -> dict | None:
+    """Connect metadata for any MCP id. Platform ids resolve to their curated
+    entry (so display names stay clean); every other catalog id resolves to its
+    catalog entry. Both carry ``name`` / ``description`` / ``factory`` / ``fields``."""
+    return _BY_ID.get(mcp_id) or _MCP_BY_ID.get(mcp_id)
 
 
 def catalog() -> list[dict]:
@@ -133,25 +106,31 @@ def catalog() -> list[dict]:
 
 
 def is_known(integration_id: str) -> bool:
+    """True for a *platform* integration (the /integrations/* surface)."""
     return integration_id in _BY_ID
 
 
-def required_field_keys(integration_id: str) -> list[str]:
-    entry = _BY_ID[integration_id]
-    return [f["key"] for f in entry["fields"] if not f.get("optional")]
+def is_connectable(mcp_id: str) -> bool:
+    """True for any catalog MCP — the broader /mcps/* surface."""
+    return mcp_id in _MCP_BY_ID
 
 
-def display_name(integration_id: str) -> str:
-    entry = _BY_ID.get(integration_id)
-    return entry["name"] if entry else integration_id
+def required_field_keys(mcp_id: str) -> list[str]:
+    entry = _meta(mcp_id) or {}
+    return [f["key"] for f in entry.get("fields", []) if not f.get("optional")]
 
 
-def terr_name_for(integration_id: str) -> str:
-    return f"integration:{integration_id}"
+def display_name(mcp_id: str) -> str:
+    entry = _meta(mcp_id)
+    return entry["name"] if entry else mcp_id
 
 
-def _build_client(integration_id: str, args: dict[str, str]):
-    entry = _BY_ID[integration_id]
+def terr_name_for(mcp_id: str) -> str:
+    return f"integration:{mcp_id}"
+
+
+def _build_client(mcp_id: str, args: dict[str, str]):
+    entry = _meta(mcp_id)
     factory = getattr(_cat, entry["factory"])
     # Only forward non-empty args so optional fields fall back to factory defaults.
     kwargs = {k: v for k, v in args.items() if v not in (None, "")}
@@ -201,13 +180,13 @@ async def connect(
     ``write_enabled=True`` (a deliberate, per-integration grant) to register the
     full tool set; rotate the mode the same way a token rotates — by reconnecting.
     """
-    if not is_known(integration_id):
-        raise ValueError(f"未知集成: {integration_id}")
+    if not is_connectable(integration_id):
+        raise ValueError(f"未知 MCP: {integration_id}")
     missing = [k for k in required_field_keys(integration_id) if not args.get(k)]
     if missing:
         raise ValueError(f"缺少必填字段: {', '.join(missing)}")
 
-    entry = _BY_ID[integration_id]
+    entry = _meta(integration_id)
     client = _build_client(integration_id, args)
     await client.connect()
     try:

@@ -153,13 +153,37 @@ class TerrToggleRequest(BaseModel):
     enabled: bool
 
 
+class McpField(BaseModel):
+    """One input in an MCP's connect form."""
+    key: str
+    label: str
+    secret: bool = False
+    optional: bool = False
+    placeholder: str = ""
+
+
+class McpSetup(BaseModel):
+    """A short, human setup tutorial for an MCP."""
+    summary: str = ""
+    steps: list[str] = []
+    doc_url: str | None = None
+
+
 class KnownMCPResponse(BaseModel):
-    """A browsable entry from the built-in MCP catalog (autumn.builtin.KNOWN_MCPS)."""
+    """A browsable entry from the built-in MCP catalog (autumn.builtin.KNOWN_MCPS).
+
+    Carries everything a client needs to introduce the MCP and configure it
+    inline: a category, the connect form fields, and a setup tutorial.
+    """
     id: str
     name: str
     description: str
     factory: str
+    category: str = "keyless"
+    needs_credentials: bool = False
     required_args: list[str] = []
+    fields: list[McpField] = []
+    setup: McpSetup | None = None
 
 
 class ProviderConfigRequest(BaseModel):
@@ -522,23 +546,106 @@ async def _reapply_integrations(app: FastAPI, autumn: Autumn) -> None:
     app.state.integration_errors = errors
 
 
-def _integration_status_list(app: FastAPI) -> list[IntegrationStatusEntry]:
+def _status_entry(app: FastAPI, rid: str, name: str) -> IntegrationStatusEntry:
     runtime: dict = app.state.integration_runtime
     errors: dict = app.state.integration_errors
-    out: list[IntegrationStatusEntry] = []
-    for entry in integrations_mod.INTEGRATIONS:
-        rid = entry["id"]
-        handle = runtime.get(rid)
-        out.append(IntegrationStatusEntry(
-            id=rid,
-            name=entry["name"],
-            connected=handle is not None,
-            tool_count=handle.tool_count if handle is not None else 0,
-            write_enabled=handle.write_enabled if handle is not None else False,
-            blocked_tool_count=handle.blocked_count if handle is not None else 0,
-            error=errors.get(rid),
-        ))
-    return out
+    handle = runtime.get(rid)
+    return IntegrationStatusEntry(
+        id=rid,
+        name=name,
+        connected=handle is not None,
+        tool_count=handle.tool_count if handle is not None else 0,
+        write_enabled=handle.write_enabled if handle is not None else False,
+        blocked_tool_count=handle.blocked_count if handle is not None else 0,
+        error=errors.get(rid),
+    )
+
+
+def _integration_status_list(app: FastAPI) -> list[IntegrationStatusEntry]:
+    """Status for the platform subset — the Settings → 集成 surface."""
+    return [_status_entry(app, e["id"], e["name"]) for e in integrations_mod.INTEGRATIONS]
+
+
+def _mcp_status_list(app: FastAPI) -> list[IntegrationStatusEntry]:
+    """Status for every catalog MCP — the Terr-page surface. Shares the same
+    runtime as integrations, so a platform connected from Settings reads as
+    connected here too, and vice versa."""
+    from ..builtin import KNOWN_MCPS
+    return [_status_entry(app, e["id"], e["name"]) for e in KNOWN_MCPS]
+
+
+async def _connect_mcp(
+    request: Request,
+    req: "IntegrationConnectRequest",
+    *,
+    validator,
+    label: str,
+) -> IntegrationStatusEntry:
+    """Shared connect path for both /integrations/connect and /mcps/connect.
+
+    Reconnecting an already-connected MCP tears the old session down first, so
+    rotating a token / changing a path just works. ``validator`` gates which ids
+    each surface accepts (platforms only vs the whole catalog)."""
+    autumn = _autumn_or_503(request)
+    if not validator(req.id):
+        raise HTTPException(status_code=404, detail=f"未知{label}: {req.id}")
+    async with request.app.state.integration_lock:
+        existing = request.app.state.integration_runtime.pop(req.id, None)
+        if existing is not None:
+            await integrations_mod.disconnect(autumn, existing)
+        try:
+            runtime = await integrations_mod.connect(
+                autumn, req.id, req.args, write_enabled=req.write_enabled,
+            )
+        except ValueError as exc:
+            request.app.state.integration_errors[req.id] = str(exc)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
+            request.app.state.integration_errors[req.id] = str(exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"{integrations_mod.display_name(req.id)} 连接失败: {exc}",
+            ) from exc
+        request.app.state.integration_runtime[req.id] = runtime
+        request.app.state.integrations[req.id] = dict(req.args)
+        request.app.state.integration_write[req.id] = req.write_enabled
+        request.app.state.integration_errors.pop(req.id, None)
+    return IntegrationStatusEntry(
+        id=req.id,
+        name=integrations_mod.display_name(req.id),
+        connected=True,
+        tool_count=runtime.tool_count,
+        write_enabled=runtime.write_enabled,
+        blocked_tool_count=runtime.blocked_count,
+        error=None,
+    )
+
+
+async def _disconnect_mcp(
+    request: Request,
+    mcp_id: str,
+    *,
+    validator,
+    label: str,
+) -> IntegrationStatusEntry:
+    """Shared disconnect path for both /integrations/{id} and /mcps/{id}."""
+    autumn = _autumn_or_503(request)
+    if not validator(mcp_id):
+        raise HTTPException(status_code=404, detail=f"未知{label}: {mcp_id}")
+    async with request.app.state.integration_lock:
+        existing = request.app.state.integration_runtime.pop(mcp_id, None)
+        if existing is not None:
+            await integrations_mod.disconnect(autumn, existing)
+        request.app.state.integrations.pop(mcp_id, None)
+        request.app.state.integration_write.pop(mcp_id, None)
+        request.app.state.integration_errors.pop(mcp_id, None)
+    return IntegrationStatusEntry(
+        id=mcp_id,
+        name=integrations_mod.display_name(mcp_id),
+        connected=False,
+        tool_count=0,
+        error=None,
+    )
 
 
 def _autumn_or_503(request: Request) -> Autumn:
@@ -917,60 +1024,40 @@ def create_app() -> FastAPI:
         Reconnecting an already-connected platform tears the old session down
         first, so rotating a token just works. The agent picks up the tools
         immediately — no restart, no per-request plumbing."""
-        autumn = _autumn_or_503(request)
-        if not integrations_mod.is_known(req.id):
-            raise HTTPException(status_code=404, detail=f"未知集成: {req.id}")
-        async with request.app.state.integration_lock:
-            existing = request.app.state.integration_runtime.pop(req.id, None)
-            if existing is not None:
-                await integrations_mod.disconnect(autumn, existing)
-            try:
-                runtime = await integrations_mod.connect(
-                    autumn, req.id, req.args, write_enabled=req.write_enabled,
-                )
-            except ValueError as exc:
-                request.app.state.integration_errors[req.id] = str(exc)
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
-                request.app.state.integration_errors[req.id] = str(exc)
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"{integrations_mod.display_name(req.id)} 连接失败: {exc}",
-                ) from exc
-            request.app.state.integration_runtime[req.id] = runtime
-            request.app.state.integrations[req.id] = dict(req.args)
-            request.app.state.integration_write[req.id] = req.write_enabled
-            request.app.state.integration_errors.pop(req.id, None)
-        return IntegrationStatusEntry(
-            id=req.id,
-            name=integrations_mod.display_name(req.id),
-            connected=True,
-            tool_count=runtime.tool_count,
-            write_enabled=runtime.write_enabled,
-            blocked_tool_count=runtime.blocked_count,
-            error=None,
+        return await _connect_mcp(
+            request, req, validator=integrations_mod.is_known, label="集成",
         )
 
     @app.delete("/integrations/{integration_id}", response_model=IntegrationStatusEntry)
     async def integrations_disconnect(integration_id: str, request: Request):
         """Revoke a platform: disconnect its MCP server and forget the credential.
         Effective immediately — the agent loses those tools on the next turn."""
-        autumn = _autumn_or_503(request)
-        if not integrations_mod.is_known(integration_id):
-            raise HTTPException(status_code=404, detail=f"未知集成: {integration_id}")
-        async with request.app.state.integration_lock:
-            existing = request.app.state.integration_runtime.pop(integration_id, None)
-            if existing is not None:
-                await integrations_mod.disconnect(autumn, existing)
-            request.app.state.integrations.pop(integration_id, None)
-            request.app.state.integration_write.pop(integration_id, None)
-            request.app.state.integration_errors.pop(integration_id, None)
-        return IntegrationStatusEntry(
-            id=integration_id,
-            name=integrations_mod.display_name(integration_id),
-            connected=False,
-            tool_count=0,
-            error=None,
+        return await _disconnect_mcp(
+            request, integration_id, validator=integrations_mod.is_known, label="集成",
+        )
+
+    # ── generalized MCP connection (Terr-page surface) ──────────────────────────
+    # The whole catalog, not just credentialed platforms: keyless utilities come
+    # online with one click, configured MCPs after their form is filled. Shares
+    # the integration runtime, so connect state is consistent across both UIs.
+
+    @app.get("/mcps/status", response_model=list[IntegrationStatusEntry])
+    async def mcps_status(request: Request):
+        """Per-MCP connection state across the full catalog."""
+        return _mcp_status_list(request.app)
+
+    @app.post("/mcps/connect", response_model=IntegrationStatusEntry)
+    async def mcps_connect(req: IntegrationConnectRequest, request: Request):
+        """Bring any catalog MCP online for the agent — keyless or configured."""
+        return await _connect_mcp(
+            request, req, validator=integrations_mod.is_connectable, label="MCP",
+        )
+
+    @app.delete("/mcps/{mcp_id}", response_model=IntegrationStatusEntry)
+    async def mcps_disconnect(mcp_id: str, request: Request):
+        """Disconnect a catalog MCP and forget its saved configuration."""
+        return await _disconnect_mcp(
+            request, mcp_id, validator=integrations_mod.is_connectable, label="MCP",
         )
 
     @app.get("/memory/{area}/history")
