@@ -63,6 +63,24 @@ final class TerrsViewModel: ObservableObject {
     func status(for mcp: KnownMCP) -> IntegrationStatus? { mcpStatuses[mcp.id] }
     func isConnecting(_ mcp: KnownMCP) -> Bool { connectingMCPs.contains(mcp.id) }
 
+    /// True when the running server advertises the enriched MCP catalog (fields /
+    /// setup / category). An older server returns the bare catalog (no fields and
+    /// no `/mcps/connect` route), so inline connect isn't available — we surface a
+    /// "restart your server" notice instead of letting every connect 404.
+    var serverSupportsMCPConnect: Bool {
+        catalog.contains { !$0.fields.isEmpty || $0.category != "keyless" }
+    }
+
+    /// Translate the bare-404 a stale server returns for a missing route into an
+    /// actionable message; pass everything else through unchanged.
+    private func friendlyMCPError(_ error: Error) -> String {
+        let msg = error.localizedDescription
+        if msg.caseInsensitiveCompare("Not Found") == .orderedSame || msg.isEmpty {
+            return "本地服务器未提供该接口（版本过旧）。请重启本地服务器以加载最新后端：退出并重开 App，或在终端执行 pkill -f autumn.server 后重新打开。"
+        }
+        return msg
+    }
+
     /// Bring an MCP online with the values saved in settings.
     func connectMCP(_ mcp: KnownMCP, writeEnabled: Bool) async {
         guard let client = makeClient() else { return }
@@ -79,7 +97,7 @@ final class TerrsViewModel: ObservableObject {
             // A new Terr appeared on the server — refresh the registered list.
             await reloadTerrs(client: client)
         } catch {
-            mcpErrors[mcp.id] = error.localizedDescription
+            mcpErrors[mcp.id] = friendlyMCPError(error)
             await refreshMCPStatus(client: client)
         }
     }
@@ -94,7 +112,7 @@ final class TerrsViewModel: ObservableObject {
             mcpStatuses[mcp.id] = status
             await reloadTerrs(client: client)
         } catch {
-            mcpErrors[mcp.id] = error.localizedDescription
+            mcpErrors[mcp.id] = friendlyMCPError(error)
             await refreshMCPStatus(client: client)
         }
     }

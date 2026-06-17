@@ -170,4 +170,5 @@ bash ./script/build_and_run.sh --verify
 | 构建签名失败 | Xcode 里给 AutumnDesktop target 设一个 Development Team(个人 Apple ID 即可) |
 | App 启动秒退 | 看 `build/logs/build_and_run.log` 末尾;通常是端口被占或 `.venv` 缺依赖 |
 | 拉了代码但 UI 没变 | 多半忘了 `xcodegen generate`;直接用 `build_and_run.sh`,它会自动重生成 |
+| **拉了新后端但行为是旧的**(如能力域 MCP 全显示"无需凭据"、连接报 not found) | **旧的 server 进程还在跑**。App 只在端口空闲时才自动拉起新 server,Python 不会热重载。先 `pkill -f autumn.server`(必要时 `pip install -e ".[server]"`),再重开 App 或手动 `python -m autumn.server`。验证:`curl -s 127.0.0.1:8765/mcps/catalog \| grep category` 应能看到 category 字段 |
 | Windows 端要测 | 在 `claude/windows-client` 分支,本分支没有,需单独 checkout |

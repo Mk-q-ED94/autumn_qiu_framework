@@ -107,6 +107,9 @@ struct TerrsView: View {
                         Text("框架已知的官方 MCP 服务器。展开任意一项查看介绍；无需凭据的可一键连接，需配置的可直接在此填写并连接。")
                             .font(Autumn.typography.caption)
                             .foregroundStyle(.secondary)
+                        if !vm.serverSupportsMCPConnect {
+                            staleServerNotice
+                        }
                         ForEach(vm.catalog) { mcp in
                             KnownMCPRow(mcp: mcp, vm: vm, settings: vm.settings)
                         }
@@ -126,6 +129,35 @@ struct TerrsView: View {
             Text(title)
                 .font(Autumn.typography.headline)
         }
+    }
+
+    /// Shown when the running server predates the inline-connect backend: the
+    /// catalog still lists MCPs, but `/mcps/connect` doesn't exist yet, so we
+    /// explain the one-time restart instead of letting connects fail with 404.
+    private var staleServerNotice: some View {
+        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Autumn.colors.warning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("本地服务器版本较旧")
+                    .font(Autumn.typography.captionStrong)
+                Text("当前运行的服务器还没有 MCP 内联连接接口，所以下方只能查看介绍，连接会失败。请重启本地服务器以加载最新后端：退出并重开 App，或在终端执行 pkill -f autumn.server 后重新打开。")
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Autumn.spacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+                .fill(Autumn.colors.warning.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+                .strokeBorder(Autumn.colors.warning.opacity(0.30), lineWidth: Autumn.stroke.hairline)
+        )
     }
 }
 
@@ -424,14 +456,29 @@ private struct KnownMCPRow: View {
         }
     }
 
+    private enum CredentialKind { case platform, local, needsConfig, keyless }
+
+    /// Prefer the server's explicit category; fall back to `required_args` so an
+    /// older server (which doesn't send `category` — it defaults to "keyless")
+    /// still distinguishes credentialed MCPs from genuinely keyless ones.
+    private var credentialKind: CredentialKind {
+        switch mcp.category {
+        case "platform": return .platform
+        case "local":    return .local
+        default:         return mcp.requiredArgs.isEmpty ? .keyless : .needsConfig
+        }
+    }
+
     @ViewBuilder
     private var credentialChip: some View {
-        switch mcp.category {
-        case "platform":
+        switch credentialKind {
+        case .platform:
             AutumnChip("需凭据", icon: "key.fill", color: Autumn.colors.warning, size: .compact)
-        case "local":
+        case .local:
             AutumnChip("需路径", icon: "folder.fill", color: Autumn.colors.info, size: .compact)
-        default:
+        case .needsConfig:
+            AutumnChip("需配置", icon: "key.fill", color: Autumn.colors.warning, size: .compact)
+        case .keyless:
             AutumnChip("无需凭据", icon: "checkmark.seal.fill", color: Autumn.colors.success, size: .compact)
         }
     }
@@ -447,28 +494,41 @@ private struct KnownMCPRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if connected {
-                connectedSummary
-            }
-
-            if mcp.needsConfig {
-                ForEach(mcp.fields) { field in
-                    fieldEditor(field)
+            if vm.serverSupportsMCPConnect {
+                if connected {
+                    connectedSummary
                 }
-            }
 
-            writeAccessControl
+                if mcp.needsConfig {
+                    ForEach(mcp.fields) { field in
+                        fieldEditor(field)
+                    }
+                }
 
-            tutorialDisclosure
+                writeAccessControl
 
-            if let err = vm.mcpErrors[mcp.id], !err.isEmpty {
-                Label(err, systemImage: "exclamationmark.triangle")
+                tutorialDisclosure
+
+                if let err = vm.mcpErrors[mcp.id], !err.isEmpty {
+                    Label(err, systemImage: "exclamationmark.triangle")
+                        .font(Autumn.typography.caption)
+                        .foregroundStyle(Autumn.colors.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                actions
+            } else {
+                // Server too old for inline connect — show just the param hint;
+                // the section-level notice explains the one-time restart.
+                if !mcp.requiredArgs.isEmpty {
+                    Text("参数：\(mcp.requiredArgs.joined(separator: ", "))")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+                Text("重启本地服务器后即可在此填写配置并连接。")
                     .font(Autumn.typography.caption)
-                    .foregroundStyle(Autumn.colors.danger)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.secondary)
             }
-
-            actions
         }
     }
 
