@@ -6,6 +6,7 @@
  */
 
 import type {
+  FourDStatus,
   IntentPreview,
   MemoryArea,
   MemoryEntry,
@@ -21,6 +22,53 @@ import type {
   Terr,
   WorkflowTrace,
 } from "../types";
+
+// ── errors ──────────────────────────────────────────────────────────────────
+
+/**
+ * A typed HTTP failure. `status` is the response code (0 for network/transport
+ * errors); `detail` is the server's `{detail}` string when present. `message`
+ * is a human-facing, status-aware explanation the UI can show directly.
+ */
+export class ApiError extends Error {
+  status: number;
+  detail: string;
+  constructor(status: number, detail: string) {
+    super(friendlyMessage(status, detail));
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function parseDetail(body: string): string {
+  try {
+    const j = JSON.parse(body);
+    return typeof j?.detail === "string" ? j.detail : body;
+  } catch {
+    return body;
+  }
+}
+
+function friendlyMessage(status: number, detail: string): string {
+  switch (status) {
+    case 401:
+      return "未授权：请在「设置 · 服务器」中填写正确的 Auth Token。";
+    case 413:
+      return "输入过大：内容超出服务器请求上限，请缩短后重试。";
+    case 502:
+      return `上游模型出错：${detail || "请稍后重试"}`;
+    case 503:
+      return "服务尚未配置模型：请在「设置 · 模型」中配置 A1–A3 后重试。";
+    default:
+      return detail ? `HTTP ${status}: ${detail}` : `请求失败（HTTP ${status}）`;
+  }
+}
+
+async function failure(res: Response): Promise<ApiError> {
+  const body = await res.text().catch(() => "");
+  return new ApiError(res.status, parseDetail(body));
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,8 +93,7 @@ async function json<T>(
     ...options,
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${body}`);
+    throw await failure(res);
   }
   return res.json() as Promise<T>;
 }
@@ -151,9 +198,8 @@ export async function* streamChat(
     signal,
   });
 
-  if (!res.ok || !res.body) {
-    throw new Error(`Stream failed: HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await failure(res);
+  if (!res.body) throw new ApiError(0, "stream has no body");
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -199,6 +245,22 @@ export async function setTerrEnabled(
   return json(settings, `/terrs/${encodeURIComponent(name)}`, {
     method: "PATCH",
     body: JSON.stringify({ enabled }),
+  });
+}
+
+// ── /memory/4d (runtime flags) ────────────────────────────────────────────────
+
+export async function getFourDStatus(settings: Settings): Promise<FourDStatus> {
+  return json(settings, "/memory/4d/status");
+}
+
+export async function setFourDConfig(
+  settings: Settings,
+  patch: Partial<FourDStatus>
+): Promise<FourDStatus> {
+  return json(settings, "/memory/4d/config", {
+    method: "POST",
+    body: JSON.stringify(patch),
   });
 }
 
@@ -281,9 +343,8 @@ export async function* streamOllamaPull(
     headers: headers(settings),
     signal,
   });
-  if (!res.ok || !res.body) {
-    throw new Error(`Pull failed: HTTP ${res.status}`);
-  }
+  if (!res.ok) throw await failure(res);
+  if (!res.body) throw new ApiError(0, "stream has no body");
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

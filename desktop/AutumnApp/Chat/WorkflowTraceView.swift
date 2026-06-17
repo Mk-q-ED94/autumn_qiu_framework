@@ -139,6 +139,10 @@ private struct WorkflowStageRow: View {
     private var isTool: Bool { stage.kind == "tool" }
     private var isAgent: Bool { stage.kind == "agent" }
     private var isPush: Bool { stage.kind == "push" }
+    // 0.3.0 A1 (组长) steps. They arrive as kind="stage", so key off the id and
+    // keep the WP1/clay identity while giving each a distinct glyph.
+    private var isPlan: Bool { stage.id.hasPrefix("wp1.plan") }
+    private var isSupervise: Bool { stage.id.contains("supervise") }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
@@ -217,6 +221,20 @@ private struct WorkflowStageRow: View {
                     Image(systemName: "wrench.and.screwdriver.fill")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(Autumn.colors.accent)
+                } else if isPlan {
+                    Circle()
+                        .fill(Autumn.colors.workspace("WP1").opacity(0.15))
+                        .frame(width: 14, height: 14)
+                    Image(systemName: "checklist")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Autumn.colors.workspace("WP1"))
+                } else if isSupervise {
+                    Circle()
+                        .fill(Autumn.colors.workspace("WP1").opacity(0.15))
+                        .frame(width: 14, height: 14)
+                    Image(systemName: "eye.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Autumn.colors.workspace("WP1"))
                 } else {
                     Circle()
                         .stroke(indicatorColor.opacity(0.35), lineWidth: 1.2)

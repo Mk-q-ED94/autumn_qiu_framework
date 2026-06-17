@@ -15,6 +15,7 @@ from typing import Any
 
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
+from ..core.security import is_within_root as _within_root
 
 _MAX_READ_BYTES = 2_000_000  # 2MB per read
 _MAX_WRITE_BYTES = 2_000_000  # 2MB per write
@@ -84,7 +85,13 @@ def fs_terr(root: str | Path) -> Terr:
         if not target.is_dir():
             raise NotADirectoryError(f"not a directory: {path}")
         if recursive:
-            entries = sorted(p for p in target.rglob("*"))
+            # rglob can descend through a symlinked subdirectory and surface
+            # paths outside the sandbox — drop any entry whose real path escapes
+            # root so a recursive listing can't disclose external files.
+            entries = [
+                p for p in sorted(target.rglob("*"))
+                if _within_root(p, root_resolved)
+            ]
         else:
             entries = sorted(target.iterdir())
         return [_stat_summary(p) for p in entries]

@@ -158,17 +158,22 @@ struct SettingsView: View {
     // ── server tab ────────────────────────────────────────────────────────────
 
     private var serverTab: some View {
-        Form {
-            Section {
+        SettingsScroll {
+            SettingsSection(
+                title: "Autumn 服务器",
+                footer: "默认本地服务器地址为 http://127.0.0.1:8765。应用启动时会自动拉起捆绑的本地服务。"
+            ) {
                 LabeledContent("本地服务", value: localServer.statusText)
 
-                TextField("服务器 URL", text: $settings.serverURL)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    #endif
+                SettingsFieldRow("服务器 URL") {
+                    TextField("服务器 URL", text: $settings.serverURL)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+                }
 
                 HStack {
                     Button(action: { Task { await checkConnection() } }) {
@@ -182,37 +187,32 @@ struct SettingsView: View {
                     Spacer()
                     statusLabel
                 }
-            } header: {
-                Text("Autumn 服务器")
-            } footer: {
-                Text("默认本地服务器地址为 http://127.0.0.1:8765。应用启动时会自动拉起捆绑的本地服务。")
-                    .font(.caption)
             }
 
-            Section {
-                SecureField("API Key（本地服务器可留空）", text: $settings.serverAPIKey)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-            } header: {
-                Text("访问密钥")
-            } footer: {
-                Text("当服务器设置了 AUTUMN_API_KEY（部署到本机以外时强烈建议开启）时，在此填入同一密钥；客户端会在每个请求上携带它。本地单用户运行可留空。")
-                    .font(.caption)
+            SettingsSection(
+                title: "访问密钥",
+                footer: "当服务器设置了 AUTUMN_API_KEY（部署到本机以外时强烈建议开启）时，在此填入同一密钥；客户端会在每个请求上携带它。本地单用户运行可留空。"
+            ) {
+                SettingsFieldRow("API Key（本地服务器可留空）") {
+                    SecureField("API Key", text: $settings.serverAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                }
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
     }
 
     // ── models tab ────────────────────────────────────────────────────────────
 
     private var modelsTab: some View {
-        Form {
-            Section {
+        SettingsScroll {
+            SettingsSection(
+                title: "A1 · A2 · A3",
+                footer: "已保存且验证可用的配置会自动同步；只有更新 API key 后，需要点击确认应用以切换到新凭据。"
+            ) {
                 ForEach(ModelSlot.allCases) { slot in
                     ModelConfigRow(
                         slot: slot,
@@ -256,50 +256,53 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            } header: {
-                Text("A1 · A2 · A3")
-            } footer: {
-                Text("已保存且验证可用的配置会自动同步；只有更新 API key 后，需要点击确认应用以切换到新凭据。")
-                    .font(.caption)
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
     }
 
     // ── memory tab ────────────────────────────────────────────────────────────
 
     private var memoryTab: some View {
-        Form {
-            Section {
+        SettingsScroll {
+            SettingsSection(
+                title: "记忆模型 A4",
+                footer: "A4 用于 recall 技能中向量搜索结果的合成。建议配置本地 Ollama 模型以降低成本，未启用时 recall 直接返回原始片段。"
+            ) {
                 Toggle("启用 A4", isOn: $settings.a4Enabled)
 
                 if settings.a4Enabled {
                     LabeledContent("Ollama 后台", value: ollamaManager.statusText)
 
-                    SecureField("API Key（本地模型可留空）", text: $settings.a4APIKey)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
-
-                    TextField("Base URL", text: $settings.a4BaseURL)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        #endif
-
-                    Picker("协议", selection: $settings.a4Protocol) {
-                        Text("OpenAI").tag("openai")
-                        Text("Anthropic").tag("anthropic")
-                        Text("Hermes").tag("hermes")
+                    SettingsFieldRow("API Key（本地模型可留空）") {
+                        SecureField("API Key", text: $settings.a4APIKey)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
                     }
-                    .pickerStyle(.segmented)
 
-                    TextField("模型名称", text: $settings.a4Model)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
+                    SettingsFieldRow("Base URL") {
+                        TextField("Base URL", text: $settings.a4BaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.URL)
+                            #endif
+                    }
+
+                    SettingsFieldRow("协议") {
+                        Picker("协议", selection: $settings.a4Protocol) {
+                            Text("OpenAI").tag("openai")
+                            Text("Anthropic").tag("anthropic")
+                            Text("Hermes").tag("hermes")
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    SettingsFieldRow("模型名称") {
+                        TextField("模型名称", text: $settings.a4Model)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                    }
 
                     OllamaPanel(
                         status: ollamaStatus,
@@ -320,14 +323,12 @@ struct SettingsView: View {
                         pullModel: { name in Task { await pullOllamaModel(name) } }
                     )
                 }
-            } header: {
-                Text("记忆模型 A4")
-            } footer: {
-                Text("A4 用于 recall 技能中向量搜索结果的合成。建议配置本地 Ollama 模型以降低成本，未启用时 recall 直接返回原始片段。")
-                    .font(.caption)
             }
 
-            Section {
+            SettingsSection(
+                title: "4D 记忆引擎",
+                footer: "运行时开关会立即对当前服务器生效，不写回 .env；重启服务后回到 .env 默认值。"
+            ) {
                 FourDRuntimeRow(
                     title: "4D 激活排序",
                     detail: "回忆、归并和淘汰时按 use / scope / trigger / retention 参与排序。",
@@ -370,14 +371,12 @@ struct SettingsView: View {
                     Button("刷新") { Task { await loadFourD() } }
                         .controlSize(.small)
                 }
-            } header: {
-                Text("4D 记忆引擎")
-            } footer: {
-                Text("运行时开关会立即对当前服务器生效，不写回 .env；重启服务后回到 .env 默认值。")
-                    .font(.caption)
             }
 
-            Section {
+            SettingsSection(
+                title: "记忆分区",
+                footer: "每个分区可以挂载不同后端（DictBackend / VectorBackend / 自定义），通过 Autumn.add_memory_skills(area) 暴露 recall / remember 给模型调用。"
+            ) {
                 MemoryAreaCard(
                     code: "Mom1",
                     title: "顶层会话日志",
@@ -393,23 +392,18 @@ struct SettingsView: View {
                     title: "Mission 记忆",
                     description: "WP3 处理 mission 时的路由判定与转换草稿。"
                 )
-            } header: {
-                Text("记忆分区")
-            } footer: {
-                Text("每个分区可以挂载不同后端（DictBackend / VectorBackend / 自定义），通过 Autumn.add_memory_skills(area) 暴露 recall / remember 给模型调用。")
-                    .font(.caption)
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
     }
 
     // ── integrations tab ──────────────────────────────────────────────────────
 
     private var integrationsTab: some View {
-        Form {
-            Section {
+        SettingsScroll {
+            SettingsSection(
+                title: "平台集成",
+                footer: "填入平台令牌后点击连接，Autumn 会在服务器侧启动对应的 MCP 服务。当你的请求涉及读写该平台内容（如 GitHub 的 issues、PR、仓库文件）时，agent 会自行调用这些工具，无需每次手动提供凭据。令牌仅保存在本地与运行中的服务器进程，状态接口不会回传明文。需要服务器主机安装 npx / uvx。"
+            ) {
                 if integrationCatalog.isEmpty {
                     HStack(spacing: Autumn.spacing.sm) {
                         if !integrationsLoaded {
@@ -439,23 +433,15 @@ struct SettingsView: View {
                         }
                     }
                 }
-            } header: {
-                Text("平台集成")
-            } footer: {
-                Text("填入平台令牌后点击连接，Autumn 会在服务器侧启动对应的 MCP 服务。当你的请求涉及读写该平台内容（如 GitHub 的 issues、PR、仓库文件）时，agent 会自行调用这些工具，无需每次手动提供凭据。令牌仅保存在本地与运行中的服务器进程，状态接口不会回传明文。需要服务器主机安装 npx / uvx。")
-                    .font(.caption)
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
     }
 
     // ── advanced tab ──────────────────────────────────────────────────────────
 
     private var advancedTab: some View {
-        Form {
-            Section {
+        SettingsScroll {
+            SettingsSection(title: "Mission 默认路由") {
                 Picker("路由模式", selection: $settings.routeMode) {
                     Text("自动 (A3 决定)").tag("auto")
                     Text("直接回答").tag("direct")
@@ -466,24 +452,17 @@ struct SettingsView: View {
                 Text(routeDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } header: {
-                Text("Mission 默认路由")
             }
 
-            Section {
-                LabeledContent("版本", value: "0.2.1")
+            SettingsSection(title: "关于") {
+                LabeledContent("版本", value: "0.2.3")
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } header: {
-                Text("关于")
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
     }
 
     // ── shared helpers ────────────────────────────────────────────────────────
@@ -1006,6 +985,86 @@ struct SettingsView: View {
                 recommended: false
             ),
         ]
+    }
+}
+
+// MARK: - Settings surface
+
+private struct SettingsScroll<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Autumn.spacing.xl) {
+                content()
+            }
+            .frame(maxWidth: 980, alignment: .topLeading)
+            .padding(.horizontal, Autumn.spacing.xxl)
+            .padding(.vertical, Autumn.spacing.xl)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    var footer: String?
+    @ViewBuilder var content: () -> Content
+
+    init(
+        title: String,
+        footer: String? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.footer = footer
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            Text(title)
+                .font(Autumn.typography.headline)
+                .padding(.horizontal, Autumn.spacing.sm)
+
+            AutumnCard(padding: Autumn.spacing.md) {
+                VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+                    content()
+                }
+            }
+
+            if let footer, !footer.isEmpty {
+                Text(footer)
+                    .font(Autumn.typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Autumn.spacing.sm)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsFieldRow<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.md) {
+            Text(title)
+                .font(Autumn.typography.callout.weight(.medium))
+                .foregroundStyle(.primary)
+                .frame(width: 230, alignment: .leading)
+            content()
+                .frame(maxWidth: .infinity)
+        }
     }
 }
 

@@ -15,6 +15,8 @@ struct MemoryView: View {
             case .memory:
                 statsStrip
                 Divider()
+                curationStrip
+                Divider()
                 memoryContent
             case .accessLog:
                 accessLogStatsStrip
@@ -39,6 +41,9 @@ struct MemoryView: View {
         }
         .onChange(of: vm.selectedArea) { _, _ in
             vm.selectedMode = nil
+            vm.selectedKind = nil
+            vm.profileText = nil
+            vm.profileError = nil
             Task { await refreshCurrentMode() }
         }
     }
@@ -88,37 +93,6 @@ struct MemoryView: View {
             }
 
             Spacer()
-
-            if vm.viewMode == .memory {
-                Button {
-                    Task { await vm.autoAnnotate() }
-                } label: {
-                    if vm.isAutoAnnotating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Autumn.colors.memory)
-                    }
-                }
-                .buttonStyle(.plain)
-                .help("用 A4 自动推断当前记忆区的 4D 维度")
-                .disabled(vm.isLoading || vm.isAutoAnnotating)
-
-                Button {
-                    Task { await vm.consolidateSelectedArea() }
-                } label: {
-                    if vm.isConsolidating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "rectangle.compress.vertical")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                }
-                .buttonStyle(.plain)
-                .help("用 WP4/A4 归并当前记忆区")
-                .disabled(vm.isLoading || vm.isConsolidating)
-            }
 
             Button {
                 Task { await refreshCurrentMode(forcePushPreview: vm.viewMode == .pushPreview) }
@@ -187,6 +161,151 @@ struct MemoryView: View {
         .background(.regularMaterial)
     }
 
+    private var curationStrip: some View {
+        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            FlowLayout(spacing: Autumn.spacing.xs) {
+                if !vm.kindCounts.isEmpty {
+                    ForEach(MemoryKind.allCases) { kind in
+                        if let count = vm.kindCounts[kind] {
+                            KindStatPill(kind: kind, count: count)
+                        }
+                    }
+                } else {
+                    AutumnBadge("尚未发现类型标签", icon: "tag", tone: .neutral)
+                }
+
+                CurationActionButton(
+                    title: "4D 标注",
+                    icon: "wand.and.stars",
+                    color: Autumn.colors.memory,
+                    isRunning: vm.isAutoAnnotating
+                ) {
+                    Task { await vm.autoAnnotate() }
+                }
+                .help("用 A4 自动推断当前记忆区的 4D 维度")
+                .disabled(vm.isLoading || vm.isAutoAnnotating)
+
+                CurationActionButton(
+                    title: "归并",
+                    icon: "rectangle.compress.vertical",
+                    color: Autumn.colors.memory,
+                    isRunning: vm.isConsolidating
+                ) {
+                    Task { await vm.consolidateSelectedArea() }
+                }
+                .help("用 WP4/A4 归并当前记忆区")
+                .disabled(vm.isLoading || vm.isConsolidating)
+
+                CurationActionButton(
+                    title: "抽取事实",
+                    icon: "atom",
+                    color: Autumn.colors.info,
+                    isRunning: vm.isExtractingFacts
+                ) {
+                    Task { await vm.extractFacts() }
+                }
+                .help("调用 A4 从原始记忆中抽取 atomic_fact 条目")
+                .disabled(vm.isLoading || vm.isExtractingFacts)
+
+                CurationActionButton(
+                    title: "自演化",
+                    icon: "arrow.triangle.2.circlepath",
+                    color: Autumn.colors.success,
+                    isRunning: vm.isEvolving
+                ) {
+                    Task { await vm.evolveMemory() }
+                }
+                .help("调用 A4 将重复经验演化为 case 记忆")
+                .disabled(vm.isLoading || vm.isEvolving)
+
+                CurationActionButton(
+                    title: vm.showProfilePanel ? "隐藏画像" : "画像",
+                    icon: "person.text.rectangle",
+                    color: Autumn.colors.accent,
+                    isRunning: vm.isLoadingProfile
+                ) {
+                    withAnimation(Autumn.motion.snappy) {
+                        vm.showProfilePanel.toggle()
+                    }
+                    if vm.showProfilePanel, vm.profileText == nil, vm.profileError == nil {
+                        Task { await vm.loadProfile() }
+                    }
+                }
+                .help("读取或合成当前记忆区的 profile")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if vm.showProfilePanel {
+                profilePanel
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(.regularMaterial)
+    }
+
+    private var profilePanel: some View {
+        HStack(alignment: .top, spacing: Autumn.spacing.md) {
+            Image(systemName: "person.text.rectangle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Autumn.colors.accent)
+                .frame(width: 20, height: 24)
+
+            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+                HStack(spacing: Autumn.spacing.sm) {
+                    TextField("scope", text: $vm.profileScope)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 160)
+                    Button {
+                        Task { await vm.loadProfile() }
+                    } label: {
+                        Label("读取", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .controlSize(.small)
+                    .disabled(vm.isLoadingProfile)
+
+                    Button {
+                        Task { await vm.synthesizeProfile() }
+                    } label: {
+                        if vm.isLoadingProfile {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("更新", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    .controlSize(.small)
+                    .disabled(vm.isLoadingProfile)
+
+                    Spacer()
+                }
+
+                Group {
+                    if let profileError = vm.profileError {
+                        Label(profileError, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Autumn.colors.danger)
+                    } else if let profileText = vm.profileText, !profileText.isEmpty {
+                        Text(profileText)
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                    } else {
+                        Text("暂无画像")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(Autumn.typography.caption)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Autumn.spacing.sm)
+        .background(Autumn.colors.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: Autumn.radius.sm))
+        .overlay {
+            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                .strokeBorder(Autumn.colors.accent.opacity(0.14), lineWidth: Autumn.stroke.hairline)
+        }
+    }
+
     // ── access log stats strip ───────────────────────────────────────────────────
 
     private var accessLogStatsStrip: some View {
@@ -228,11 +347,14 @@ struct MemoryView: View {
     @ViewBuilder
     private var modeFilterBar: some View {
         let counts = vm.modeCounts
-        if !counts.isEmpty {
-            HStack(spacing: Autumn.spacing.xs) {
+        let kindCounts = vm.kindCounts
+        if !counts.isEmpty || !kindCounts.isEmpty {
+            FlowLayout(spacing: Autumn.spacing.xs) {
                 ModeFilterChip(label: "全部", icon: "square.grid.2x2", count: vm.entries.count,
-                               color: Autumn.colors.muted, isSelected: vm.selectedMode == nil) {
+                               color: Autumn.colors.muted,
+                               isSelected: vm.selectedMode == nil && vm.selectedKind == nil) {
                     vm.selectedMode = nil
+                    vm.selectedKind = nil
                 }
                 ForEach(FourDUseMode.allCases) { mode in
                     if let count = counts[mode] {
@@ -243,10 +365,19 @@ struct MemoryView: View {
                         }
                     }
                 }
-                Spacer()
+                ForEach(MemoryKind.allCases) { kind in
+                    if let count = kindCounts[kind] {
+                        ModeFilterChip(label: kind.label, icon: kind.icon, count: count,
+                                       color: kind.color,
+                                       isSelected: vm.selectedKind == kind) {
+                            vm.selectedKind = vm.selectedKind == kind ? nil : kind
+                        }
+                    }
+                }
             }
             .padding(.horizontal, Autumn.spacing.lg)
             .padding(.vertical, Autumn.spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -266,6 +397,7 @@ struct MemoryView: View {
                     EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "无匹配记忆",
                                    message: "当前筛选下没有条目", actionTitle: "清除筛选") {
                         vm.selectedMode = nil
+                        vm.selectedKind = nil
                     }
                 } else {
                     ScrollView {
@@ -412,6 +544,64 @@ struct MemoryView: View {
 
 // ── shared sub-views ─────────────────────────────────────────────────────────
 
+private struct KindStatPill: View {
+    let kind: MemoryKind
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: Autumn.spacing.xs) {
+            Image(systemName: kind.icon)
+                .font(.system(size: 9, weight: .semibold))
+            Text(kind.label)
+                .font(Autumn.typography.captionStrong)
+            Text("\(count)")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(kind.color)
+        .padding(.horizontal, Autumn.spacing.sm)
+        .padding(.vertical, 3)
+        .background(kind.color.opacity(0.10), in: Capsule(style: .continuous))
+    }
+}
+
+private struct CurationActionButton: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let isRunning: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Autumn.spacing.xs) {
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 13, height: 13)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 13, height: 13)
+                }
+                Text(title)
+                    .font(Autumn.typography.captionStrong)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(color)
+            .frame(minWidth: 78, minHeight: 26)
+            .padding(.horizontal, Autumn.spacing.sm)
+            .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: Autumn.radius.sm))
+            .overlay {
+                RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                    .strokeBorder(color.opacity(0.20), lineWidth: Autumn.stroke.hairline)
+            }
+        }
+        .buttonStyle(.plain)
+        .animation(Autumn.motion.soft, value: isRunning)
+    }
+}
+
 private struct MemoryStat: View {
     let label: String
     let value: String
@@ -487,6 +677,9 @@ private struct MemoryEntryRow: View {
                         Text(time).font(Autumn.typography.caption).foregroundStyle(.tertiary)
                     }
                     Spacer()
+                    if let kind = entry.memoryKind {
+                        AutumnBadge(kind.label, icon: kind.icon, tone: kind.tone)
+                    }
                     if entry.has4DData, let mode = entry.fourdMode {
                         AutumnBadge(mode.label, icon: mode.icon, tone: mode.tone)
                     }

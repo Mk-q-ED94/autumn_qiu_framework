@@ -579,12 +579,69 @@ route. Every feature sits behind a gate; the `COOPERATIVE_WORKFLOW` master switc
 - **Central security module** — `autumn/core/security.py` consolidates the SSRF
   guard, secret redaction, path sandboxing and resource limits used across the
   network Terrs and the HTTP bridge, plus broadened protections (math-DoS bounds,
-  request body-size limit, security headers, configurable CORS). Builds on the
-  0.2.3 API-key auth and read-only-by-default platform integrations.
+  request body-size limit, security headers, configurable CORS).
 - **Full-module optimization + robustness pass** — memory decode tolerance, API
   retry/usage hardening, network-Terr dedup with SSRF re-validation on redirects,
   framework-wiring fixes.
-- **Tests** — 928 passing (adds `tests/test_cooperative_workflow.py`), ruff clean.
+- **Tests** — 983 passing (adds `tests/test_cooperative_workflow.py`), ruff clean.
+
+### 0.2.3 — 2026-06-15 · EverOS-inspired 4D memory + HTTP-bridge security hardening
+
+Deepens the memory subsystem along the **persistence / extraction** axis to
+complement 0.2.2's activation engine — so 4D memory is now strong on *both* axes
+(how memory persists and is extracted, **and** how it activates). Every feature
+is **additive and opt-in**: with all flags at their defaults, behaviour is
+identical to 0.2.2. Rationale and the upstream comparison live in
+[`docs/everos-4d-memory-takeaways.md`](docs/everos-4d-memory-takeaways.md).
+
+- **Markdown-as-source-of-truth backend** — `STORAGE_BACKEND=markdown` stores one
+  human-readable `.md` file per entry, with the 4D dimensions (aim/use/trigger)
+  serialised as JSON frontmatter; writes are atomic (tmp + `os.replace`) and
+  eviction syncs file deletes.
+- **Hybrid recall (BM25 + vector)** — `LEXICAL_RECALL_ENABLED=true` adds a SQLite
+  FTS5 keyword layer with `bm25()` ranking, fused with semantic vector results
+  via Reciprocal Rank Fusion so proper nouns, identifiers and symbols match
+  alongside meaning. FTS5 operators are neutralised against injection, and the
+  layer degrades gracefully where FTS5 is unavailable.
+- **Prompt slots** — consolidation, recall-synthesis, fact-extraction, evolution
+  and profile prompts are externalised to `autumn/core/memory/prompts.py`, each
+  overridable per call via `system_prompt=`; defaults are byte-for-byte the
+  previous inline strings.
+- **Typed memory & atomic-fact extraction** — entries are typed by reserved tags
+  (`episode` / `atomic_fact` / `profile` / `summary` / `case`);
+  `MemoryArea.extract_facts(api)` breaks raw turns into discrete claims that
+  recall can hit independently of their originating turn. A `DERIVED_KINDS` guard
+  stops every derived pass from feeding on its own output. HTTP:
+  `POST /memory/{area}/extract-facts`.
+- **Async indexing** — `ASYNC_INDEX=true` moves vector + lexical indexing off the
+  write path into tracked background tasks; appends return immediately and
+  `framework.close()` drains them via `flush_index()`.
+- **Self-evolution** — `MemoryArea.evolve(api)` clusters non-derived history by
+  `aim.intent`; clusters that recur and have been reinforced (`use.count`) are
+  distilled by A4 into one pinned `case` rule in `CONSTRAIN` mode — the consumer
+  end of the reward loop, promoting proven memories to standing rules that push
+  can surface. Idempotent per intent. HTTP: `POST /memory/{area}/evolve`.
+- **User profile track** — `set`/`get`/`synthesize_profile(scope=…)` maintains
+  one pinned profile per scope (`scope:<id>` tag) with rewrite (not append)
+  semantics; `synthesize_profile` folds recent history into the resident model
+  via A4. HTTP: `GET`/`POST /memory/{area}/profile`.
+- **WP4 surface** — A4's curator workspace gains `extract_facts`, `evolve`,
+  `get_profile` and `synthesize_profile`, each model-guarded and audit-logged.
+- **Security hardening (HTTP bridge)** — full details in the
+  [Security](#security) section:
+- **API-key auth** — set `AUTUMN_API_KEY` to require a shared secret on every
+  endpoint except `/health` (Bearer or `X-API-Key`, constant-time, rotatable
+  without a restart). Unset stays fully open for local single-user runs; the
+  server warns when it binds beyond localhost with no key set. The desktop client
+  sends it from Settings → 服务器.
+- **Read-only-by-default platform integrations** — a connected platform now
+  exposes only its read tools to the agent; mutating tools (create / edit / delete /
+  merge / push / post …) are withheld until the user grants write access
+  (`write_enabled`) and reconnects. Status surfaces `write_enabled` +
+  `blocked_tool_count`, and the 集成 tab gains a per-platform write toggle, so the
+  most dangerous capability is absent unless deliberately granted.
+- **Tests** — 907 passing (memory P1–P3 plus the API-key auth and integration
+  write-gating suites), ruff clean.
 
 ### 0.2.2 — 2026-06-13 · 4D memory (active memory), client redesign, platform integrations & quality pass
 

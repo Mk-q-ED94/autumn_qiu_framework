@@ -1,5 +1,16 @@
 from .backends import DictBackend
 from .base import MemoryArea, MemoryBackend, MemoryEntry
+from .kinds import (
+    ALL_KINDS,
+    DERIVED_KINDS,
+    KIND_ATOMIC_FACT,
+    KIND_CASE,
+    KIND_EPISODE,
+    KIND_PROFILE,
+    KIND_SUMMARY,
+    is_kind,
+    kind_of,
+)
 from .dimensions import (
     ActivationContext,
     Aim,
@@ -46,4 +57,6 @@ __all__ = [
     "ActivationContext", "activation_score",
     "Mom1AccessBroker", "Mom1Requester",
     "AccessRequest", "AccessDecision", "AccessGrant",
+    "ALL_KINDS", "DERIVED_KINDS", "KIND_ATOMIC_FACT", "KIND_CASE",
+    "KIND_EPISODE", "KIND_PROFILE", "KIND_SUMMARY", "is_kind", "kind_of",
 ]

@@ -9,7 +9,7 @@ import os
 
 from autumn import (
     Autumn, AutumnConfig, ModelConfig, Protocol,
-    Agent, Tool, ToolParameter, StdioMCPClient,
+    Agent, Tool, ToolParameter,
 )
 
 

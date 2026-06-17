@@ -16,7 +16,13 @@ from .components.terr import Terr
 from .components.tool import Tool
 from .config import AutumnConfig
 from .interaction import UserInteraction
-from .memory.backends import HybridBackend, SQLiteBackend, SQLiteVectorStore
+from .memory.backends import (
+    HybridBackend,
+    MarkdownBackend,
+    SQLiteBackend,
+    SQLiteLexicalStore,
+    SQLiteVectorStore,
+)
 from .memory.base import MemoryArea
 from .memory.dimensions import ActivationContext
 from .memory.mom1 import Mom1
@@ -113,23 +119,36 @@ class Autumn:
         hist = b.history_limit
         decay = b.memory_decay_half_life or None
         fourd = b.fourd_memory_enabled
+
+        # Long-term backend factory. "sqlite" (default) keeps the historical
+        # file-per-zone DB; "markdown" stores readable .md entries with 4D
+        # frontmatter under "<db>.mdstore/<zone>/". Both are wrapped in
+        # HybridBackend for the short-term session cache, so the choice is
+        # transparent to every zone above.
+        markdown = config.storage.backend == "markdown"
+
+        def _zone(suffix: str) -> HybridBackend:
+            if markdown:
+                return HybridBackend(MarkdownBackend(f"{db}.mdstore/{suffix}"))
+            return HybridBackend(SQLiteBackend(f"{db}.{suffix}"))
+
         # Surface the shared zone on Autumn so callers (and add_memory_skills)
         # can bind to it without having to reach into Mom2.shared.
         self.shared = SharedZone(
-            HybridBackend(SQLiteBackend(db + ".shared")),
+            _zone("shared"),
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
         self.mom2 = Mom2(
-            HybridBackend(SQLiteBackend(db + ".mom2")), self.shared,
+            _zone("mom2"), self.shared,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom3 = Mom3(
-            HybridBackend(SQLiteBackend(db + ".mom3")), self.shared,
+            _zone("mom3"), self.shared,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
         self.mom1 = Mom1(
-            HybridBackend(SQLiteBackend(db + ".mom1")), self.mom2, self.mom3,
+            _zone("mom1"), self.mom2, self.mom3,
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
@@ -137,7 +156,7 @@ class Autumn:
         # but within a project the zone is shared across every workspace and turn.
         # Resolved per-request via project_scope()/the active-project contextvar.
         self.projects = ProjectMemory(
-            HybridBackend(SQLiteBackend(db + ".projects")),
+            _zone("projects"),
             history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
         )
 
@@ -148,7 +167,7 @@ class Autumn:
         self.wp4 = WP4Mem(
             self.a4,
             MemoryArea(
-                "wp4", HybridBackend(SQLiteBackend(db + ".wp4")),
+                "wp4", _zone("wp4"),
                 history_limit=hist, decay_half_life=decay, fourd_enabled=fourd,
             ),
             zones={
@@ -158,6 +177,13 @@ class Autumn:
                 "shared": self.shared,
             },
             projects=self.projects,
+            # Delegate heavy cognitive ops to A1 (strong model) when enabled (default).
+            # A4 handles mechanical memory ops; A1 handles reasoning-heavy synthesis.
+            delegation_api=self.a1 if b.delegate_on else None,
+            delegation_threshold=b.a4_delegation_threshold,
+            # External-retrieval augmentation: A4.research() pulls these skills from
+            # the knowledge Terr (registered below when a4_knowledge_terr is on).
+            research_provider=self._collect_knowledge_skills,
         )
 
         # Governed upward channel: Mom2/Mom3 may *request* a Mom1 read, A1
@@ -184,6 +210,31 @@ class Autumn:
                 store = SQLiteVectorStore(f"{db}.{suffix}.vec")
                 mom.enable_vector(self._embedding, store, auto_index=config.auto_index)
 
+        # Lexical (BM25) recall — opt-in keyword half of hybrid retrieval (P1-B).
+        # Auto-indexes on append so it works out of the box; fused with vector
+        # results (when present) by RRF inside recall. Off by default.
+        if b.lexical_recall_enabled:
+            for mom, suffix in [
+                (self.mom1, "mom1"),
+                (self.mom2, "mom2"),
+                (self.mom3, "mom3"),
+            ]:
+                mom.enable_lexical(SQLiteLexicalStore(f"{db}.{suffix}.fts"), auto_index=True)
+
+        # Background indexing (P2-B): decouple embedding/lexical indexing from the
+        # write path so a slow/down embedding service never blocks (or breaks) an
+        # append. Off by default → synchronous, unchanged. flush_index() runs on
+        # close so in-flight indexing completes before the embedding client shuts.
+        if b.async_index:
+            for mom in (self.mom1, self.mom2, self.mom3):
+                mom.set_async_index(True)
+
+        # Knowledge Terr (0.3.0): A4's external-retrieval engine. Registered here so
+        # research() can resolve its skills; also available to A2/A3 like any Terr.
+        if b.knowledge_terr_on:
+            from ..builtin.knowledge_terr import knowledge_terr
+            self.register_terr(knowledge_terr(recall_fn=self._knowledge_recall))
+
         p = config.prompts
         self.wp2 = WP2Tas(
             self.a2, self.mom2,
@@ -191,14 +242,29 @@ class Autumn:
             tool_provider=self._collect_plugins,
             agent_max_steps=b.agent_max_steps,
         )
-        self.wp3 = WP3Mis(self.a3, self.mom3, direct_prompt=p.wp3_direct, convert_prompt=p.wp3_convert)
+        self.wp3 = WP3Mis(
+            self.a3, self.mom3,
+            direct_prompt=p.wp3_direct,
+            convert_prompt=p.wp3_convert,
+            # Always wire the provider; it re-reads lite_skills_on() each turn and
+            # returns [] when the master switch / whitelist is off, so the gate
+            # stays live (a runtime config flip takes effect) like every other.
+            skill_provider=self._collect_a3_skills,
+        )
         self.wp1 = WP1Tot(
             self.a1, self.mom1, self.wp2, self.wp3,
+            wp4=self.wp4,
+            projects=self.projects,
+            mom1_access=self.mom1_access,
             interaction=interaction,
             selector_prompt=p.selector,
             headless_mission_route=config.headless_mission_route,
             validate_before_stream=config.validate_before_stream,
             confirm_threshold=b.confirm_threshold,
+            task_planning=b.task_planning_on,
+            supervision=b.supervision_on,
+            archive=b.archive_on,
+            capability_provider=self._capability_digest,
         )
 
         self.wp1.checker = Checker("wp1", self.a1, eval_prompt=p.wp1_checker, retries=b.checker_retries)
@@ -420,6 +486,69 @@ class Autumn:
             elif isinstance(obj, Skill):
                 skills.append(obj)
         return tools, skills
+
+    def _collect_a3_skills(self) -> list[Skill]:
+        """Snapshot the curated lite-skill set for WP3's bounded direct loop.
+
+        Resolved fresh each turn. Only skills whose name appears in
+        ``BehaviorConfig.a3_lite_skills`` and whose Terr (if any) is enabled
+        are included — A3 gets a narrow, safe subset, not the full WP2 bag.
+        """
+        whitelist = set(self.config.behavior.lite_skills_on())
+        if not whitelist:
+            return []
+        skills: list[Skill] = []
+        for obj in self.plugins.all().values():
+            if not isinstance(obj, Skill):
+                continue
+            if obj.name not in whitelist:
+                continue
+            source_terr = getattr(obj, "source_terr", None)
+            if source_terr and not self.plugins.is_terr_enabled(source_terr):
+                continue
+            skills.append(obj)
+        return skills
+
+    def _collect_knowledge_skills(self) -> list[Skill]:
+        """Snapshot the enabled ``knowledge`` Terr's skills for A4.research().
+
+        Returns ``[]`` when the knowledge Terr isn't registered/enabled, so
+        ``WP4Mem.research`` degrades gracefully to an "unavailable" message.
+        """
+        if not self.plugins.is_terr_enabled("knowledge"):
+            return []
+        return [
+            obj
+            for obj in self.plugins.all().values()
+            if isinstance(obj, Skill) and getattr(obj, "source_terr", None) == "knowledge"
+        ]
+
+    async def _knowledge_recall(self, query: str, k: int) -> str:
+        """Local-knowledge-store backing for the knowledge Terr's KB-query skill.
+
+        Reads the shared zone (the cross-workspace knowledge zone) and returns
+        formatted snippets, so A4's research loop can consult prior facts.
+        """
+        entries = await self.shared.recall(query, k=k)
+        if not entries:
+            return f"[no local knowledge found for {query!r}]"
+        return "\n".join(f"- {e.text}" for e in entries)
+
+    def _capability_digest(self) -> str:
+        """Render a compact digest of enabled capability domains for the Selector.
+
+        Lets A1 route with awareness of what the system can actually do — e.g.
+        leaning TASK when a relevant code/tool domain is loaded. Returns "" when
+        nothing is registered (the Selector then behaves exactly as before).
+        """
+        lines: list[str] = []
+        for terr in self.plugins.all_terrs().values():
+            if not self.plugins.is_terr_enabled(terr.name):
+                continue
+            lines.append(f"- {terr.name}: {terr.description}")
+        if not lines:
+            return ""
+        return "Loaded capability domains (the system can act in these areas):\n" + "\n".join(lines)
 
     def add_memory_skills(self, area: str = "shared") -> None:
         """Register recall and remember Skills backed by a memory area.
@@ -648,6 +777,9 @@ class Autumn:
                 await backend.clear_session()
 
     async def close(self) -> None:
+        # Drain any background indexing before tearing down the embedding client.
+        for mom in (self.mom1, self.mom2, self.mom3):
+            await mom.flush_index()
         for client in self._mcp_clients:
             await client.disconnect()
         self._mcp_clients.clear()

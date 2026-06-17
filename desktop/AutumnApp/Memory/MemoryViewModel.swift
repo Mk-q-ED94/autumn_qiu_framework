@@ -29,17 +29,27 @@ final class MemoryViewModel: ObservableObject {
     @Published var viewMode: ViewMode = .memory
     @Published var selectedArea: MemoryArea = .mom1
     @Published var selectedMode: FourDUseMode?
+    @Published var selectedKind: MemoryKind?
     @Published var entries: [MemoryEntry] = []
     @Published var stats: MemoryStats?
     @Published var overview: MemoryStatsOverview?
     @Published var isLoading = false
     @Published var isConsolidating = false
+    @Published var isExtractingFacts = false
+    @Published var isEvolving = false
     @Published var errorMessage: String?
     @Published var actionMessage: String?
 
     // ── 4D status + producer actions ────────────────────────────────────────────
     @Published var fourdStatus: FourDStatus?
     @Published var isAutoAnnotating = false
+
+    // ── derived memory profile ─────────────────────────────────────────────────
+    @Published var showProfilePanel = false
+    @Published var profileScope = "default"
+    @Published var profileText: String?
+    @Published var profileError: String?
+    @Published var isLoadingProfile = false
 
     // ── push preview ─────────────────────────────────────────────────────────────
     @Published var pushQuery: String = ""
@@ -67,13 +77,22 @@ final class MemoryViewModel: ObservableObject {
 
     var filteredEntries: [MemoryEntry] {
         let ordered = entries.reversed()
-        guard let mode = selectedMode else { return Array(ordered) }
-        return ordered.filter { $0.fourdMode == mode }
+        return ordered.filter { entry in
+            let modeMatches = selectedMode.map { entry.fourdMode == $0 } ?? true
+            let kindMatches = selectedKind.map { entry.memoryKind == $0 } ?? true
+            return modeMatches && kindMatches
+        }
     }
 
     var modeCounts: [FourDUseMode: Int] {
         entries.reduce(into: [:]) { counts, entry in
             if let mode = entry.fourdMode { counts[mode, default: 0] += 1 }
+        }
+    }
+
+    var kindCounts: [MemoryKind: Int] {
+        entries.reduce(into: [:]) { counts, entry in
+            if let kind = entry.memoryKind { counts[kind, default: 0] += 1 }
         }
     }
 
@@ -197,6 +216,93 @@ final class MemoryViewModel: ObservableObject {
         } catch {
             actionMessage = error.localizedDescription
         }
+    }
+
+    func extractFacts() async {
+        guard let url = URL(string: settings.serverURL) else {
+            actionMessage = "服务器 URL 无效"
+            return
+        }
+        isExtractingFacts = true
+        actionMessage = nil
+        defer { isExtractingFacts = false }
+        do {
+            let response = try await AutumnClient(baseURL: url).extractFacts(area: selectedArea)
+            actionMessage = response.facts.isEmpty ? "未抽取到新事实" : "已抽取 \(response.facts.count) 条事实"
+            selectedKind = .atomicFact
+            await load()
+        } catch {
+            actionMessage = error.localizedDescription
+        }
+    }
+
+    func evolveMemory() async {
+        guard let url = URL(string: settings.serverURL) else {
+            actionMessage = "服务器 URL 无效"
+            return
+        }
+        isEvolving = true
+        actionMessage = nil
+        defer { isEvolving = false }
+        do {
+            let response = try await AutumnClient(baseURL: url).evolveMemory(area: selectedArea)
+            actionMessage = response.skills.isEmpty ? "未生成新案例" : "已演化 \(response.skills.count) 条案例"
+            selectedKind = .caseMemory
+            await load()
+        } catch {
+            actionMessage = error.localizedDescription
+        }
+    }
+
+    func loadProfile() async {
+        guard let url = URL(string: settings.serverURL) else {
+            profileError = "服务器 URL 无效"
+            return
+        }
+        isLoadingProfile = true
+        profileError = nil
+        defer { isLoadingProfile = false }
+        do {
+            let response = try await AutumnClient(baseURL: url).fetchMemoryProfile(
+                area: selectedArea,
+                scope: normalizedProfileScope
+            )
+            profileText = response.profile
+            profileScope = response.scope
+        } catch {
+            profileText = nil
+            profileError = error.localizedDescription
+        }
+    }
+
+    func synthesizeProfile() async {
+        guard let url = URL(string: settings.serverURL) else {
+            profileError = "服务器 URL 无效"
+            return
+        }
+        isLoadingProfile = true
+        profileError = nil
+        actionMessage = nil
+        defer { isLoadingProfile = false }
+        do {
+            let response = try await AutumnClient(baseURL: url).synthesizeMemoryProfile(
+                area: selectedArea,
+                scope: normalizedProfileScope
+            )
+            profileText = response.profile
+            profileScope = response.scope
+            actionMessage = response.profile == nil ? "画像暂无可更新内容" : "画像已更新"
+            selectedKind = .profile
+            await load()
+        } catch {
+            profileError = error.localizedDescription
+            actionMessage = error.localizedDescription
+        }
+    }
+
+    private var normalizedProfileScope: String {
+        let scope = profileScope.trimmingCharacters(in: .whitespacesAndNewlines)
+        return scope.isEmpty ? "default" : scope
     }
 
     // ── access log ──────────────────────────────────────────────────────────────

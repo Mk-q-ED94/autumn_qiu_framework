@@ -7,7 +7,28 @@ function workspaceClass(ws: WorkspaceId | string): string {
   if (ws === "WP1") return "wp1";
   if (ws === "WP2") return "wp2";
   if (ws === "WP3") return "wp3";
+  if (ws === "WP4") return "wp4";
   return "wp1";
+}
+
+// One glyph per stage. Keyed on kind first, then on the WP1 stage id so the
+// 0.3.0 planning / supervision stages read distinctly from a plain step.
+function stageGlyph(stage: WorkflowStage): string {
+  if (stage.kind === "push") return "✦";   // 4D memory push-injection
+  if (stage.kind === "agent") return "◉";
+  if (stage.kind === "tool") return "⬡";
+  if (stage.id.startsWith("wp1.plan")) return "❖";       // A1 制定计划
+  if (stage.id.includes("supervise")) return "⊙";        // A1 监督介入
+  return "●";
+}
+
+// The class on the round trace-row indicator: tool/agent/push get their own,
+// everything else colors by workspace.
+function indicatorClass(stage: WorkflowStage): string {
+  if (stage.kind === "tool") return "tool";
+  if (stage.kind === "agent") return "agent";
+  if (stage.kind === "push") return "push";
+  return workspaceClass(stage.workspace);
 }
 
 function statusClass(status: string): string {
@@ -57,15 +78,13 @@ function routeLabel(trace: WorkflowTrace): string {
 function StageCapsule({ stage }: { stage: WorkflowStage }) {
   const ws = workspaceClass(stage.workspace);
   const st = statusClass(stage.status);
-  const isTool = stage.kind === "tool";
-  const isAgent = stage.kind === "agent";
 
   return (
     <div
       className={`stage-capsule ${ws} ${st}`}
       title={stageTooltip(stage)}
     >
-      {isAgent ? "◉" : isTool ? "⬡" : "●"}{" "}
+      {stageGlyph(stage)}{" "}
       {stage.title}
       {stage.source_terr && (
         <span className="badge badge--info" style={{ marginLeft: 3, fontSize: 8 }}>
@@ -87,14 +106,10 @@ function AgentChip() {
 // ── Expanded trace rows ───────────────────────────────────────────────────────
 
 function TraceRow({ stage, isLast }: { stage: WorkflowStage; isLast: boolean }) {
-  const ws = workspaceClass(stage.workspace);
-  const isTool = stage.kind === "tool";
-  const isAgent = stage.kind === "agent";
-
   return (
     <div className="trace-stage-row">
-      <div className={`trace-stage-indicator ${isTool ? "tool" : isAgent ? "agent" : ws}`}>
-        {isAgent ? "◉" : isTool ? "⬡" : "●"}
+      <div className={`trace-stage-indicator ${indicatorClass(stage)}`}>
+        {stageGlyph(stage)}
       </div>
       <div className="trace-stage-body">
         <div className="trace-stage-title">
@@ -126,8 +141,9 @@ function TraceRow({ stage, isLast }: { stage: WorkflowStage; isLast: boolean }) 
 export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Filter out tool/agent stages for the main strip — aggregate them into chips.
-  const mainStages = trace.stages.filter((s) => s.kind === "stage");
+  // Main strip shows workflow steps + the 4D push stage; tool/agent calls are
+  // aggregated into chips so a long ReAct loop doesn't blow out the strip.
+  const mainStages = trace.stages.filter((s) => s.kind === "stage" || s.kind === "push");
   const toolCount = trace.stages.filter((s) => s.kind === "tool").length;
   const agentCount = trace.stages.filter((s) => s.kind === "agent").length;
 

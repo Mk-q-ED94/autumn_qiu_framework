@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import * as client from "../api/client";
 import { DEFAULT_OLLAMA_URL } from "../types";
-import type { Protocol, Settings, SlotConfig } from "../types";
+import type { FourDStatus, Protocol, Settings, SlotConfig } from "../types";
 import { OllamaManager } from "./OllamaManager";
 
 type Tab = "server" | "models" | "advanced";
@@ -9,6 +9,74 @@ type Tab = "server" | "models" | "advanced";
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
+}
+
+// ── 4D memory runtime flags ───────────────────────────────────────────────────
+
+const FOURD_ROWS: Array<{ key: keyof FourDStatus; label: string; hint: string }> = [
+  { key: "fourd_memory_enabled", label: "4D 激活排序", hint: "按目的 / 使用 / 时间维度对召回与淘汰排序" },
+  { key: "fourd_push_on_turn", label: "回合开始推入", hint: "每轮开始时注入 CONSTRAIN / REMIND 记忆" },
+  { key: "mom1_access_enabled", label: "Mom1 受控访问", hint: "允许 Mom2 / Mom3 经 A1 裁决读取 Mom1" },
+];
+
+function FourDSettings({ settings }: { settings: Settings }) {
+  const [status, setStatus] = useState<FourDStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    client
+      .getFourDStatus(settings)
+      .then((s) => alive && setStatus(s))
+      .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function toggle(key: keyof FourDStatus) {
+    if (!status || busy) return;
+    const previous = status;
+    const next = { ...status, [key]: !status[key] };
+    setStatus(next); // optimistic
+    setBusy(true);
+    setErr("");
+    try {
+      setStatus(await client.setFourDConfig(settings, { [key]: next[key] }));
+    } catch (e) {
+      setStatus(previous); // rollback
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section__title">4D 记忆引擎</div>
+      {!status && !err && <div className="field__hint">加载中…</div>}
+      {err && <div className="field__hint" style={{ color: "var(--danger)" }}>{err}</div>}
+      {status &&
+        FOURD_ROWS.map((r) => (
+          <div key={r.key} className="fourd-row">
+            <div>
+              <div className="fourd-row__label">{r.label}</div>
+              <div className="field__hint">{r.hint}</div>
+            </div>
+            <button
+              className={`terr-toggle${status[r.key] ? " on" : ""}`}
+              onClick={() => toggle(r.key)}
+              disabled={busy}
+              title={status[r.key] ? "关闭" : "开启"}
+            >
+              <div className="terr-toggle__pip" />
+            </button>
+          </div>
+        ))}
+    </div>
+  );
 }
 
 // ── Slot config row ───────────────────────────────────────────────────────────
@@ -208,7 +276,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
         msg: h.configured ? "已配置，服务就绪" : "服务在线但尚未配置模型",
       });
     } catch (e) {
-      setHealth({ ok: false, msg: `连接失败: ${e}` });
+      setHealth({ ok: false, msg: `连接失败: ${e instanceof Error ? e.message : e}` });
     } finally {
       setChecking(false);
     }
@@ -222,7 +290,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
       setApplyMsg("✓ 配置已应用");
       await checkHealth();
     } catch (e) {
-      setApplyMsg(`✗ ${e}`);
+      setApplyMsg(`✗ ${e instanceof Error ? e.message : e}`);
     } finally {
       setApplying(false);
     }
@@ -366,18 +434,21 @@ export function SettingsPanel({ settings, onChange }: Props) {
 
         {/* ── 高级 tab ── */}
         {tab === "advanced" && (
-          <div className="settings-section">
-            <div className="settings-section__title">关于</div>
-            <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "var(--lg)" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: "var(--sm)" }}>秋 / Autumn 0.1.0</div>
-              <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
-                多模型协作工作流框架。A1 分类路由，A2 执行任务，A3 处理 Mission，Mom1/2/3 提供分层记忆。
-                <br />
-                <br />
-                Cloudflare 部署：前端 Pages + Worker BFF + Python Container。
+          <>
+            <FourDSettings settings={settings} />
+            <div className="settings-section">
+              <div className="settings-section__title">关于</div>
+              <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "var(--lg)" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: "var(--sm)" }}>秋 / Autumn 0.3.0</div>
+                <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
+                  多模型协作工作流框架。A1 组长分类、规划并监督，A2 执行任务，A3 处理 Mission，A4 管理 4D 记忆（Mom1/2/3 + shared）。
+                  <br />
+                  <br />
+                  Cloudflare 部署：前端 Pages + Worker BFF + Python Container。
+                </div>
               </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>

@@ -506,6 +506,72 @@ final class AutumnClient {
         return try JSONDecoder().decode(ConsolidateResponse.self, from: data)
     }
 
+    func extractFacts(
+        area: MemoryArea,
+        keepRecent: Int = 0,
+        maxFacts: Int = 20
+    ) async throws -> ExtractFactsResponse {
+        var request = URLRequest(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/extract-facts")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(
+            ExtractFactsRequestBody(keepRecent: keepRecent, maxFacts: maxFacts)
+        )
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(ExtractFactsResponse.self, from: data)
+    }
+
+    func evolveMemory(
+        area: MemoryArea,
+        minCount: Int = 2,
+        minCluster: Int = 2,
+        maxSkills: Int = 10
+    ) async throws -> EvolveMemoryResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/evolve"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(
+            EvolveMemoryRequestBody(minCount: minCount, minCluster: minCluster, maxSkills: maxSkills)
+        )
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(EvolveMemoryResponse.self, from: data)
+    }
+
+    func fetchMemoryProfile(area: MemoryArea, scope: String) async throws -> MemoryProfileResponse {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("memory/\(area.rawValue)/profile"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [URLQueryItem(name: "scope", value: scope)]
+        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(MemoryProfileResponse.self, from: data)
+    }
+
+    func synthesizeMemoryProfile(area: MemoryArea, scope: String) async throws -> MemoryProfileResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("memory/\(area.rawValue)/profile"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        request.httpBody = try JSONEncoder().encode(MemoryProfileRequestBody(scope: scope))
+
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(MemoryProfileResponse.self, from: data)
+    }
+
     func projectMetadata(projectID: String) async throws -> ProjectMetadata {
         var request = URLRequest(
             url: baseURL
@@ -694,11 +760,22 @@ final class AutumnClient {
             throw AutumnClientError.badStatus(-1)
         }
         guard (200..<300).contains(http.statusCode) else {
-            if let body = try? JSONDecoder().decode([String: String].self, from: data),
-               let detail = body["detail"], !detail.isEmpty {
-                throw AutumnClientError.serverError(detail)
-            }
-            throw AutumnClientError.badStatus(http.statusCode)
+            let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+            let detail = decoded?["detail"].flatMap { $0.isEmpty ? nil : $0 }
+            throw AutumnClientError.serverError(friendlyMessage(http.statusCode, detail: detail))
+        }
+    }
+
+    /// Turn a non-2xx status into a clear, actionable message. 0.3.0's server
+    /// adds 413 (body too large) and enforces the optional API key (401); these
+    /// get tailored guidance rather than a bare status code.
+    private static func friendlyMessage(_ code: Int, detail: String?) -> String {
+        switch code {
+        case 401: return "未授权：请在设置中填写正确的 API Key。"
+        case 413: return "输入过大：内容超出服务器请求上限，请缩短后重试。"
+        case 502: return "上游模型出错：" + (detail ?? "请稍后重试")
+        case 503: return detail ?? "服务尚未配置模型，请在设置中配置 A1–A3 后重试。"
+        default: return detail ?? "HTTP 状态码: \(code)"
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 enum MemoryArea: String, CaseIterable, Identifiable, Codable {
     case mom1
@@ -65,6 +66,52 @@ enum FourDUseMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Lightweight memory kinds carried by reserved tags.
+/// Mirrors `autumn/core/memory/kinds.py`.
+enum MemoryKind: String, CaseIterable, Identifiable {
+    case episode
+    case atomicFact = "atomic_fact"
+    case profile
+    case summary
+    case caseMemory = "case"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .episode:    return "片段"
+        case .atomicFact: return "事实"
+        case .profile:    return "画像"
+        case .summary:    return "摘要"
+        case .caseMemory: return "案例"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .episode:    return "text.bubble"
+        case .atomicFact: return "atom"
+        case .profile:    return "person.text.rectangle"
+        case .summary:    return "doc.text"
+        case .caseMemory: return "rectangle.stack.badge.person.crop"
+        }
+    }
+
+    var tone: AutumnBadge.Tone {
+        switch self {
+        case .episode:    return .neutral
+        case .atomicFact: return .info
+        case .profile:    return .accent
+        case .summary:    return .memory
+        case .caseMemory: return .success
+        }
+    }
+
+    var color: Color {
+        tone.foreground
+    }
+}
+
 struct MemoryEntry: Identifiable, Equatable {
     let id = UUID()
     let area: MemoryArea
@@ -124,6 +171,11 @@ struct MemoryEntry: Identifiable, Equatable {
         return raw.compactMap {
             if case .string(let s) = $0 { return s } else { return nil }
         }
+    }
+
+    var memoryKind: MemoryKind? {
+        let tagSet = Set(tags)
+        return MemoryKind.allCases.first { tagSet.contains($0.rawValue) }
     }
 
     // ── 4D dimension accessors ──────────────────────────────────────────────
@@ -241,6 +293,22 @@ struct MemoryStatsOverview: Decodable, Equatable {
 struct ConsolidateResponse: Decodable, Equatable {
     let status: String
     let summary: [String: JSONValue]?
+}
+
+struct ExtractFactsResponse: Decodable, Equatable {
+    let status: String
+    let facts: [[String: JSONValue]]
+}
+
+struct EvolveMemoryResponse: Decodable, Equatable {
+    let status: String
+    let skills: [[String: JSONValue]]
+}
+
+struct MemoryProfileResponse: Decodable, Equatable {
+    let status: String
+    let scope: String
+    let profile: String?
 }
 
 struct AccessLogEntry: Identifiable, Decodable, Equatable {

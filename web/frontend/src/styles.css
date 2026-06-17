@@ -1,9 +1,10 @@
 /* ── Design tokens ───────────────────────────────────────────────────────────── */
 :root {
-  /* Workspace colors — must match PipelineStrip.tsx workspaceColor() */
+  /* Workspace colors — must match PipelineStrip.tsx workspaceClass() */
   --wp1: #818cf8;       /* indigo — A1 / WP1 (selector / checker) */
   --wp2: #fbbf24;       /* amber  — A2 / WP2 (task execution)      */
   --wp3: #60a5fa;       /* blue   — A3 / WP3 (mission)             */
+  --wp4: #c084fc;       /* violet — A4 / WP4 (4D memory / push)    */
 
   /* Status palette */
   --success: #34d399;
@@ -22,10 +23,10 @@
   --border:          rgba(255 255 255 / 0.07);
   --border-focus:    rgba(129 140 248 / 0.5);
 
-  /* Text */
+  /* Text — text-3 lifted from #4b5563 (2.5:1) to clear AA-large on --bg */
   --text:        #f2f2f3;
   --text-2:      #9ca3af;
-  --text-3:      #4b5563;
+  --text-3:      #5f6773;
 
   /* Layout */
   --sidebar-w: 240px;
@@ -50,9 +51,9 @@
   --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, monospace;
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  /* Transitions */
-  --ease: 0.15s ease;
-  --ease-long: 0.3s ease;
+  /* Transitions — intentional ease-out (fast settle), not the default ease */
+  --ease: 0.15s cubic-bezier(0.2, 0, 0, 1);
+  --ease-long: 0.3s cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────────── */
@@ -79,6 +80,45 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { border-color: var(--border-focus); }
 a { color: var(--accent); text-decoration: none; }
+
+/* ── Interaction & accessibility ─────────────────────────────────────────────── */
+/* Visible keyboard focus on every interactive element; mouse clicks stay clean.
+   outline-offset keeps the ring on the dark surface, so it reads even on an
+   accent-filled control (primary button / active tab). */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 1px; }
+
+/* Press feedback — subtle, consistent across the primary controls. */
+.btn:active:not(:disabled),
+.tab-pill:active,
+.nav-item:active { transform: translateY(0.5px); }
+.btn--secondary:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
+.input-bar__send:active:not(:disabled) { transform: scale(0.94); }
+
+/* One-shot entrances (run on mount, not on every streaming re-render). */
+.message { animation: rise-in var(--ease-long); }
+.error-banner { animation: rise-in var(--ease-long); }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Honour reduced-motion: drop decorative loops + long transitions, but keep the
+   loading spinner turning so progress stays perceivable. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; }
+  .message, .error-banner,
+  .message__cursor, .stage-capsule.active,
+  .agent-dot__pip.connecting, .ollama__bar-fill.indeterminate { animation: none !important; }
+}
 
 /* ── Layout ──────────────────────────────────────────────────────────────────── */
 .app {
@@ -302,15 +342,18 @@ a { color: var(--accent); text-decoration: none; }
 .stage-capsule.wp1.completed  { background: rgba(129 140 248 / 0.2); color: var(--wp1); border: 1px solid rgba(129 140 248 / 0.3); }
 .stage-capsule.wp2.completed  { background: rgba(251 191 36  / 0.2); color: var(--wp2); border: 1px solid rgba(251 191 36  / 0.3); }
 .stage-capsule.wp3.completed  { background: rgba(96  165 250 / 0.2); color: var(--wp3); border: 1px solid rgba(96  165 250 / 0.3); }
+.stage-capsule.wp4.completed  { background: rgba(192 132 252 / 0.2); color: var(--wp4); border: 1px solid rgba(192 132 252 / 0.3); }
 /* Pending — outline only */
 .stage-capsule.wp1.pending { color: var(--wp1); border: 1px solid rgba(129 140 248 / 0.25); background: transparent; opacity: 0.5; }
 .stage-capsule.wp2.pending { color: var(--wp2); border: 1px solid rgba(251 191 36  / 0.25); background: transparent; opacity: 0.5; }
 .stage-capsule.wp3.pending { color: var(--wp3); border: 1px solid rgba(96  165 250 / 0.25); background: transparent; opacity: 0.5; }
+.stage-capsule.wp4.pending { color: var(--wp4); border: 1px solid rgba(192 132 252 / 0.25); background: transparent; opacity: 0.5; }
 /* Active — filled + pulse */
 .stage-capsule.active { animation: stage-pulse 1.2s ease-in-out infinite; }
 .stage-capsule.wp1.active { background: rgba(129 140 248 / 0.25); color: var(--wp1); border: 1px solid rgba(129 140 248 / 0.5); }
 .stage-capsule.wp2.active { background: rgba(251 191 36  / 0.25); color: var(--wp2); border: 1px solid rgba(251 191 36  / 0.5); }
 .stage-capsule.wp3.active { background: rgba(96  165 250 / 0.25); color: var(--wp3); border: 1px solid rgba(96  165 250 / 0.5); }
+.stage-capsule.wp4.active { background: rgba(192 132 252 / 0.25); color: var(--wp4); border: 1px solid rgba(192 132 252 / 0.5); }
 /* Failed */
 .stage-capsule.failed { background: rgba(248 113 113 / 0.2); color: var(--danger); border: 1px solid rgba(248 113 113 / 0.3); }
 @keyframes stage-pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
@@ -378,8 +421,15 @@ a { color: var(--accent); text-decoration: none; }
 .trace-stage-indicator.wp1 { background: rgba(129 140 248 / 0.2); color: var(--wp1); }
 .trace-stage-indicator.wp2 { background: rgba(251 191 36  / 0.2); color: var(--wp2); }
 .trace-stage-indicator.wp3 { background: rgba(96  165 250 / 0.2); color: var(--wp3); }
+.trace-stage-indicator.wp4 { background: rgba(192 132 252 / 0.2); color: var(--wp4); }
 .trace-stage-indicator.tool  { background: rgba(129 140 248 / 0.15); color: var(--accent); }
 .trace-stage-indicator.agent { background: rgba(251 191 36  / 0.15); color: var(--wp2); }
+.trace-stage-indicator.push  { background: rgba(192 132 252 / 0.15); color: var(--wp4); }
+
+/* 4D runtime-flag rows (settings) */
+.fourd-row { display: flex; align-items: center; justify-content: space-between; gap: var(--md); padding: var(--sm) 0; border-bottom: 1px solid var(--border); }
+.fourd-row:last-child { border-bottom: none; }
+.fourd-row__label { font-size: 12px; font-weight: 600; color: var(--text); }
 .trace-stage-body { flex: 1; min-width: 0; }
 .trace-stage-title { font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: var(--xs); flex-wrap: wrap; }
 .trace-stage-detail { font-size: 11px; color: var(--text-2); margin-top: 1px; word-break: break-word; }
@@ -703,7 +753,15 @@ a { color: var(--accent); text-decoration: none; }
   padding: var(--2xl);
   text-align: center;
 }
-.empty-state__icon { font-size: 40px; }
+.empty-state__icon {
+  width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-lg);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 26px;
+}
 .empty-state__title { font-size: 15px; font-weight: 600; color: var(--text-2); }
 .empty-state__sub { font-size: 13px; max-width: 320px; line-height: 1.6; }
 
