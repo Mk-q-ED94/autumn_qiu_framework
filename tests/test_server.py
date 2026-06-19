@@ -115,6 +115,7 @@ class _MockAutumn:
                     title="A3 路由",
                     detail=f"Mission 路由为 {route.value}",
                     workspace="WP3",
+                    items=["选择 direct 或 convert", "交给对应工作区"],
                     duration_ms=12.5,
                     prompt_tokens=120,
                     completion_tokens=15,
@@ -542,6 +543,7 @@ def test_trace_returns_workflow_run(configured_client):
     assert payload["task_type"] is None
     assert payload["stages"][0]["id"] == "wp3.route"
     assert payload["stages"][0]["duration_ms"] == 12.5
+    assert payload["stages"][0]["items"] == ["选择 direct 或 convert", "交给对应工作区"]
     assert configured_client.app.state.autumn.process_calls[-1] == ("hi", "convert", None, None)
 
 

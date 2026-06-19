@@ -102,7 +102,6 @@ enum Autumn {
             case .workspace: return clay
             case .memory: return memory
             case .terrs: return sage
-            case .settings: return slate
             }
         }
 

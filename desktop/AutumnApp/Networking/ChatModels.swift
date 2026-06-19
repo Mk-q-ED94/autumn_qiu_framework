@@ -123,6 +123,11 @@ struct WorkflowTrace: Decodable, Equatable {
         stages.first { $0.kind == "push" }
     }
 
+    /// The wp4.archive stage when A4 persisted this turn's outcome.
+    var archiveStage: WorkflowStage? {
+        stages.first { $0.kind == "archive" }
+    }
+
     var sourceTerrNames: [String] {
         Array(Set(stages.compactMap(\.sourceTerr))).sorted()
     }
@@ -150,6 +155,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     let title: String
     let detail: String
     let workspace: String
+    let items: [String]
     let status: String
     let kind: String   // "stage" = workflow step, "tool" = an agent tool call
     let durationMS: Double?
@@ -163,6 +169,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         title: String,
         detail: String,
         workspace: String,
+        items: [String] = [],
         status: String,
         kind: String = "stage",
         durationMS: Double? = nil,
@@ -175,6 +182,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         self.title = title
         self.detail = detail
         self.workspace = workspace
+        self.items = items
         self.status = status
         self.kind = kind
         self.durationMS = durationMS
@@ -190,6 +198,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         title = try c.decode(String.self, forKey: .title)
         detail = try c.decode(String.self, forKey: .detail)
         workspace = try c.decode(String.self, forKey: .workspace)
+        items = try c.decodeIfPresent([String].self, forKey: .items) ?? []
         status = try c.decode(String.self, forKey: .status)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
         durationMS = try c.decodeIfPresent(Double.self, forKey: .durationMS)
@@ -200,7 +209,7 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, detail, workspace, status, kind
+        case id, title, detail, workspace, items, status, kind
         case durationMS = "duration_ms"
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"

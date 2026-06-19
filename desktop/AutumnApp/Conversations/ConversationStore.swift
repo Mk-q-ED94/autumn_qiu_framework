@@ -5,11 +5,9 @@ import SwiftUI
 @MainActor
 final class ConversationStore: ObservableObject {
     @Published private(set) var conversations: [Conversation] = []
-    @Published var selectedID: UUID?
     @Published private(set) var isLoading: Bool = true
 
     private static let storageKey = "AutumnDesktop.conversations.v1"
-    private static let selectionKey = "AutumnDesktop.conversations.selected"
     private static let maxKeptConversations = 60
 
     init() {
@@ -17,13 +15,6 @@ final class ConversationStore: ObservableObject {
         if conversations.isEmpty {
             let fresh = Conversation()
             conversations.append(fresh)
-            selectedID = fresh.id
-        } else if let raw = UserDefaults.standard.string(forKey: Self.selectionKey),
-                  let uuid = UUID(uuidString: raw),
-                  conversations.contains(where: { $0.id == uuid }) {
-            selectedID = uuid
-        } else {
-            selectedID = conversations.first?.id
         }
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 220_000_000)
@@ -33,21 +24,12 @@ final class ConversationStore: ObservableObject {
         }
     }
 
-    var selected: Conversation? {
-        guard let id = selectedID else { return nil }
-        return conversations.first(where: { $0.id == id })
-    }
-
-    func newConversation(projectID: UUID? = nil) {
+    @discardableResult
+    func newConversation(projectID: UUID? = nil) -> UUID {
         let new = Conversation(projectID: projectID)
         conversations.insert(new, at: 0)
-        selectedID = new.id
         persist()
-    }
-
-    func select(_ id: UUID) {
-        selectedID = id
-        UserDefaults.standard.set(id.uuidString, forKey: Self.selectionKey)
+        return new.id
     }
 
     func rename(_ id: UUID, to title: String) {
@@ -60,9 +42,6 @@ final class ConversationStore: ObservableObject {
 
     func delete(_ id: UUID) {
         conversations.removeAll(where: { $0.id == id })
-        if selectedID == id {
-            selectedID = conversations.first?.id
-        }
         if conversations.isEmpty {
             newConversation()
         }

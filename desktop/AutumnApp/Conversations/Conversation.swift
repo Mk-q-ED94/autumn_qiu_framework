@@ -123,6 +123,7 @@ struct PersistableStage: Codable, Equatable {
     let title: String
     let detail: String
     let workspace: String
+    let items: [String]
     let status: String
     let kind: String
     let durationMS: Double?
@@ -135,6 +136,7 @@ struct PersistableStage: Codable, Equatable {
         self.title = stage.title
         self.detail = stage.detail
         self.workspace = stage.workspace
+        self.items = stage.items
         self.status = stage.status
         self.kind = stage.kind
         self.durationMS = stage.durationMS
@@ -149,6 +151,7 @@ struct PersistableStage: Codable, Equatable {
         title = try c.decode(String.self, forKey: .title)
         detail = try c.decode(String.self, forKey: .detail)
         workspace = try c.decode(String.self, forKey: .workspace)
+        items = try c.decodeIfPresent([String].self, forKey: .items) ?? []
         status = try c.decode(String.self, forKey: .status)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
         durationMS = try c.decodeIfPresent(Double.self, forKey: .durationMS)
@@ -158,7 +161,7 @@ struct PersistableStage: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, detail, workspace, status, kind
+        case id, title, detail, workspace, items, status, kind
         case durationMS
         case promptTokens, completionTokens, sourceTerr
     }
@@ -169,6 +172,7 @@ struct PersistableStage: Codable, Equatable {
             title: title,
             detail: detail,
             workspace: workspace,
+            items: items,
             status: status,
             kind: kind,
             durationMS: durationMS,

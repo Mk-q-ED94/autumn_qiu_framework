@@ -51,6 +51,7 @@ class WorkflowStage:
     completion_tokens: int | None = None
     source_terr: str | None = None
     cost_usd: float | None = None   # filled in when the slot has pricing configured
+    items: list[str] | None = None  # structured detail, e.g. A1's execution plan
 
 
 @dataclass

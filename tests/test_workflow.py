@@ -6,7 +6,7 @@ from autumn.core.memory.mom2 import Mom2
 from autumn.core.memory.mom3 import Mom3
 from autumn.core.memory.shared import SharedZone
 from autumn.core.types import MissionRoute
-from autumn.core.workspace.wp1 import WP1Tot
+from autumn.core.workspace.wp1 import WP1Tot, _plan_items
 from autumn.core.workspace.wp2 import WP2Tas
 from autumn.core.workspace.wp3 import WP3Mis
 
@@ -23,6 +23,16 @@ class MockAPI:
         if "routing agent" in system:
             return '{"route": "direct"}'
         return "Direct mission answer."
+
+
+def test_plan_items_normalizes_numbered_and_bulleted_steps():
+    plan = "1. Inspect the code\n2) Add the fix\n- Run focused tests"
+
+    assert _plan_items(plan) == [
+        "Inspect the code",
+        "Add the fix",
+        "Run focused tests",
+    ]
 
 
 class MockInteraction(UserInteraction):

@@ -455,7 +455,7 @@ struct SettingsView: View {
             }
 
             SettingsSection(title: "关于") {
-                LabeledContent("版本", value: "0.2.3")
+                LabeledContent("版本", value: appVersion)
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
@@ -502,6 +502,10 @@ struct SettingsView: View {
         case "convert": return "mission 由 A3 转为任务，再走 WP2 全流程。"
         default: return "由 A3 在运行时为每条 mission 选择路由。"
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 
     private var fourdMemoryBinding: Binding<Bool> {

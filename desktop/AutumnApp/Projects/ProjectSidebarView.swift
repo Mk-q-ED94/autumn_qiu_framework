@@ -11,6 +11,7 @@ import SwiftUI
 struct ProjectSidebarView: View {
     @EnvironmentObject private var store: ConversationStore
     @EnvironmentObject private var projects: ProjectStore
+    @Binding var selectedConversationID: UUID?
 
     @State private var renamingConversationID: UUID?
     @State private var draftTitle: String = ""
@@ -78,7 +79,7 @@ struct ProjectSidebarView: View {
             .buttonStyle(.plain)
             .help("新建项目")
 
-            Button(action: { store.newConversation() }) {
+            Button(action: { selectedConversationID = store.newConversation() }) {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 13, weight: .medium))
             }
@@ -114,7 +115,7 @@ struct ProjectSidebarView: View {
                 conversationRow(conversation)
             }
             Button {
-                store.newConversation(projectID: project.id)
+                selectedConversationID = store.newConversation(projectID: project.id)
             } label: {
                 HStack(spacing: Autumn.spacing.xs) {
                     Image(systemName: "plus.circle")
@@ -134,7 +135,7 @@ struct ProjectSidebarView: View {
             .contextMenu {
                 Button("重命名 / 编辑指令") { editorMode = .edit(project) }
                 Button("在此项目新建对话") {
-                    store.newConversation(projectID: project.id)
+                    selectedConversationID = store.newConversation(projectID: project.id)
                 }
                 Divider()
                 Button("删除项目", role: .destructive) {
@@ -230,7 +231,7 @@ struct ProjectSidebarView: View {
                 renamingConversationID = nil
             },
             onCancelRename: { renamingConversationID = nil },
-            onStartFirstMessage: { store.select(conversation.id) }
+            onStartFirstMessage: { selectedConversationID = conversation.id }
         )
         .tag(conversation.id)
         .draggable(conversation.id.uuidString)
@@ -258,6 +259,9 @@ struct ProjectSidebarView: View {
             Divider()
             Button("删除", role: .destructive) {
                 store.delete(conversation.id)
+                if selectedConversationID == conversation.id {
+                    selectedConversationID = store.conversations.first?.id
+                }
             }
         }
     }
@@ -276,8 +280,8 @@ struct ProjectSidebarView: View {
 
     private var bindingSelection: Binding<UUID?> {
         Binding(
-            get: { store.selectedID },
-            set: { if let id = $0 { store.select(id) } }
+            get: { selectedConversationID },
+            set: { selectedConversationID = $0 }
         )
     }
 

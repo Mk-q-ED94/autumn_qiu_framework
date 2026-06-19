@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Binding var selection: String
+    @Binding var selectedConversationID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,13 +34,13 @@ struct SidebarView: View {
 
             // ── project/conversation explorer (visible while in workspace) ──
             if selection == AppSection.workspace.rawValue {
-                ProjectSidebarView()
+                ProjectSidebarView(selectedConversationID: $selectedConversationID)
             } else {
                 Spacer()
             }
 
             // ── agent status footer ──
-            AgentStatusFooter(selection: $selection)
+            AgentStatusFooter()
         }
         .navigationTitle("秋")
     }
@@ -78,7 +79,7 @@ private struct SidebarRow: View {
 /// Click any dot or the gear to jump to Settings.
 private struct AgentStatusFooter: View {
     @EnvironmentObject private var settings: AppSettings
-    @Binding var selection: String
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: Autumn.spacing.xs) {
@@ -91,7 +92,7 @@ private struct AgentStatusFooter: View {
                 .onTapGesture { openSettings() }
             }
             Spacer()
-            Button(action: openSettings) {
+            Button(action: { openSettings() }) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -108,10 +109,6 @@ private struct AgentStatusFooter: View {
                 .frame(height: Autumn.stroke.hairline),
             alignment: .top
         )
-    }
-
-    private func openSettings() {
-        selection = AppSection.settings.rawValue
     }
 
     private func state(for slot: AgentSlotID) -> ModelConnectionState {

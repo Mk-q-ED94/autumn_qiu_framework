@@ -6,21 +6,29 @@ struct ChatView: View {
     @EnvironmentObject private var conversationStore: ConversationStore
     @EnvironmentObject private var projectStore: ProjectStore
     @FocusState private var composerFocused: Bool
-    @State private var inspectorVisible: Bool = false
     @State private var isRunButtonHovered = false
+    @State private var selectedTraceMessageID: UUID?
+    private let conversationID: UUID?
+    private let showRunInspector: () -> Void
+    @Binding private var inspectorTrace: WorkflowTrace?
 
-    init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
+    init(
+        settings: AppSettings,
+        store: ConversationStore,
+        projects: ProjectStore? = nil,
+        conversationID: UUID?,
+        inspectorTrace: Binding<WorkflowTrace?>,
+        showRunInspector: @escaping () -> Void
+    ) {
+        self.conversationID = conversationID
+        self.showRunInspector = showRunInspector
+        _inspectorTrace = inspectorTrace
         _vm = StateObject(wrappedValue: ChatViewModel(
             settings: settings,
             store: store,
-            projects: projects
+            projects: projects,
+            conversationID: conversationID
         ))
-    }
-
-    /// The trace surfaced in the inspector — the most recent assistant turn
-    /// that finished classification (i.e. has a populated trace).
-    private var inspectorTrace: WorkflowTrace? {
-        vm.messages.reversed().first(where: { $0.role == .assistant && $0.trace != nil })?.trace
     }
 
     var body: some View {
@@ -33,21 +41,7 @@ struct ChatView: View {
             inputBar
         }
         .background(Color.clear)
-        .inspector(isPresented: $inspectorVisible) {
-            MessageInspectorView(trace: inspectorTrace)
-                .inspectorColumnWidth(min: 260, ideal: 296, max: 360)
-        }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    withAnimation(Autumn.motion.snappy) { inspectorVisible.toggle() }
-                } label: {
-                    Image(systemName: inspectorVisible
-                          ? "sidebar.trailing"
-                          : "sidebar.squares.trailing")
-                }
-                .help(inspectorVisible ? "隐藏流水线详情" : "显示流水线详情")
-            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Button("清空对话", role: .destructive) { vm.clear() }
@@ -57,14 +51,16 @@ struct ChatView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .autumnClearConversation)) { _ in
-            vm.clear()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .autumnEndSession)) { _ in
-            Task { await vm.endSession() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .autumnFocusComposer)) { _ in
-            composerFocused = true
+        .focusedSceneValue(
+            \.chatCommandActions,
+            ChatCommandActions(
+                clearConversation: vm.clear,
+                endSession: { Task { await vm.endSession() } },
+                focusComposer: { composerFocused = true }
+            )
+        )
+        .onChange(of: traceSnapshots, initial: true) { oldSnapshots, newSnapshots in
+            synchronizeInspectorSelection(from: oldSnapshots, to: newSnapshots)
         }
     }
 
@@ -104,8 +100,8 @@ struct ChatView: View {
 
     private var activeProject: Project? {
         guard
-            let id = conversationStore.selectedID,
-            let convo = conversationStore.conversations.first(where: { $0.id == id }),
+            let conversationID,
+            let convo = conversationStore.conversations.first(where: { $0.id == conversationID }),
             let projectID = convo.projectID
         else { return nil }
         return projectStore.project(id: projectID)
@@ -124,7 +120,11 @@ struct ChatView: View {
                         .frame(minHeight: 360)
                     } else {
                         ForEach(vm.messages) { message in
-                            MessageRow(message: message)
+                            MessageRow(
+                                message: message,
+                                isTraceSelected: selectedTraceMessageID == message.id,
+                                onSelectTrace: { selectTrace(message) }
+                            )
                                 .id(message.id)
                                 .transition(.asymmetric(
                                     insertion: .move(edge: .bottom).combined(with: .opacity),
@@ -142,6 +142,42 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    private var traceSnapshots: [MessageTraceSnapshot] {
+        vm.messages.compactMap { message in
+            message.trace.map { trace in
+                MessageTraceSnapshot(messageID: message.id, trace: trace)
+            }
+        }
+    }
+
+    private func synchronizeInspectorSelection(
+        from oldSnapshots: [MessageTraceSnapshot],
+        to newSnapshots: [MessageTraceSnapshot]
+    ) {
+        let oldIDs = Set(oldSnapshots.map(\.messageID))
+        let newestTrace = newSnapshots.last
+
+        if let newestTrace, !oldIDs.contains(newestTrace.messageID) {
+            selectedTraceMessageID = newestTrace.messageID
+        } else if let selectedTraceMessageID,
+                  !newSnapshots.contains(where: { $0.messageID == selectedTraceMessageID }) {
+            self.selectedTraceMessageID = newestTrace?.messageID
+        } else if selectedTraceMessageID == nil {
+            selectedTraceMessageID = newestTrace?.messageID
+        }
+
+        inspectorTrace = selectedTraceMessageID.flatMap { selectedID in
+            newSnapshots.first(where: { $0.messageID == selectedID })?.trace
+        }
+    }
+
+    private func selectTrace(_ message: ChatMessage) {
+        guard let trace = message.trace else { return }
+        selectedTraceMessageID = message.id
+        inspectorTrace = trace
+        showRunInspector()
     }
 
     @ViewBuilder
@@ -293,8 +329,15 @@ struct ChatView: View {
     }
 }
 
+private struct MessageTraceSnapshot: Equatable {
+    let messageID: UUID
+    let trace: WorkflowTrace
+}
+
 private struct MessageRow: View {
     let message: ChatMessage
+    let isTraceSelected: Bool
+    let onSelectTrace: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: Autumn.spacing.sm) {
@@ -321,7 +364,11 @@ private struct MessageRow: View {
             }
 
             if message.role == .assistant, let trace = message.trace {
-                WorkflowTraceView(trace: trace)
+                WorkflowTraceView(
+                    trace: trace,
+                    isSelected: isTraceSelected,
+                    onSelect: onSelectTrace
+                )
             }
         }
         .padding(.horizontal, Autumn.spacing.md)

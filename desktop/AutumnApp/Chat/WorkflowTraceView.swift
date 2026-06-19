@@ -1,77 +1,58 @@
 import SwiftUI
 
-/// Trace card attached below each assistant message.
-///
-/// Collapsed layout (default):
-///   [Mission · Direct]  ↑1.2k ↓800 · 1.8s              ▼
-///   ▰▰▰▰▰  🔧 1                                          (PipelineStripView)
-///
-/// Expanded layout adds the full ``WorkflowStageRow`` list below.
-/// The whole header is one big tap target so the affordance is obvious.
+/// Compact trace summary attached below each assistant message. Full stage,
+/// token, tool and agent details live in the workspace inspector.
 struct WorkflowTraceView: View {
     let trace: WorkflowTrace
-    @State private var isExpanded: Bool = false
+    let isSelected: Bool
+    let onSelect: () -> Void
 
     var body: some View {
+        Button(action: onSelect) {
+            content
+        }
+        .buttonStyle(.plain)
+        .padding(Autumn.spacing.sm)
+        .background(cardSurface)
+        .overlay(cardBorder)
+        .help("在检视面板中查看运行详情")
+        .accessibilityLabel("运行摘要，\(routeText)")
+        .accessibilityHint("打开检视面板查看阶段、工具调用与用量")
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
             header
-
             PipelineStripView(trace: trace)
+        }
+        .contentShape(Rectangle())
+    }
 
-            if isExpanded {
-                Divider()
-                    .padding(.top, Autumn.spacing.xs)
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(trace.stages.enumerated()), id: \.element.id) { index, stage in
-                        WorkflowStageRow(
-                            stage: stage,
-                            isLast: index == trace.stages.count - 1
-                        )
-                    }
-                }
-                .padding(.top, Autumn.spacing.xs)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .padding(Autumn.spacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
-                .fill(.background.opacity(0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.16), lineWidth: Autumn.stroke.hairline)
-        )
-        .onChange(of: trace.isLive) { _, isLive in
-            withAnimation(Autumn.motion.snappy) {
-                isExpanded = isLive || trace.hasFailedStage
-            }
-        }
-        .onAppear {
-            isExpanded = trace.isLive || trace.hasFailedStage
-        }
+    private var cardSurface: some View {
+        RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+            .fill(isSelected ? Autumn.colors.clay.opacity(0.055) : Autumn.colors.surfaceElevated)
+    }
+
+    private var cardBorder: some View {
+        RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+            .strokeBorder(
+                isSelected ? Autumn.colors.clay.opacity(0.38) : Color.secondary.opacity(0.16),
+                lineWidth: Autumn.stroke.hairline
+            )
     }
 
     private var header: some View {
         HStack(spacing: Autumn.spacing.sm) {
-            routePill
+            AutumnChip(routeText, icon: routeIcon, color: routeColor)
             Spacer(minLength: Autumn.spacing.sm)
             Text(summary)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+            Image(systemName: isSelected ? "sidebar.right" : "chevron.right")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(isSelected ? Autumn.colors.clay : Color.secondary)
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(Autumn.motion.snappy) { isExpanded.toggle() }
-        }
-    }
-
-    private var routePill: some View {
-        AutumnChip(routeText, icon: routeIcon, color: routeColor)
     }
 
     private var routeText: String {
@@ -85,8 +66,7 @@ struct WorkflowTraceView: View {
             }
             return "Task"
         case .mission:
-            let route = trace.routeMode ?? .auto
-            return "Mission · \(route.title)"
+            return "Mission · \((trace.routeMode ?? .auto).title)"
         }
     }
 
@@ -99,10 +79,7 @@ struct WorkflowTraceView: View {
     private var routeColor: Color {
         if trace.hasFailedStage { return Autumn.colors.danger }
         if trace.isLive { return Autumn.colors.info }
-        switch trace.inputKind {
-        case .task: return Autumn.colors.warning
-        case .mission: return Autumn.colors.info
-        }
+        return trace.inputKind == .task ? Autumn.colors.warning : Autumn.colors.info
     }
 
     private var summary: String {
@@ -110,17 +87,20 @@ struct WorkflowTraceView: View {
         if trace.pushStage != nil {
             parts.append("4D 推入")
         }
+        if trace.archiveStage != nil {
+            parts.append("A4 归档")
+        }
         if trace.hasAgentActivity {
             parts.append(trace.toolStageCount > 0 ? "Agent · \(trace.toolStageCount) 工具" : "Agent")
         }
         if !trace.sourceTerrNames.isEmpty {
             parts.append("Terr · \(trace.sourceTerrNames.count)")
         }
-        if let totalPrompt = trace.totalPromptTokens, let totalCompletion = trace.totalCompletionTokens {
-            parts.append("↑\(Autumn.format.tokens(totalPrompt)) ↓\(Autumn.format.tokens(totalCompletion))")
+        if let prompt = trace.totalPromptTokens, let completion = trace.totalCompletionTokens {
+            parts.append("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
         }
-        if let total = trace.totalDurationMS {
-            parts.append(Autumn.format.duration(total))
+        if let duration = trace.totalDurationMS {
+            parts.append(Autumn.format.duration(duration))
         }
         if let cost = trace.totalCostUsd, cost > 0 {
             parts.append(Autumn.format.cost(cost))
@@ -131,151 +111,3 @@ struct WorkflowTraceView: View {
         return parts.joined(separator: " · ")
     }
 }
-
-private struct WorkflowStageRow: View {
-    let stage: WorkflowStage
-    let isLast: Bool
-
-    private var isTool: Bool { stage.kind == "tool" }
-    private var isAgent: Bool { stage.kind == "agent" }
-    private var isPush: Bool { stage.kind == "push" }
-    // 0.3.0 A1 (组长) steps. They arrive as kind="stage", so key off the id and
-    // keep the WP1/clay identity while giving each a distinct glyph.
-    private var isPlan: Bool { stage.id.hasPrefix("wp1.plan") }
-    private var isSupervise: Bool { stage.id.contains("supervise") }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
-            indicator
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Autumn.spacing.xs) {
-                    Text(stage.workspace)
-                        .font(Autumn.typography.captionStrong)
-                        .foregroundStyle(workspaceColor)
-                    Text("·")
-                        .foregroundStyle(.tertiary)
-                    Text(stage.title)
-                        .font(isTool || isAgent || isPush
-                            ? .system(.caption, design: .monospaced).weight(.medium)
-                            : Autumn.typography.captionMedium)
-                    if let sourceTerr = stage.sourceTerr {
-                        AutumnBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
-                    }
-                }
-
-                Text(stage.detail)
-                    .font(isTool || isAgent
-                        ? .system(.caption2, design: .monospaced)
-                        : Autumn.typography.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: Autumn.spacing.xs) {
-                    if let duration = stage.durationMS {
-                        Text(Autumn.format.duration(duration))
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                    if let prompt = stage.promptTokens, let completion = stage.completionTokens {
-                        Text("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-            .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
-        }
-        .onAppear {
-            if stage.status == "active" && !reduceMotion {
-                withAnimation(Autumn.motion.pulse) { pulse = true }
-            }
-        }
-    }
-
-    private var workspaceColor: Color { Autumn.colors.workspace(stage.workspace) }
-
-    private var indicator: some View {
-        VStack(spacing: 2) {
-            ZStack {
-                if isPush {
-                    Circle()
-                        .fill(Autumn.colors.workspace("WP4").opacity(0.15))
-                        .frame(width: 14, height: 14)
-                    Image(systemName: "brain")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Autumn.colors.workspace("WP4"))
-                } else if isAgent {
-                    Circle()
-                        .fill(Autumn.colors.warning.opacity(0.16))
-                        .frame(width: 14, height: 14)
-                    Image(systemName: "cpu")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Autumn.colors.warning)
-                } else if isTool {
-                    Circle()
-                        .fill(Autumn.colors.accent.opacity(0.15))
-                        .frame(width: 14, height: 14)
-                    Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Autumn.colors.accent)
-                } else if isPlan {
-                    Circle()
-                        .fill(Autumn.colors.workspace("WP1").opacity(0.15))
-                        .frame(width: 14, height: 14)
-                    Image(systemName: "checklist")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Autumn.colors.workspace("WP1"))
-                } else if isSupervise {
-                    Circle()
-                        .fill(Autumn.colors.workspace("WP1").opacity(0.15))
-                        .frame(width: 14, height: 14)
-                    Image(systemName: "eye.fill")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Autumn.colors.workspace("WP1"))
-                } else {
-                    Circle()
-                        .stroke(indicatorColor.opacity(0.35), lineWidth: 1.2)
-                        .frame(width: 14, height: 14)
-                    Image(systemName: indicatorIcon)
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(isPending ? indicatorColor : .white)
-                        .frame(width: 14, height: 14)
-                        .background(Circle().fill(isPending ? Color.clear : indicatorColor))
-                        .scaleEffect(stage.status == "active" && pulse ? 1.18 : 1.0)
-                        .opacity(stage.status == "active" && pulse ? 0.68 : 1.0)
-                }
-            }
-            if !isLast {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.18))
-                    .frame(width: 1, height: 26)
-            }
-        }
-    }
-
-    private var isPending: Bool {
-        stage.status == "pending"
-    }
-
-    private var indicatorIcon: String {
-        switch stage.status {
-        case "completed": return "checkmark"
-        case "active": return "bolt.fill"
-        case "failed": return "xmark"
-        default: return "circle"
-        }
-    }
-
-    private var indicatorColor: Color {
-        switch stage.status {
-        case "completed": return Autumn.colors.success
-        case "active": return Autumn.colors.info
-        case "failed": return Autumn.colors.danger
-        default: return Autumn.colors.muted
-        }
-    }
-}
-

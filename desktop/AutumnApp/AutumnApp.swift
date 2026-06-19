@@ -36,7 +36,7 @@ struct AutumnApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Autumn", id: "workspace") {
             ContentView()
                 .environmentObject(settings)
                 .environmentObject(localServer)
@@ -49,6 +49,17 @@ struct AutumnApp: App {
         .windowResizability(.contentSize)
         .commands {
             AppCommands()
+        }
+        #endif
+
+        #if os(macOS)
+        Settings {
+            SettingsView()
+                .environmentObject(settings)
+                .environmentObject(localServer)
+                .environmentObject(ollamaManager)
+                .tint(Autumn.colors.flame)
+                .frame(minWidth: 760, minHeight: 620)
         }
         #endif
     }

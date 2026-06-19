@@ -3,8 +3,10 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var store: ConversationStore
+    @Environment(\.openSettings) private var openSettings
 
     @SceneStorage("AutumnDesktop.selectedSection") private var selectedSectionRaw = AppSection.workspace.rawValue
+    @SceneStorage("AutumnDesktop.selectedConversation") private var selectedConversationRaw: String?
     @AppStorage("AutumnDesktop.onboardingDismissed") private var onboardingDismissed: Bool = false
 
     var body: some View {
@@ -14,15 +16,18 @@ struct ContentView: View {
                     onDismiss: { onboardingDismissed = true },
                     onOpenSettings: {
                         onboardingDismissed = true
-                        selectedSectionRaw = AppSection.settings.rawValue
+                        openSettings()
                     }
                 )
             } else {
                 mainLayout
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .autumnOpenSettings)) { _ in
-            selectedSectionRaw = AppSection.settings.rawValue
+        .onAppear {
+            repairConversationSelection()
+        }
+        .onChange(of: store.conversations.map(\.id)) { _, _ in
+            repairConversationSelection()
         }
         #if os(macOS)
         .frame(minWidth: 1020, minHeight: 680)
@@ -35,7 +40,10 @@ struct ContentView: View {
 
     private var mainLayout: some View {
         NavigationSplitView {
-            SidebarView(selection: $selectedSectionRaw)
+            SidebarView(
+                selection: $selectedSectionRaw,
+                selectedConversationID: conversationSelection
+            )
                 .navigationSplitViewColumnWidth(min: 220, ideal: Autumn.sizing.sidebarWidth)
         } detail: {
             NavigationStack {
@@ -50,14 +58,27 @@ struct ContentView: View {
     private var detailView: some View {
         switch AppSection(rawValue: selectedSectionRaw) ?? .workspace {
         case .workspace:
-            WorkspaceView()
+            WorkspaceView(selectedConversationID: conversationSelection)
         case .memory:
             MemoryView(settings: settings)
         case .terrs:
             TerrsView(settings: settings)
-        case .settings:
-            SettingsView()
         }
+    }
+
+    private var conversationSelection: Binding<UUID?> {
+        Binding(
+            get: { selectedConversationRaw.flatMap(UUID.init(uuidString:)) },
+            set: { selectedConversationRaw = $0?.uuidString }
+        )
+    }
+
+    private func repairConversationSelection() {
+        let selectedID = conversationSelection.wrappedValue
+        guard selectedID == nil || !store.conversations.contains(where: { $0.id == selectedID }) else {
+            return
+        }
+        conversationSelection.wrappedValue = store.conversations.first?.id
     }
 }
 

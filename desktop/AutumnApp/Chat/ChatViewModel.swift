@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import Combine
 
 struct ChatError: Identifiable, Equatable {
     let id = UUID()
@@ -22,22 +21,27 @@ final class ChatViewModel: ObservableObject {
     private let settings: AppSettings
     private let store: ConversationStore
     private let projects: ProjectStore?
-    private var cancellables: Set<AnyCancellable> = []
-    private var loadedConversationID: UUID?
+    private let conversationID: UUID?
     private var intentTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
 
-    init(settings: AppSettings, store: ConversationStore, projects: ProjectStore? = nil) {
+    init(
+        settings: AppSettings,
+        store: ConversationStore,
+        projects: ProjectStore? = nil,
+        conversationID: UUID?
+    ) {
         self.settings = settings
         self.store = store
         self.projects = projects
-        bindToStore()
+        self.conversationID = conversationID
+        loadFromStore()
     }
 
     /// The currently-active project for the loaded conversation, if any.
     private var activeProject: Project? {
         guard
-            let conversationID = loadedConversationID,
+            let conversationID,
             let conversation = store.conversations.first(where: { $0.id == conversationID }),
             let projectID = conversation.projectID
         else { return nil }
@@ -54,20 +58,9 @@ final class ChatViewModel: ObservableObject {
         activeProject?.id.uuidString
     }
 
-    private func bindToStore() {
-        // Reload messages whenever the user picks a different conversation.
-        store.$selectedID
-            .removeDuplicates()
-            .sink { [weak self] id in
-                guard let self else { return }
-                self.loadFromStore(id: id)
-            }
-            .store(in: &cancellables)
-    }
-
-    private func loadFromStore(id: UUID?) {
-        loadedConversationID = id
-        if let id, let conv = store.conversations.first(where: { $0.id == id }) {
+    private func loadFromStore() {
+        if let conversationID,
+           let conv = store.conversations.first(where: { $0.id == conversationID }) {
             messages = conv.messages.map { $0.toChatMessage() }
         } else {
             messages = []
@@ -269,7 +262,7 @@ final class ChatViewModel: ObservableObject {
             messages.removeAll()
             errors.removeAll()
         }
-        if let id = loadedConversationID {
+        if let id = conversationID {
             store.clearMessages(id)
         }
     }
@@ -449,7 +442,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func persistMessages() {
-        guard let id = loadedConversationID else { return }
+        guard let id = conversationID else { return }
         store.updateMessages(id, messages: messages)
     }
 }
