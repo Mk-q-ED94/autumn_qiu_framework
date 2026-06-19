@@ -447,12 +447,23 @@ async def test_wp1_trace_includes_wp2_tool_stages():
         async def classify_and_maybe_confirm(self, inp, interaction):
             return SelectorResult(InputType.TASK, 0.9, TaskType.CODE)
 
+    class StubWP4:
+        async def record_execution_summary(self, source, user_input, output):
+            return object()
+
     shared = SharedZone(DictBackend())
     mom2 = Mom2(DictBackend(), shared)
     mom3 = Mom3(DictBackend(), shared)
     mom1 = Mom1(DictBackend(), mom2, mom3)
 
-    wp1 = WP1Tot(api=None, memory=mom1, wp2=StubWP2(), wp3=None)
+    wp1 = WP1Tot(
+        api=None,
+        memory=mom1,
+        wp2=StubWP2(),
+        wp3=None,
+        wp4=StubWP4(),
+        archive=True,
+    )
     wp1.selector = StubSelector()
     wp1.checker = None  # skip final check (no api needed)
 
@@ -463,6 +474,7 @@ async def test_wp1_trace_includes_wp2_tool_stages():
     # Tool stage must precede the wp2.task completion marker.
     ids = [s.id for s in run.stages]
     assert ids.index("wp2.tool.0.search") < ids.index("wp2.task")
+    assert ids[-1] == "wp4.archive"
     # task_type surfaced in WorkflowRun
     assert run.task_type == TaskType.CODE
     # classification stage detail includes sub-type

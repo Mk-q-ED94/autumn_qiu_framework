@@ -186,6 +186,29 @@ async def test_record_execution_summary_skips_empty_output():
     assert not await wp4._resolve("shared").get_history()
 
 
+async def test_wp1_archive_execution_returns_trace_stage_after_write():
+    from autumn.core.workspace.wp1 import WP1Tot
+
+    wp4 = _make_wp4()
+    wp1 = WP1Tot(None, None, None, None, wp4=wp4, archive=True)
+
+    stage = await wp1._archive_execution("wp2", "build X", "X built")
+
+    assert stage is not None
+    assert stage.id == "wp4.archive"
+    assert stage.workspace == "WP4"
+    assert stage.kind == "archive"
+    assert "shared" in stage.detail
+
+
+async def test_wp1_archive_execution_omits_stage_when_nothing_was_written():
+    from autumn.core.workspace.wp1 import WP1Tot
+
+    wp1 = WP1Tot(None, None, None, None, wp4=_make_wp4(), archive=True)
+
+    assert await wp1._archive_execution("wp3", "hello", "   ") is None
+
+
 # ── 4. A4 cognitive delegation + threshold ────────────────────────────────────
 
 

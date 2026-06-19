@@ -283,6 +283,13 @@ async def test_wp1_stream_with_trace_finishes_with_workflow_run():
         checker=PassingChecker(),
     )
 
+    class StubWP4:
+        async def record_execution_summary(self, source, user_input, output):
+            return object()
+
+    wp1.wp4 = StubWP4()
+    wp1._archive = True
+
     events = [event async for event in wp1.stream_with_trace("code something")]
     chunks = [event for event in events if isinstance(event, str)]
     runs = [event for event in events if isinstance(event, WorkflowRun)]
@@ -296,6 +303,7 @@ async def test_wp1_stream_with_trace_finishes_with_workflow_run():
         "wp1.select",
         "wp2.task",
         "wp1.final_check",
+        "wp4.archive",
     ]
     history = await mom1.get_history()
     assert len(history) == 1

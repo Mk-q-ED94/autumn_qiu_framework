@@ -41,6 +41,9 @@ struct PipelineStripView: View {
             if trace.pushStage != nil {
                 PushStatusChip()
             }
+            if trace.archiveStage != nil {
+                ArchiveStatusChip()
+            }
             if agentCount > 0 {
                 AgentStatusChip()
             }
@@ -61,7 +64,7 @@ struct PipelineStripView: View {
     }
 
     private var pipelineStages: [WorkflowStage] {
-        trace.stages.filter { $0.kind != "tool" }
+        trace.stages.filter(\.isPrimaryPipelineStage)
     }
 
     private var toolCount: Int {
@@ -123,13 +126,9 @@ private struct StageCapsule: View {
     }
 
     private var width: CGFloat {
-        // Push stage is pre-pipeline; keep it compact so it doesn't dominate.
-        if stage.kind == "push" {
-            return 10
-        }
         // The first/last WP1 segments anchor the strip; route/convert mid-stages
         // get slightly shorter capsules so the visual rhythm reads end-to-end.
-        if stage.id.hasSuffix(".select") || stage.id.hasSuffix(".final_check") {
+        if stage.isPipelineAnchor {
             return 22
         }
         return 16
@@ -158,3 +157,8 @@ private struct PushStatusChip: View {
     }
 }
 
+private struct ArchiveStatusChip: View {
+    var body: some View {
+        AutumnChip("归档", icon: "archivebox.fill", color: Autumn.colors.memory, size: .compact)
+    }
+}

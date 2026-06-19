@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import time
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Literal
@@ -105,6 +106,19 @@ def _classify_detail(input_type: InputType, task_type: TaskType | None) -> str:
     return f"输入被识别为 {input_type.value}"
 
 
+_PLAN_PREFIX = re.compile(r"^\s*(?:[-*]|\d+[.)、])\s*")
+
+
+def _plan_items(plan: str) -> list[str]:
+    """Normalize A1's numbered plan into client-friendly step labels."""
+    items = []
+    for line in plan.splitlines():
+        item = _PLAN_PREFIX.sub("", line).strip()
+        if item:
+            items.append(item)
+    return items
+
+
 def _make_stage(
     stage_id: str,
     title: str,
@@ -112,6 +126,7 @@ def _make_stage(
     workspace: str,
     started: float,
     api=None,
+    items: list[str] | None = None,
 ) -> WorkflowStage:
     """Build a WorkflowStage, capturing and clearing token usage from ``api``."""
     prompt, completion = _capture_usage(api)
@@ -120,6 +135,7 @@ def _make_stage(
         title=title,
         detail=detail,
         workspace=workspace,
+        items=items,
         duration_ms=_duration_ms(started),
         prompt_tokens=prompt,
         completion_tokens=completion,
@@ -224,9 +240,10 @@ class WP1Tot(WorkspaceBase):
             t = time.perf_counter()
             plan_hint = await self._plan_task(user_input, task_type)
             if plan_hint:
+                plan_items = _plan_items(plan_hint)
                 stages.append(_make_stage(
-                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_hint.splitlines())} 步）",
-                    "WP1", t, self.api,
+                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_items)} 步）",
+                    "WP1", t, self.api, items=plan_items,
                 ))
             interventions: list[dict] = []
             supervisor = self._build_supervisor(user_input, interventions)
@@ -265,9 +282,11 @@ class WP1Tot(WorkspaceBase):
             "output": final,
         })
         # Archive the outcome to A4's curated shared memory (0.3.0 hand-off).
-        await self._archive_execution(
+        archive_stage = await self._archive_execution(
             "wp2" if input_type == InputType.TASK else "wp3", user_input, final,
         )
+        if archive_stage is not None:
+            stages.append(archive_stage)
         return WorkflowRun(
             output=final,
             input_type=input_type,
@@ -478,17 +497,30 @@ class WP1Tot(WorkspaceBase):
             ))
         return stages
 
-    async def _archive_execution(self, source: str, user_input: str, output: str) -> None:
+    async def _archive_execution(
+        self, source: str, user_input: str, output: str,
+    ) -> WorkflowStage | None:
         """Hand a completed turn's outcome to A4 for a shared-zone summary.
 
         Best-effort and gated by the archive flag + a wired WP4; never raises.
         """
         if not self._archive or self.wp4 is None:
-            return
+            return None
+        started = time.perf_counter()
         try:
-            await self.wp4.record_execution_summary(source, user_input, output)
+            entry = await self.wp4.record_execution_summary(source, user_input, output)
         except Exception:
-            pass
+            return None
+        if entry is None:
+            return None
+        return WorkflowStage(
+            id="wp4.archive",
+            title="A4 执行归档",
+            detail="结果已写入 shared 共享记忆",
+            workspace="WP4",
+            kind="archive",
+            duration_ms=_duration_ms(started),
+        )
 
     async def _wp1_check(self, output: str) -> tuple[str, str]:
         if not self.checker:
@@ -579,9 +611,10 @@ class WP1Tot(WorkspaceBase):
             t = time.perf_counter()
             plan_hint = await self._plan_task(user_input, task_type)
             if plan_hint:
+                plan_items = _plan_items(plan_hint)
                 stages.append(_make_stage(
-                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_hint.splitlines())} 步）",
-                    "WP1", t, self.api,
+                    "wp1.plan", "A1 制定计划", f"已生成执行计划（{len(plan_items)} 步）",
+                    "WP1", t, self.api, items=plan_items,
                 ))
             supervisor = self._build_supervisor(user_input, interventions)
             task_started = time.perf_counter()
@@ -685,9 +718,11 @@ class WP1Tot(WorkspaceBase):
             "route": chosen_route.value if chosen_route else None,
             "output": final_output,
         })
-        await self._archive_execution(
+        archive_stage = await self._archive_execution(
             "wp2" if input_type == InputType.TASK else "wp3", user_input, final_output,
         )
+        if archive_stage is not None:
+            stages.append(archive_stage)
         yield WorkflowRun(
             output=final_output,
             input_type=input_type,

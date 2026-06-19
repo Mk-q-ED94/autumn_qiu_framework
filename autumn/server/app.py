@@ -90,6 +90,7 @@ class TraceStageResponse(BaseModel):
     title: str
     detail: str
     workspace: str
+    items: list[str] | None = None
     status: str
     kind: str = "stage"
     duration_ms: float | None = None
