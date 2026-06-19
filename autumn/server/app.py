@@ -328,6 +328,7 @@ class CodebaseMemoryStatusResponse(BaseModel):
 
     enabled: bool          # behaviour flag — intent; the layer auto-starts when on
     connected: bool        # whether the code-graph MCP server is live right now
+    indexed: bool = False  # whether the repo has been indexed into the graph yet
     repo: str = ""         # repo scoped for indexing ("" = server working directory)
     tool_count: int = 0
     error: str | None = None
@@ -556,7 +557,9 @@ async def lifespan(app: FastAPI):
     app.state.integration_runtime = {}     # id -> integrations_mod.IntegrationRuntime
     app.state.integration_errors = {}      # id -> str
     app.state.integration_lock = asyncio.Lock()
-    # Codebase-memory token-saving layer: auto-connect at startup when enabled.
+    # Codebase-memory token-saving layer: last start error (for the status endpoint)
+    # and auto-start when enabled in config.
+    app.state.codebase_memory_error = None
     if app.state.autumn is not None:
         await _autostart_codebase_memory(app, app.state.autumn)
     try:
@@ -589,58 +592,39 @@ async def _reapply_integrations(app: FastAPI, autumn: Autumn) -> None:
     app.state.integration_errors = errors
 
 
-_CODEBASE_MEMORY_ID = "codebase_memory"
-
-
-def _codebase_memory_repo(autumn: Autumn) -> str:
+def _codebase_memory_status(app: FastAPI, autumn: Autumn) -> CodebaseMemoryStatusResponse:
+    """Snapshot the framework-owned codebase-memory layer for the client."""
     b = getattr(getattr(autumn, "config", None), "behavior", None)
-    return (getattr(b, "codebase_memory_repo", "") or "").strip()
-
-
-async def _connect_codebase_memory(app: FastAPI, autumn: Autumn) -> None:
-    """Connect the codebase-memory MCP and seed the shared integration state.
-
-    Mirrors a manual ``/mcps/connect`` so the layer shows as connected in the
-    Terr page and is rebuilt by :func:`_reapply_integrations` after a config
-    swap. Best-effort: a missing binary records an error instead of raising, so
-    a misconfigured toggle never takes the whole server down. Caller holds
-    ``integration_lock``."""
-    repo = _codebase_memory_repo(autumn)
-    args = {"repo": repo} if repo else {}
-    existing = app.state.integration_runtime.pop(_CODEBASE_MEMORY_ID, None)
-    if existing is not None:
-        await integrations_mod.disconnect(autumn, existing)
-    try:
-        runtime = await integrations_mod.connect(
-            autumn, _CODEBASE_MEMORY_ID, args, write_enabled=False,
-        )
-    except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
-        app.state.integration_errors[_CODEBASE_MEMORY_ID] = str(exc)
-        return
-    app.state.integration_runtime[_CODEBASE_MEMORY_ID] = runtime
-    app.state.integrations[_CODEBASE_MEMORY_ID] = dict(args)
-    app.state.integration_write[_CODEBASE_MEMORY_ID] = False
-    app.state.integration_errors.pop(_CODEBASE_MEMORY_ID, None)
-
-
-async def _disconnect_codebase_memory(app: FastAPI, autumn: Autumn) -> None:
-    """Tear down the codebase-memory MCP and forget its saved state. Caller holds
-    ``integration_lock``."""
-    existing = app.state.integration_runtime.pop(_CODEBASE_MEMORY_ID, None)
-    if existing is not None:
-        await integrations_mod.disconnect(autumn, existing)
-    app.state.integrations.pop(_CODEBASE_MEMORY_ID, None)
-    app.state.integration_write.pop(_CODEBASE_MEMORY_ID, None)
-    app.state.integration_errors.pop(_CODEBASE_MEMORY_ID, None)
+    cb = getattr(autumn, "codebase", None)
+    repo = (
+        cb.repo if cb is not None
+        else (getattr(b, "codebase_memory_repo", "") or "")
+    )
+    return CodebaseMemoryStatusResponse(
+        enabled=bool(getattr(b, "codebase_memory_enabled", False)),
+        connected=cb is not None,
+        indexed=bool(getattr(cb, "indexed", False)) if cb is not None else False,
+        repo=repo,
+        tool_count=len(getattr(autumn, "_codebase_terr_names", []) or []),
+        error=getattr(app.state, "codebase_memory_error", None),
+    )
 
 
 async def _autostart_codebase_memory(app: FastAPI, autumn: Autumn) -> None:
-    """On startup, bring the codebase-memory layer online when enabled in config."""
+    """On startup, bring the codebase-memory layer online when enabled in config.
+
+    Best-effort: a missing ``uvx``/``npx`` records an error on app.state for the
+    status endpoint instead of breaking startup."""
     b = getattr(getattr(autumn, "config", None), "behavior", None)
-    if not getattr(b, "codebase_memory_enabled", False):
+    starter = getattr(autumn, "start_codebase_memory", None)
+    if starter is None or not getattr(b, "codebase_memory_enabled", False):
         return
     async with app.state.integration_lock:
-        await _connect_codebase_memory(app, autumn)
+        try:
+            await starter()
+            app.state.codebase_memory_error = None
+        except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
+            app.state.codebase_memory_error = str(exc)
 
 
 def _status_entry(app: FastAPI, rid: str, name: str) -> IntegrationStatusEntry:
@@ -1009,6 +993,9 @@ def create_app() -> FastAPI:
             # Re-establish saved platform integrations on the new instance —
             # old.close() disconnected the previous MCP clients.
             await _reapply_integrations(request.app, new_autumn)
+        # Re-arm the codebase-memory layer on the rebuilt instance when its env
+        # flag is on (runtime-only toggles revert to .env on rebuild, like 4D).
+        await _autostart_codebase_memory(request.app, new_autumn)
         return ApplyConfigResponse(status="ok", configured=True)
 
     @app.post("/process", response_model=ProcessResponse)
@@ -1234,51 +1221,47 @@ def create_app() -> FastAPI:
             request, mcp_id, validator=integrations_mod.is_connectable, label="MCP",
         )
 
-    # ── codebase-memory token-saving layer (framework toggle) ───────────────────
-    # A first-class on/off switch for the codebase-memory-mcp code-graph engine,
-    # so agents query structure instead of reading files. Flipping it connects /
-    # disconnects the MCP live and persists intent on the behaviour config.
-
-    def _codebase_memory_status(app: FastAPI, autumn: Autumn) -> CodebaseMemoryStatusResponse:
-        b = getattr(getattr(autumn, "config", None), "behavior", None)
-        handle = app.state.integration_runtime.get(_CODEBASE_MEMORY_ID)
-        return CodebaseMemoryStatusResponse(
-            enabled=bool(getattr(b, "codebase_memory_enabled", False)),
-            connected=handle is not None,
-            repo=_codebase_memory_repo(autumn),
-            tool_count=handle.tool_count if handle is not None else 0,
-            error=app.state.integration_errors.get(_CODEBASE_MEMORY_ID),
-        )
+    # ── codebase-memory token-saving layer (framework subsystem) ────────────────
+    # A first-class on/off switch for the framework-owned code-graph layer
+    # (autumn.codebase). Flipping it starts/stops the codebase-memory-mcp server,
+    # registers the `codebase` Terr, pre-warms the index, and from then on WP2
+    # injects a graph-derived architecture brief into code tasks.
 
     @app.get("/config/codebase-memory", response_model=CodebaseMemoryStatusResponse)
     async def codebase_memory_status(request: Request):
-        """Whether the codebase-memory token-saving layer is enabled / live."""
+        """Whether the codebase-memory token-saving layer is enabled / live / indexed."""
         autumn = _autumn_or_503(request)
         return _codebase_memory_status(request.app, autumn)
 
     @app.post("/config/codebase-memory", response_model=CodebaseMemoryStatusResponse)
     async def set_codebase_memory(req: CodebaseMemoryConfigRequest, request: Request):
-        """Toggle the codebase-memory layer; connects/disconnects the MCP live.
+        """Toggle the codebase-memory layer; starts/stops the framework subsystem.
 
-        Returns the resulting state. A connect failure (e.g. the binary isn't
+        Returns the resulting state. A start failure (e.g. the binary isn't
         installed) is reported in ``error`` with the flag still flipped on, so
         the client can surface an install hint rather than silently doing nothing.
         """
         autumn = _autumn_or_503(request)
         b = getattr(getattr(autumn, "config", None), "behavior", None)
-        if b is None:
+        starter = getattr(autumn, "start_codebase_memory", None)
+        if b is None or starter is None:
             raise HTTPException(
                 status_code=501,
-                detail="This server build does not support runtime configuration.",
+                detail="This server build does not support the codebase-memory layer.",
             )
         b.codebase_memory_enabled = req.enabled
-        if req.repo is not None:
-            b.codebase_memory_repo = req.repo.strip()
+        repo = req.repo.strip() if req.repo is not None else None
+        if repo is not None:
+            b.codebase_memory_repo = repo
         async with request.app.state.integration_lock:
-            if req.enabled:
-                await _connect_codebase_memory(request.app, autumn)
-            else:
-                await _disconnect_codebase_memory(request.app, autumn)
+            try:
+                if req.enabled:
+                    await starter(repo)
+                else:
+                    await autumn.stop_codebase_memory()
+                request.app.state.codebase_memory_error = None
+            except Exception as exc:  # noqa: BLE001 - start spawns a subprocess
+                request.app.state.codebase_memory_error = str(exc)
         return _codebase_memory_status(request.app, autumn)
 
     @app.get("/memory/{area}/history")

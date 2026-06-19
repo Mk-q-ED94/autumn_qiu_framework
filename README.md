@@ -514,18 +514,28 @@ minor versions add features and may adjust APIs.
 
 ### Unreleased
 
-- **Codebase memory — an optional token-saving layer.** Wraps the external
-  `codebase-memory-mcp` code-intelligence server (MIT) as a first-class catalog
-  MCP (`codebase_memory`): it indexes a repository into a knowledge graph so the
-  agent answers structural questions with `search_graph` / `trace_path` /
-  `get_architecture` / `query_graph` instead of reading files one by one — the
-  upstream project reports ~99% fewer tokens on structural exploration. Gated by
-  the new `codebase_memory_enabled` behaviour flag (off by default,
-  `CODEBASE_MEMORY_ENABLED` / `CODEBASE_MEMORY_REPO`): when on, the server
-  auto-connects it at startup; it is also a live switch at
-  `GET`/`POST /config/codebase-memory` and in the desktop **设置 → 高级** tab. It's
-  a normal MCP over the shared integration runtime (needs `uvx`/`npx` on the
-  host), not a vendored engine. Adds `tests/test_server_codebase_memory.py`.
+- **Codebase memory — a framework-level token-saving subsystem.** Wraps the
+  external `codebase-memory-mcp` code-intelligence server (MIT) and weaves it
+  into the framework as a first-class layer (`autumn/core/codebase/`,
+  `Autumn.codebase`), not just another tool in the bag:
+  - **Proactive brief injection.** When enabled, the framework indexes the repo
+    into a knowledge graph and the executor (**WP2**) prepends a compact,
+    graph-derived *architecture map* to every **CODE** task — so A2 starts
+    oriented instead of spending tokens reading files to rediscover structure.
+  - **Native `codebase` Terr.** The graph tools (`search_graph` / `trace_path` /
+    `get_architecture` / `query_graph` / `get_code_snippet`) are registered as a
+    first-class capability domain for deeper on-demand queries; the upstream
+    project reports ~99% fewer tokens on structural exploration.
+  - **One switch, framework-owned.** Gated by the `codebase_memory_enabled`
+    behaviour flag (off by default; `CODEBASE_MEMORY_ENABLED` /
+    `CODEBASE_MEMORY_REPO`). `Autumn.start_codebase_memory()` connects the MCP,
+    registers the Terr and pre-warms the index in the background; the server
+    auto-starts it when the flag is on, and it's a live switch at
+    `GET`/`POST /config/codebase-memory` and the desktop **设置 → 高级** tab. Needs
+    `uvx`/`npx` on the host; the whole layer is failure-tolerant (a missing
+    binary degrades to "no extra context", never breaking a turn).
+  - Adds `autumn/core/codebase/`, `tests/test_codebase_memory.py` and
+    `tests/test_server_codebase_memory.py`; 1022 tests passing, ruff clean.
 
 ### 0.3.1 — 2026-06-17 · Client optimization & adaptation
 

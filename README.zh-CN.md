@@ -447,15 +447,22 @@ python -m pytest
 
 ### 未发布
 
-- **代码库记忆——可选的省 token 层。** 将外部的 `codebase-memory-mcp` 代码情报服务（MIT）
-  封装成一等公民的目录 MCP（`codebase_memory`）：它把代码库索引成知识图谱，让 agent 用
-  `search_graph` / `trace_path` / `get_architecture` / `query_graph` 回答结构性问题，
-  而不是逐文件阅读——上游项目自述在结构探索上可省约 99% 的 token。由新的
-  `codebase_memory_enabled` 行为开关控制（默认关闭，`CODEBASE_MEMORY_ENABLED` /
-  `CODEBASE_MEMORY_REPO`）：开启时服务器在启动时自动连接；也可通过
-  `GET`/`POST /config/codebase-memory` 以及桌面端 **设置 → 高级** 标签页实时开关。它就是
-  一个走共享集成运行时的普通 MCP（需主机安装 `uvx`/`npx`），并非内置引擎。新增
-  `tests/test_server_codebase_memory.py`。
+- **代码库记忆——框架级的省 token 子系统。** 将外部的 `codebase-memory-mcp` 代码情报服务
+  （MIT）深度接入框架，成为一等公民的底层能力（`autumn/core/codebase/`、`Autumn.codebase`），
+  而不只是工具袋里多一件工具：
+  - **主动注入架构地图。** 开启后框架会把代码库索引成知识图谱，执行器（**WP2**）在每个
+    **CODE** 任务前自动注入一份图谱推导出的紧凑「架构地图」——A2 一开始就有方向，不必再烧
+    token 逐文件重建结构。
+  - **原生 `codebase` 能力域。** 图谱工具（`search_graph` / `trace_path` /
+    `get_architecture` / `query_graph` / `get_code_snippet`）被注册为一等能力域，供 agent
+    按需深挖；上游项目自述在结构探索上可省约 99% 的 token。
+  - **一个开关，框架自有。** 由 `codebase_memory_enabled` 行为开关控制（默认关闭；
+    `CODEBASE_MEMORY_ENABLED` / `CODEBASE_MEMORY_REPO`）。`Autumn.start_codebase_memory()`
+    负责连接 MCP、注册能力域并在后台预热索引；开关打开时服务器自动启动，也可通过
+    `GET`/`POST /config/codebase-memory` 与桌面端 **设置 → 高级** 实时切换。需主机安装
+    `uvx`/`npx`；整层容错（二进制缺失时退化为「无额外上下文」，绝不打断一轮对话）。
+  - 新增 `autumn/core/codebase/`、`tests/test_codebase_memory.py` 与
+    `tests/test_server_codebase_memory.py`；1022 个测试通过，ruff 干净。
 
 ### 0.3.1 — 2026-06-17 · 客户端优化与适配
 

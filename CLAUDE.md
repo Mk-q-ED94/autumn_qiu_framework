@@ -50,12 +50,16 @@ WP1–WP3 each own one Mom zone (Mom1/2/3); WP2⇄WP3 share the `shared` zone. W
 (`BehaviorConfig`, incl. `fourd_memory_enabled` / `fourd_push_on_turn` /
 `codebase_memory_enabled`).
 
-**Codebase memory (token-saving layer).** `codebase_memory_enabled` (off by default)
-wires the external `codebase-memory-mcp` code-graph server (catalog id `codebase_memory`,
-factory `mcp_codebase_memory`) so agents query code structure (calls/imports/architecture)
-instead of reading files. The server auto-connects it at startup when on; it's also a live
-toggle at `/config/codebase-memory` (设置 → 高级). It's a normal catalog MCP — needs `uvx`/`npx`
-on the host — surfaced through the shared integration runtime, not a vendored engine.
+**Codebase memory (token-saving subsystem).** `codebase_memory_enabled` (off by default)
+weaves the external `codebase-memory-mcp` code-graph server into the framework as a
+first-class layer (`autumn/core/codebase/`, `Autumn.codebase`), not a generic integration.
+`Autumn.start_codebase_memory()` connects the MCP (factory `mcp_codebase_memory`), registers
+a native `codebase` Terr (deep graph tools), and pre-warms the index; **WP2 then injects a
+graph-derived architecture brief into every CODE task** (the proactive token saving —
+`_codebase_brief` is gated on `TaskType.CODE`). Live toggle at `/config/codebase-memory`
+(设置 → 高级); server auto-starts it when the flag is on. Needs `uvx`/`npx` on the host; the
+whole layer is failure-tolerant (a missing binary degrades to "no extra context"). It is NOT
+in the generic `/mcps` catalog — it has its own dedicated switch.
 
 ## Design language — "Paper & Clay"
 

@@ -36,6 +36,7 @@ struct SettingsView: View {
     // Codebase-memory token-saving layer (code-graph MCP) — live server toggle.
     @State private var codebaseMemoryEnabled = false
     @State private var codebaseMemoryConnected = false
+    @State private var codebaseMemoryIndexed = false
     @State private var codebaseMemoryRepo = ""
     @State private var codebaseMemoryLoaded = false
     @State private var codebaseMemoryApplying = false
@@ -465,7 +466,7 @@ struct SettingsView: View {
 
             SettingsSection(
                 title: "代码库记忆 · 省 token",
-                footer: "开启后服务器会启动 codebase-memory-mcp，把代码库索引成知识图谱；agent 用调用链 / 架构查询代替逐文件阅读，大幅减少 token 消耗。需服务器主机安装 uvx 或 npx。运行时开关，立即对当前服务器生效，不写回 .env。"
+                footer: "开启后框架会启动 codebase-memory-mcp，把代码库索引成知识图谱：code 类任务执行前自动注入一份「架构地图」，并让 agent 用调用链 / 架构查询代替逐文件阅读，大幅减少 token 消耗。需服务器主机安装 uvx 或 npx。运行时开关，立即生效，不写回 .env。"
             ) {
                 FourDRuntimeRow(
                     title: "代码库记忆引擎",
@@ -485,9 +486,12 @@ struct SettingsView: View {
                             .foregroundStyle(Autumn.colors.danger)
                             .lineLimit(2)
                     } else if codebaseMemoryConnected {
-                        Label("已连接 · 代码图谱可用", systemImage: "checkmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Label(
+                            codebaseMemoryIndexed ? "已连接 · 图谱已就绪" : "已连接 · 正在建立索引…",
+                            systemImage: codebaseMemoryIndexed ? "checkmark.circle" : "clock"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     } else if codebaseMemoryLoaded {
                         Label("未连接", systemImage: "circle")
                             .font(.caption)
@@ -662,6 +666,7 @@ struct SettingsView: View {
             let status = try await AutumnClient(baseURL: url).fetchCodebaseMemoryStatus()
             codebaseMemoryEnabled = status.enabled
             codebaseMemoryConnected = status.connected
+            codebaseMemoryIndexed = status.indexed
             codebaseMemoryRepo = status.repo
             codebaseMemoryError = status.error
             codebaseMemoryLoaded = true
@@ -686,6 +691,7 @@ struct SettingsView: View {
             )
             codebaseMemoryEnabled = status.enabled
             codebaseMemoryConnected = status.connected
+            codebaseMemoryIndexed = status.indexed
             codebaseMemoryRepo = status.repo
             codebaseMemoryError = status.error
             codebaseMemoryLoaded = true

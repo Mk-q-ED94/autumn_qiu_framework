@@ -280,28 +280,6 @@ KNOWN_MCPS: list[dict] = [
             "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
         ),
     ),
-    _entry(
-        "codebase_memory", "Codebase Memory (MCP)",
-        "Index a codebase into a knowledge graph; query structure (calls, "
-        "imports, architecture) instead of reading files to save tokens.",
-        "mcp_codebase_memory", category="local",
-        fields=[_field("repo", "代码库路径（可留空，连接后由 agent 指定）",
-                       optional=True, placeholder="/Users/you/project")],
-        setup=_setup(
-            "把代码库索引成知识图谱,让 agent 用图谱查询(调用链、依赖、架构)代替逐文件"
-            "阅读,大幅减少 token 消耗。这是 Autumn“代码库记忆”省 token 层的底层引擎。",
-            [
-                "安装服务器二进制:推荐 uvx codebase-memory-mcp(需 uv),或 npx -y "
-                "codebase-memory-mcp(需 Node 18+),或用项目 install.sh 安装原生二进制。",
-                "可在上方填入要索引的代码库绝对路径作为工作目录;留空则连接后由 agent "
-                "通过 index_repository(repo_path=...) 指定。",
-                "点击连接。首次 agent 会调用 index_repository 建图,之后 search_graph / "
-                "trace_path / get_architecture / query_graph 都是亚毫秒级。",
-                "全部为只读/索引操作,不会修改你的源码。",
-            ],
-            "https://github.com/DeusData/codebase-memory-mcp",
-        ),
-    ),
     # ── platforms (external account behind a secret) ─────────────────────────
     _entry(
         "github", "GitHub (MCP)",
