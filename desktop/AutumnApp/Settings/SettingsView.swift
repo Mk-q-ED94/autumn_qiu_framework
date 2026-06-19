@@ -33,6 +33,14 @@ struct SettingsView: View {
     @State private var fourdApplying = false
     @State private var fourdError: String?
 
+    // Codebase-memory token-saving layer (code-graph MCP) — live server toggle.
+    @State private var codebaseMemoryEnabled = false
+    @State private var codebaseMemoryConnected = false
+    @State private var codebaseMemoryRepo = ""
+    @State private var codebaseMemoryLoaded = false
+    @State private var codebaseMemoryApplying = false
+    @State private var codebaseMemoryError: String?
+
     // Platform integrations (GitHub etc.) — catalog + live connection state.
     @State private var integrationCatalog: [IntegrationCatalogEntry] = []
     @State private var integrationStatuses: [String: IntegrationStatus] = [:]
@@ -85,6 +93,7 @@ struct SettingsView: View {
         .onAppear {
             Task { await checkConnection() }
             Task { await loadFourD() }
+            Task { await loadCodebaseMemory() }
             Task { await loadIntegrations() }
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
@@ -454,6 +463,42 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            SettingsSection(
+                title: "代码库记忆 · 省 token",
+                footer: "开启后服务器会启动 codebase-memory-mcp，把代码库索引成知识图谱；agent 用调用链 / 架构查询代替逐文件阅读，大幅减少 token 消耗。需服务器主机安装 uvx 或 npx。运行时开关，立即对当前服务器生效，不写回 .env。"
+            ) {
+                FourDRuntimeRow(
+                    title: "代码库记忆引擎",
+                    detail: codebaseMemoryDetail,
+                    icon: "point.3.connected.trianglepath.dotted",
+                    tint: Autumn.colors.slate,
+                    isOn: codebaseMemoryBinding,
+                    isApplying: codebaseMemoryApplying
+                )
+                HStack(spacing: Autumn.spacing.sm) {
+                    if codebaseMemoryApplying {
+                        ProgressView().controlSize(.small)
+                    }
+                    if let codebaseMemoryError {
+                        Label(codebaseMemoryError, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Autumn.colors.danger)
+                            .lineLimit(2)
+                    } else if codebaseMemoryConnected {
+                        Label("已连接 · 代码图谱可用", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if codebaseMemoryLoaded {
+                        Label("未连接", systemImage: "circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("刷新") { Task { await loadCodebaseMemory() } }
+                        .controlSize(.small)
+                }
+            }
+
             SettingsSection(title: "关于") {
                 LabeledContent("版本", value: appVersion)
                 Text("秋 / Autumn — 多模型协作工作流框架。")
@@ -590,6 +635,62 @@ struct SettingsView: View {
             fourdLoaded = true
         } catch {
             fourdError = error.localizedDescription
+        }
+    }
+
+    // ── codebase-memory token-saving layer ──────────────────────────────────────
+
+    private var codebaseMemoryBinding: Binding<Bool> {
+        Binding(
+            get: { codebaseMemoryEnabled },
+            set: { codebaseMemoryEnabled = $0; Task { await applyCodebaseMemory() } }
+        )
+    }
+
+    private var codebaseMemoryDetail: String {
+        let scope = codebaseMemoryRepo.isEmpty ? "服务器工作目录" : codebaseMemoryRepo
+        return "用 search_graph / trace_path / get_architecture 查询代码结构，索引范围：\(scope)。"
+    }
+
+    private func loadCodebaseMemory() async {
+        guard let url = URL(string: settings.serverURL) else {
+            codebaseMemoryError = "服务器 URL 无效"
+            codebaseMemoryLoaded = false
+            return
+        }
+        do {
+            let status = try await AutumnClient(baseURL: url).fetchCodebaseMemoryStatus()
+            codebaseMemoryEnabled = status.enabled
+            codebaseMemoryConnected = status.connected
+            codebaseMemoryRepo = status.repo
+            codebaseMemoryError = status.error
+            codebaseMemoryLoaded = true
+        } catch {
+            codebaseMemoryError = error.localizedDescription
+            codebaseMemoryLoaded = false
+        }
+    }
+
+    private func applyCodebaseMemory() async {
+        guard let url = URL(string: settings.serverURL) else {
+            codebaseMemoryError = "服务器 URL 无效"
+            return
+        }
+        codebaseMemoryApplying = true
+        defer { codebaseMemoryApplying = false }
+        do {
+            let repo = codebaseMemoryRepo.trimmingCharacters(in: .whitespacesAndNewlines)
+            let status = try await AutumnClient(baseURL: url).updateCodebaseMemory(
+                enabled: codebaseMemoryEnabled,
+                repo: repo.isEmpty ? nil : repo
+            )
+            codebaseMemoryEnabled = status.enabled
+            codebaseMemoryConnected = status.connected
+            codebaseMemoryRepo = status.repo
+            codebaseMemoryError = status.error
+            codebaseMemoryLoaded = true
+        } catch {
+            codebaseMemoryError = error.localizedDescription
         }
     }
 

@@ -508,6 +508,11 @@ struct FourDConfigBody: Encodable {
     }
 }
 
+struct CodebaseMemoryConfigBody: Encodable {
+    let enabled: Bool
+    let repo: String?
+}
+
 struct AnnotateRequestBody: Encodable {
     let entryId: String
     let mode: String?

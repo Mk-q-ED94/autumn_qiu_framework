@@ -79,6 +79,40 @@ def mcp_memory(*, binary: str = "npx") -> StdioMCPClient:
     )
 
 
+def mcp_codebase_memory(repo: str | None = None, *, binary: str = "uvx") -> StdioMCPClient:
+    """``codebase-memory-mcp`` — index a codebase into a knowledge graph.
+
+    A code-intelligence MCP server (DeusData/codebase-memory-mcp, MIT) that
+    parses a repository into a queryable graph of functions/classes/routes and
+    their call/import/inherit edges. The agent then answers structural questions
+    with graph queries (``search_graph`` / ``trace_path`` / ``get_architecture``
+    / ``query_graph``) instead of reading files one by one — the project reports
+    ~99% fewer tokens on structural exploration. This is the engine behind
+    Autumn's optional *codebase memory* token-saving layer.
+
+    Parameters
+    ----------
+    repo:
+        Absolute path to the repository the server should operate on. Passed as
+        the subprocess working directory so on-launch indexing and the
+        background change-watcher scope to this tree; the agent still indexes it
+        explicitly via ``index_repository``. ``None`` leaves the cwd inherited.
+    binary:
+        Launcher. ``"uvx"`` (default) runs the published PyPI package, ``"npx"``
+        the npm package; any other value is treated as a direct path to the
+        natively-installed ``codebase-memory-mcp`` binary.
+    """
+    if binary == "npx":
+        command = ["npx", "-y", "codebase-memory-mcp"]
+    elif binary == "uvx":
+        command = ["uvx", "codebase-memory-mcp"]
+    else:
+        # Treat `binary` as a path to the natively-installed server binary
+        # (e.g. produced by the project's install.sh).
+        command = [binary]
+    return StdioMCPClient(command=command, cwd=repo or None)
+
+
 def mcp_postgres(connection_string: str, *, binary: str = "npx") -> StdioMCPClient:
     """Official ``@modelcontextprotocol/server-postgres`` — read-only SQL access.
 
@@ -246,6 +280,28 @@ KNOWN_MCPS: list[dict] = [
             "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
         ),
     ),
+    _entry(
+        "codebase_memory", "Codebase Memory (MCP)",
+        "Index a codebase into a knowledge graph; query structure (calls, "
+        "imports, architecture) instead of reading files to save tokens.",
+        "mcp_codebase_memory", category="local",
+        fields=[_field("repo", "代码库路径（可留空，连接后由 agent 指定）",
+                       optional=True, placeholder="/Users/you/project")],
+        setup=_setup(
+            "把代码库索引成知识图谱,让 agent 用图谱查询(调用链、依赖、架构)代替逐文件"
+            "阅读,大幅减少 token 消耗。这是 Autumn“代码库记忆”省 token 层的底层引擎。",
+            [
+                "安装服务器二进制:推荐 uvx codebase-memory-mcp(需 uv),或 npx -y "
+                "codebase-memory-mcp(需 Node 18+),或用项目 install.sh 安装原生二进制。",
+                "可在上方填入要索引的代码库绝对路径作为工作目录;留空则连接后由 agent "
+                "通过 index_repository(repo_path=...) 指定。",
+                "点击连接。首次 agent 会调用 index_repository 建图,之后 search_graph / "
+                "trace_path / get_architecture / query_graph 都是亚毫秒级。",
+                "全部为只读/索引操作,不会修改你的源码。",
+            ],
+            "https://github.com/DeusData/codebase-memory-mcp",
+        ),
+    ),
     # ── platforms (external account behind a secret) ─────────────────────────
     _entry(
         "github", "GitHub (MCP)",
@@ -403,6 +459,7 @@ __all__ = [
     "mcp_github",
     "mcp_puppeteer",
     "mcp_memory",
+    "mcp_codebase_memory",
     "mcp_postgres",
     "mcp_slack",
     "mcp_gitlab",

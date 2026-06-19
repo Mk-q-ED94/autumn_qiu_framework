@@ -445,6 +445,18 @@ python -m pytest
 
 当前版本：**0.3.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
 
+### 未发布
+
+- **代码库记忆——可选的省 token 层。** 将外部的 `codebase-memory-mcp` 代码情报服务（MIT）
+  封装成一等公民的目录 MCP（`codebase_memory`）：它把代码库索引成知识图谱，让 agent 用
+  `search_graph` / `trace_path` / `get_architecture` / `query_graph` 回答结构性问题，
+  而不是逐文件阅读——上游项目自述在结构探索上可省约 99% 的 token。由新的
+  `codebase_memory_enabled` 行为开关控制（默认关闭，`CODEBASE_MEMORY_ENABLED` /
+  `CODEBASE_MEMORY_REPO`）：开启时服务器在启动时自动连接；也可通过
+  `GET`/`POST /config/codebase-memory` 以及桌面端 **设置 → 高级** 标签页实时开关。它就是
+  一个走共享集成运行时的普通 MCP（需主机安装 `uvx`/`npx`），并非内置引擎。新增
+  `tests/test_server_codebase_memory.py`。
+
 ### 0.3.1 — 2026-06-17 · 客户端优化与适配
 
 打磨桌面客户端，并把 MCP 目录变成一个真正能「了解并启用」服务器的地方——以及支撑它的服务端接口。叠加在 0.3.0 框架之上。

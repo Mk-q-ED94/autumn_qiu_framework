@@ -359,6 +359,20 @@ struct FourDStatus: Decodable, Equatable {
     }
 }
 
+/// State of the codebase-memory token-saving layer (`GET /config/codebase-memory`).
+struct CodebaseMemoryStatus: Decodable, Equatable {
+    let enabled: Bool        // behaviour flag (intent; the layer auto-starts when on)
+    let connected: Bool      // whether the code-graph MCP is live right now
+    let repo: String         // repo scoped for indexing ("" = server working directory)
+    let toolCount: Int
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, connected, repo, error
+        case toolCount = "tool_count"
+    }
+}
+
 struct PushPreviewEntry: Identifiable, Decodable, Equatable {
     let id: String
     let text: String

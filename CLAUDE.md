@@ -47,7 +47,15 @@ Four model slots drive four workspaces (`autumn/core/workspace/`):
 
 WP1–WP3 each own one Mom zone (Mom1/2/3); WP2⇄WP3 share the `shared` zone. Wiring is in
 `autumn/core/framework.py`; model slots + behavior flags in `autumn/core/config.py`
-(`BehaviorConfig`, incl. `fourd_memory_enabled` / `fourd_push_on_turn`).
+(`BehaviorConfig`, incl. `fourd_memory_enabled` / `fourd_push_on_turn` /
+`codebase_memory_enabled`).
+
+**Codebase memory (token-saving layer).** `codebase_memory_enabled` (off by default)
+wires the external `codebase-memory-mcp` code-graph server (catalog id `codebase_memory`,
+factory `mcp_codebase_memory`) so agents query code structure (calls/imports/architecture)
+instead of reading files. The server auto-connects it at startup when on; it's also a live
+toggle at `/config/codebase-memory` (设置 → 高级). It's a normal catalog MCP — needs `uvx`/`npx`
+on the host — surfaced through the shared integration runtime, not a vendored engine.
 
 ## Design language — "Paper & Clay"
 

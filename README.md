@@ -512,6 +512,21 @@ python -m pytest
 Current version: **0.3.1**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
 
+### Unreleased
+
+- **Codebase memory — an optional token-saving layer.** Wraps the external
+  `codebase-memory-mcp` code-intelligence server (MIT) as a first-class catalog
+  MCP (`codebase_memory`): it indexes a repository into a knowledge graph so the
+  agent answers structural questions with `search_graph` / `trace_path` /
+  `get_architecture` / `query_graph` instead of reading files one by one — the
+  upstream project reports ~99% fewer tokens on structural exploration. Gated by
+  the new `codebase_memory_enabled` behaviour flag (off by default,
+  `CODEBASE_MEMORY_ENABLED` / `CODEBASE_MEMORY_REPO`): when on, the server
+  auto-connects it at startup; it is also a live switch at
+  `GET`/`POST /config/codebase-memory` and in the desktop **设置 → 高级** tab. It's
+  a normal MCP over the shared integration runtime (needs `uvx`/`npx` on the
+  host), not a vendored engine. Adds `tests/test_server_codebase_memory.py`.
+
 ### 0.3.1 — 2026-06-17 · Client optimization & adaptation
 
 Polishes the desktop client and turns the MCP catalog into a place you can
