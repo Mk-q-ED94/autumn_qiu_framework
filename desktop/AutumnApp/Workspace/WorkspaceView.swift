@@ -12,44 +12,48 @@ struct WorkspaceView: View {
     @State private var inspectorTrace: WorkflowTrace?
 
     var body: some View {
-        ChatView(
-            settings: settings,
-            store: store,
-            projects: projects,
-            conversationID: selectedConversationID,
-            inspectorTrace: $inspectorTrace,
-            showRunInspector: showRunInspector
-        )
-        .id(selectedConversationID)
-        .inspector(isPresented: $inspectorVisible) {
-            WorkspaceInspectorView(
-                mode: $inspectorMode,
-                trace: inspectorTrace,
-                settings: settings,
-                localServer: localServer
+        VStack(spacing: 0) {
+            WorkspaceTopBar(
+                title: navigationTitleText,
+                isInspectorVisible: inspectorVisible,
+                toggleInspector: toggleInspector
             )
-            .inspectorColumnWidth(
-                min: Autumn.sizing.inspectorWidth,
-                ideal: Autumn.sizing.inspectorWidth,
-                max: 380
-            )
-        }
-        .navigationTitle(navigationTitleText)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(action: toggleInspector) {
-                    Image(systemName: "sidebar.right")
-                        .foregroundStyle(inspectorVisible ? Color.accentColor : Color.secondary)
+
+            HStack(spacing: 0) {
+                ChatView(
+                    settings: settings,
+                    store: store,
+                    projects: projects,
+                    conversationID: selectedConversationID,
+                    inspectorTrace: $inspectorTrace,
+                    showRunInspector: showRunInspector
+                )
+                .id(selectedConversationID)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if inspectorVisible {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(width: Autumn.stroke.hairline)
+                        .transition(.opacity)
+
+                    WorkspaceInspectorView(
+                        mode: $inspectorMode,
+                        trace: inspectorTrace,
+                        settings: settings,
+                        localServer: localServer
+                    )
+                    .frame(width: Autumn.sizing.inspectorWidth)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                .help("切换检视面板 (⌘⇧I)")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
         }
         .focusedSceneValue(
             \.workspaceCommandActions,
             WorkspaceCommandActions(
-                newConversation: {
-                    selectedConversationID = store.newConversation()
-                },
+                newConversation: { selectedConversationID = store.newConversation() },
                 toggleInspector: toggleInspector
             )
         )
@@ -77,6 +81,40 @@ struct WorkspaceView: View {
         withAnimation(Autumn.motion.snappy) {
             inspectorMode = .run
             inspectorVisible = true
+        }
+    }
+}
+
+// MARK: - Top bar
+
+private struct WorkspaceTopBar: View {
+    let title: String
+    let isInspectorVisible: Bool
+    let toggleInspector: () -> Void
+
+    var body: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            Text(title)
+                .font(Autumn.typography.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Button(action: toggleInspector) {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isInspectorVisible ? Autumn.colors.clay : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("切换检视面板 (⌘⇧I)")
+        }
+        .padding(.horizontal, Autumn.spacing.lg)
+        .padding(.vertical, Autumn.spacing.sm)
+        .background(Color.primary.opacity(0.035))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: Autumn.stroke.hairline)
         }
     }
 }

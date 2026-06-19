@@ -6,64 +6,50 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── primary navigation ──
-            List(selection: $selection) {
-                Section {
-                    ForEach(AppSection.allCases) { section in
-                        SidebarRow(section: section)
-                            .tag(section.rawValue)
-                    }
-                } header: {
-                    HStack(spacing: Autumn.spacing.sm) {
-                        AutumnLogoMark(size: 24)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("秋 · Autumn")
-                                .font(Autumn.typography.headline)
-                            Text("多模型协作工作台")
-                                .font(Autumn.typography.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, Autumn.spacing.xs)
+            sidebarHeader
+
+            VStack(spacing: Autumn.spacing.xs) {
+                ForEach(AppSection.allCases) { section in
+                    AutumnNavItem(
+                        section: section,
+                        isSelected: selection == section.rawValue,
+                        action: { selection = section.rawValue }
+                    )
                 }
             }
-            .listStyle(.sidebar)
-            .frame(maxHeight: 238)
+            .padding(.horizontal, Autumn.spacing.sm)
+            .padding(.bottom, Autumn.spacing.sm)
 
-            Divider()
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(height: Autumn.stroke.hairline)
 
-            // ── project/conversation explorer (visible while in workspace) ──
             if selection == AppSection.workspace.rawValue {
                 ProjectSidebarView(selectedConversationID: $selectedConversationID)
             } else {
                 Spacer()
             }
 
-            // ── agent status footer ──
             AgentStatusFooter()
         }
-        .navigationTitle("秋")
+        .background(Autumn.colors.sidebar)
     }
-}
 
-private struct SidebarRow: View {
-    let section: AppSection
-
-    var body: some View {
-        Label {
+    private var sidebarHeader: some View {
+        HStack(spacing: Autumn.spacing.sm) {
+            AutumnLogoMark(size: 24)
             VStack(alignment: .leading, spacing: 1) {
-                Text(section.title)
-                    .font(Autumn.typography.bodyMedium)
-                Text(section.subtitle)
+                Text("秋 · Autumn")
+                    .font(Autumn.typography.headline)
+                Text("多模型协作工作台")
                     .font(Autumn.typography.caption)
                     .foregroundStyle(.secondary)
             }
-        } icon: {
-            Image(systemName: section.systemImage)
-                .foregroundStyle(Autumn.colors.section(section))
-                .frame(width: 18)
+            Spacer()
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, Autumn.spacing.md)
+        .padding(.top, Autumn.spacing.md)
+        .padding(.bottom, Autumn.spacing.sm)
     }
 }
 
@@ -102,10 +88,10 @@ private struct AgentStatusFooter: View {
         }
         .padding(.horizontal, Autumn.spacing.md)
         .padding(.vertical, Autumn.spacing.sm)
-        .background(.bar)
+        .background(Color.primary.opacity(0.04))
         .overlay(
             Rectangle()
-                .fill(Color.secondary.opacity(0.12))
+                .fill(Color.primary.opacity(0.1))
                 .frame(height: Autumn.stroke.hairline),
             alignment: .top
         )
