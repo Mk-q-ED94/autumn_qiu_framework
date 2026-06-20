@@ -509,10 +509,14 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.3.1**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.4.0**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
 
-### Unreleased
+### 0.4.0 — 2026-06-20 · Codebase memory (token-saving code graph) + fully custom macOS shell
+
+Adds a framework-level **codebase-memory** subsystem that spends a code graph to
+save the agent's tokens, and finishes the macOS client's move off stock platform
+chrome onto a fully hand-drawn shell.
 
 - **Codebase memory — a framework-level token-saving subsystem.** Wraps the
   external `codebase-memory-mcp` code-intelligence server (MIT) and weaves it
@@ -534,8 +538,16 @@ minor versions add features and may adjust APIs.
     `GET`/`POST /config/codebase-memory` and the desktop **设置 → 高级** tab. Needs
     `uvx`/`npx` on the host; the whole layer is failure-tolerant (a missing
     binary degrades to "no extra context", never breaking a turn).
-  - Adds `autumn/core/codebase/`, `tests/test_codebase_memory.py` and
-    `tests/test_server_codebase_memory.py`; 1022 tests passing, ruff clean.
+- **Fully custom macOS shell** — the macOS client drops the last of its stock
+  platform chrome (`NavigationSplitView`, the `List`-based sidebar, the system
+  toolbar and the `.inspector` modifier) for a hand-drawn SwiftUI shell: a plain
+  `HStack` split with a warm-paper sidebar (new `Autumn.colors.sidebar` token), a
+  token-driven `AutumnNavItem`, an in-content title bar, and a custom sliding
+  inspector panel — matching the WinUI client's "own shell, not template"
+  direction. Paper & Clay tokens throughout; `accessibilityReduceMotion` honoured.
+- **Tests** — adds `tests/test_codebase_memory.py` (core component + WP2 brief
+  injection + framework wiring) and a framework-driven server endpoint test;
+  **1022 passing**, ruff clean.
 
 ### 0.3.1 — 2026-06-17 · Client optimization & adaptation
 
