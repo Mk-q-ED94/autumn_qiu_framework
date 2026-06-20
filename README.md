@@ -509,8 +509,36 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.3.2**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.3.3**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### 0.3.3 — 2026-06-20 · Project-wide correctness, security & resource-leak hardening
+
+A full-codebase audit pass — no new features, just fixes. Each fix carries a
+regression test; **1039 passing**, ruff clean.
+
+- **Correctness.** `architecture_brief()` no longer caches a transient empty
+  result (one unlucky first CODE task could otherwise disable the
+  codebase-memory layer for the process's lifetime); vector/hybrid recall hits
+  are stamped "now", so a zone running 4D **and** time-decay no longer decays
+  every semantic hit to zero and sorts it last; the markdown backend stores a
+  multi-segment zone key (`project:<id>:history`) as per-entry files instead of
+  one opaque blob; the quality checker, Hermes tool-call parsing and the
+  embeddings client all degrade gracefully on a malformed model/provider
+  response instead of raising.
+- **Security.** `http_head` re-validates every redirect hop (closing an
+  SSRF-via-redirect bypass) and strips sensitive response headers; `/models`
+  enforces the same SSRF policy as the model-facing fetchers; `/stream` bounds
+  its query-string inputs (the body-limit middleware only saw `Content-Length`);
+  the data tools cap emitted size, not just parsed input.
+- **Resource leaks & lifecycle.** A failed stdio-MCP handshake reaps its
+  subprocess instead of leaking it; `Autumn.close()` tears down every client
+  best-effort so one failure can't strand the rest; `add_terr` rolls back a
+  partial registration on connect failure; the SQLite vector/lexical stores
+  guard connection creation against a cold-start race; `/config/apply` re-arms
+  codebase memory inside its lock; the SSE stream emits a structured error frame
+  even when project activation fails; the plugin loader skips an unloadable file
+  instead of crashing the directory load.
 
 ### 0.3.2 — 2026-06-20 · Codebase memory (token-saving code graph) + fully custom macOS shell
 
