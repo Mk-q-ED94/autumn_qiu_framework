@@ -509,10 +509,10 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.4.0**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.3.2**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
 
-### 0.4.0 — 2026-06-20 · Codebase memory (token-saving code graph) + fully custom macOS shell
+### 0.3.2 — 2026-06-20 · Codebase memory (token-saving code graph) + fully custom macOS shell
 
 Adds a framework-level **codebase-memory** subsystem that spends a code graph to
 save the agent's tokens, and finishes the macOS client's move off stock platform
