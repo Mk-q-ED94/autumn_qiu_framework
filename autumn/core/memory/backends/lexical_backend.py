@@ -16,6 +16,7 @@ import asyncio
 import json
 import re
 import sqlite3
+import threading
 
 from ...types import SearchResult
 
@@ -46,27 +47,35 @@ class SQLiteLexicalStore:
         self._table = table
         self._conn: sqlite3.Connection | None = None
         self._available: bool | None = None  # resolved on first connect
+        # Guards first-use: executor threads must not race to open the connection
+        # / probe FTS5 availability and orphan a connection.
+        self._init_lock = threading.Lock()
 
     # ── sync internals (run in executor) ─────────────────────────────────────
 
     def _ensure_conn(self) -> sqlite3.Connection | None:
         if self._available is False:
             return None
-        if self._conn is None:
-            conn = sqlite3.connect(self._db_path, check_same_thread=False)
-            try:
-                conn.execute(
-                    f"CREATE VIRTUAL TABLE IF NOT EXISTS {self._table} "
-                    f"USING fts5(id UNINDEXED, text, meta UNINDEXED)",
-                )
-                conn.commit()
-                self._available = True
-                self._conn = conn
-            except sqlite3.OperationalError:
-                # FTS5 not compiled into this SQLite build — degrade to no-op.
-                conn.close()
-                self._available = False
+        if self._conn is not None:
+            return self._conn
+        with self._init_lock:
+            if self._available is False:
                 return None
+            if self._conn is None:
+                conn = sqlite3.connect(self._db_path, check_same_thread=False)
+                try:
+                    conn.execute(
+                        f"CREATE VIRTUAL TABLE IF NOT EXISTS {self._table} "
+                        f"USING fts5(id UNINDEXED, text, meta UNINDEXED)",
+                    )
+                    conn.commit()
+                    self._available = True
+                    self._conn = conn
+                except sqlite3.OperationalError:
+                    # FTS5 not compiled into this SQLite build — degrade to no-op.
+                    conn.close()
+                    self._available = False
+                    return None
         return self._conn
 
     def _sync_store(self, id: str, text: str, metadata: dict) -> None:

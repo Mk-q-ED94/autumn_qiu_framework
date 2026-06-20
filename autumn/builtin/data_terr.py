@@ -29,7 +29,9 @@ async def _parse_json(text: str) -> Any:
 
 async def _to_json(value: Any, indent: int = 0) -> str:
     pretty = indent if indent > 0 else None
-    return json.dumps(value, ensure_ascii=False, indent=pretty)
+    result = json.dumps(value, ensure_ascii=False, indent=pretty)
+    _check_size(result, "json output")  # cap emitted size, not just parsed input
+    return result
 
 
 async def _parse_csv(text: str, has_header: bool = True, delimiter: str = ",") -> list[dict | list]:
@@ -70,7 +72,9 @@ async def _to_csv(rows: list[dict | list], delimiter: str = ",") -> str:
     else:
         writer = csv.writer(buf, delimiter=delimiter)
         writer.writerows(rows)
-    return buf.getvalue()
+    result = buf.getvalue()
+    _check_size(result, "csv output")  # cap emitted size, not just parsed input
+    return result
 
 
 async def _json_path(data: Any, path: str) -> Any:

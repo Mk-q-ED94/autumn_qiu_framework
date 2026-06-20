@@ -28,11 +28,30 @@ from ..core.security import (
 )
 
 _MAX_REDIRECTS = 5
+_MAX_TIMEOUT = 60.0  # ceiling on a model-supplied timeout — one fetch can't pin a socket forever
+
+
+def _clamp_timeout(timeout: float) -> float:
+    """Bound a (model-chosen) timeout to a sane range."""
+    if not timeout or timeout <= 0:
+        return _DEFAULT_TIMEOUT
+    return min(timeout, _MAX_TIMEOUT)
+
+# Response headers a HEAD probe must never hand back to the model — a target's
+# session cookie / auth material would otherwise leak through a reachability check.
+_SENSITIVE_RESPONSE_HEADERS = frozenset({
+    "set-cookie",
+    "set-cookie2",
+    "authorization",
+    "proxy-authorization",
+    "proxy-authenticate",
+})
 
 __all__ = [
     "FetchError",
     "assert_url_allowed",
     "safe_fetch",
+    "safe_head",
     "strip_html",
     "clean_inline",
     "looks_like_html",
@@ -61,6 +80,7 @@ async def safe_fetch(
     """
     current = url
     req_method = method.upper()
+    timeout = _clamp_timeout(timeout)
     async with httpx.AsyncClient(follow_redirects=False, timeout=timeout, headers=headers) as client:
         for _ in range(_MAX_REDIRECTS + 1):
             await assert_url_allowed(current)
@@ -89,6 +109,44 @@ async def safe_fetch(
             except httpx.HTTPError as e:
                 raise FetchError(str(e)) from e
         raise FetchError(f"too many redirects (>{_MAX_REDIRECTS})")
+
+
+async def safe_head(
+    url: str,
+    *,
+    timeout: float = _DEFAULT_TIMEOUT,
+) -> tuple[int, str, dict[str, str]]:
+    """HEAD *url* with SSRF validation and manual redirect re-checking.
+
+    Like :func:`safe_fetch` but issues a HEAD and returns ``(status, final_url,
+    headers)`` with no body. Redirects are followed manually (up to
+    :data:`_MAX_REDIRECTS`) so the SSRF guard re-runs on every hop — a public URL
+    that 302s to ``localhost`` / a metadata endpoint is refused, which a plain
+    ``follow_redirects=True`` client would silently follow. Sensitive response
+    headers (``Set-Cookie`` etc.) are stripped so a reachability probe can't
+    exfiltrate a target's credentials to the model. Raises :class:`FetchError`.
+    """
+    current = url
+    timeout = _clamp_timeout(timeout)
+    async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+        for _ in range(_MAX_REDIRECTS + 1):
+            await assert_url_allowed(current)
+            try:
+                resp = await client.head(current)
+            except httpx.HTTPError as e:
+                raise FetchError(str(e)) from e
+            if resp.is_redirect:
+                location = resp.headers.get("location")
+                if not location:
+                    raise FetchError("redirect without a Location header")
+                current = str(httpx.URL(current).join(location))
+                continue
+            headers = {
+                k: v for k, v in resp.headers.items()
+                if k.lower() not in _SENSITIVE_RESPONSE_HEADERS
+            }
+            return resp.status_code, str(resp.url), headers
+    raise FetchError(f"too many redirects (>{_MAX_REDIRECTS})")
 
 
 # ── HTML utilities ────────────────────────────────────────────────────────────

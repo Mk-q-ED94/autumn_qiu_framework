@@ -198,6 +198,28 @@ async def test_history_capped_count_based():
     assert history[-1].content["turn"] == 59
 
 
+async def test_get_history_empty_tags_is_not_a_filter():
+    # tags=[] must mean "no tag filter" (return everything), not "match the empty
+    # set" — set().issubset() is always True, so filtering on it returns all and
+    # the explicit-empty case would be a confusing silent no-op either way.
+    area = MemoryArea("ws", DictBackend())
+    await area.append_history("tagged", tags=["x"])
+    await area.append_history("untagged")
+    assert len(await area.get_history(tags=[])) == 2
+    assert len(await area.get_history(tags=["x"])) == 1
+
+
+async def test_recall_never_raises_on_backend_error():
+    # recall()'s contract is "never raises" — a backend that throws on get must
+    # degrade to empty, not propagate into the access broker / recall skill.
+    class _BoomBackend(DictBackend):
+        async def get(self, key):
+            raise RuntimeError("backend down")
+
+    area = MemoryArea("ws", _BoomBackend())
+    assert await area.recall("anything") == []
+
+
 async def test_history_importance_weighted_eviction():
     area = MemoryArea("ws", DictBackend(), history_limit=3)
     e1 = await area.append_history("low A", importance=0.5)

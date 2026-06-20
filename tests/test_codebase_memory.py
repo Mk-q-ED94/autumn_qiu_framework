@@ -122,6 +122,35 @@ async def test_core_is_failure_tolerant():
     assert await cb.architecture_brief() == ""
 
 
+class _WarmingGraphClient(_FakeGraphClient):
+    """get_architecture returns "" until the graph has 'warmed up' (call N)."""
+
+    def __init__(self, *, empty_until=1, **kw):
+        super().__init__(**kw)
+        self._empty_until = empty_until
+
+    async def call_tool(self, name, args):
+        self.calls.append((name, dict(args)))
+        if name == "index_repository":
+            return [{"type": "text", "text": "indexed"}]
+        if name == "get_architecture":
+            if self.count("get_architecture") <= self._empty_until:
+                return []  # graph still warming up — empty result
+            return [{"type": "text", "text": self._arch_text}]
+        return []
+
+
+async def test_architecture_brief_does_not_cache_a_transient_empty():
+    # A first code task that fires the brief before the graph is queryable must
+    # not poison the cache with "" for the instance's whole lifetime.
+    client = _WarmingGraphClient(empty_until=2)  # first attempt (project + {}) empty
+    cb = CodebaseMemory(client, "/srv/app")
+    first = await cb.architecture_brief()
+    assert first == ""  # transient empty, not cached
+    second = await cb.architecture_brief()
+    assert "ARCH:" in second  # the layer recovers instead of staying empty forever
+
+
 async def test_refresh_reindexes():
     client = _FakeGraphClient()
     cb = CodebaseMemory(client, "/srv/app")

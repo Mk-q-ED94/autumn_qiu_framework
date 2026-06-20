@@ -225,11 +225,12 @@ def _evict(
 ) -> list[MemoryEntry]:
     """Trim history to at most *limit* entries.
 
-    Pinned entries are kept unconditionally. Among normal entries, the highest
-    retention value survives; recency breaks ties (newer wins). Returned in
-    ascending timestamp order. ``fourd`` switches the retention metric from
-    ``effective_importance`` (time-decay only) to ``retention_score``
-    (decay boosted by use utility); the two coincide for un-annotated entries.
+    Pinned entries are kept ahead of all normal entries; recency breaks ties
+    (newer wins). Only in the degenerate case where pinned entries alone exceed
+    *limit* are the most recent pins kept. Returned in ascending timestamp order.
+    ``fourd`` switches the retention metric from ``effective_importance``
+    (time-decay only) to ``retention_score`` (decay boosted by use utility); the
+    two coincide for un-annotated entries.
     """
     if len(history) <= limit:
         return history
@@ -242,7 +243,9 @@ def _evict(
         normal.sort(key=lambda e: (-e.effective_importance(now, half_life), -e.timestamp))
     keep_normal = max(0, limit - len(pinned))
     if len(pinned) > limit:
-        kept = sorted(pinned, key=lambda e: -e.importance)[:limit]
+        # All pins share PIN_THRESHOLD importance, so recency makes the tie-break
+        # deterministic (keep the most recent) instead of insertion-order luck.
+        kept = sorted(pinned, key=lambda e: (-e.importance, -e.timestamp))[:limit]
     else:
         kept = pinned + normal[:keep_normal]
     kept.sort(key=lambda e: e.timestamp)  # restore chronological order
@@ -527,6 +530,11 @@ class MemoryArea:
         if not fused:
             return []
         max_score = max(slot["score"] for slot in fused.values())
+        # Stamp with "now": these are freshly-retrieved hits whose ranking signal
+        # is the relevance score, not age. A 0.0 timestamp would make time-decay
+        # (when a zone has both 4D and a half-life on) collapse every semantic hit
+        # to activation 0, silently sorting them dead last.
+        now = time.time()
         entries: list[MemoryEntry] = []
         for entry_id, slot in fused.items():
             sources = sorted(slot["sources"])
@@ -536,7 +544,7 @@ class MemoryArea:
             entries.append(MemoryEntry(
                 id=entry_id,
                 content=slot["text"],
-                timestamp=0.0,
+                timestamp=now,
                 importance=(slot["score"] / max_score) * _PIN_THRESHOLD,
                 tags=sources,
                 meta=meta,
@@ -633,7 +641,9 @@ class MemoryArea:
             entries = [e for e in entries if not e.is_expired(now)]
         if since is not None:
             entries = [e for e in entries if e.timestamp >= since]
-        if tags is not None:
+        if tags:
+            # An empty list means "no tag filter" — set().issubset() is always
+            # True, so filtering on it would be a confusing no-op that returns all.
             tag_set = set(tags)
             entries = [e for e in entries if tag_set.issubset(set(e.tags))]
         if n is not None:
@@ -661,8 +671,13 @@ class MemoryArea:
         """
         results: list[MemoryEntry] = []
 
-        # 1. Exact KV lookup
-        value = await self.get(query)
+        # 1. Exact KV lookup. Guarded: a backend I/O error or a corrupt KV blob
+        #    must not break recall (callers like the access broker rely on the
+        #    "never raises" contract).
+        try:
+            value = await self.get(query)
+        except Exception:
+            value = None
         if value is not None:
             results.append(MemoryEntry(
                 id=f"kv:{query}",
@@ -674,24 +689,33 @@ class MemoryArea:
 
         # 2. Tag-filtered history (expired already excluded by get_history)
         if tags:
-            results.extend(await self.get_history(tags=tags))
+            try:
+                results.extend(await self.get_history(tags=tags))
+            except Exception:
+                pass
 
         # 3. Semantic / lexical retrieval.
         #    With a lexical layer attached, vector + lexical are fused by RRF
         #    (hybrid). Without one, the vector-only path below is byte-identical
         #    to before, so enabling lexical is a strict, opt-in superset.
         if self._lexical is not None and len(results) < k:
-            results.extend(await self._hybrid_search(query, k))
+            try:
+                results.extend(await self._hybrid_search(query, k))
+            except Exception:
+                pass
         elif self._vector is not None and len(results) < k:
             try:
                 semantic = await self.search(query, k=k)
+                # "now" so time-decay (4D + half-life) doesn't kill freshly-
+                # retrieved hits — their signal is relevance, not age.
+                now_semantic = time.time()
                 for r in semantic:
                     meta = dict(getattr(r, "metadata", None) or {})
                     meta["score"] = r.score
                     results.append(MemoryEntry(
                         id=r.id,
                         content=r.text,
-                        timestamp=0.0,
+                        timestamp=now_semantic,
                         importance=r.score * _PIN_THRESHOLD,
                         tags=["vector"],
                         meta=meta,

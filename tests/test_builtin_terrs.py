@@ -244,6 +244,13 @@ async def test_data_to_json_pretty():
     assert "\n" in out and "  " in out
 
 
+async def test_data_to_json_caps_emitted_size():
+    # A value within the input cap can still serialize past it — the emitter must
+    # bound its own output, not just parsed input (cost / OOM guard).
+    with pytest.raises(ValueError, match="output"):
+        await _tool(data_terr(), "to_json").call(value="x" * 1_100_000)
+
+
 async def test_data_parse_csv_with_header():
     rows = await _tool(data_terr(), "parse_csv").call(
         text="name,age\nalice,30\nbob,25\n",

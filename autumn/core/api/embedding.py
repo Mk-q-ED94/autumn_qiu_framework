@@ -52,8 +52,19 @@ class EmbeddingInterface:
             json={"model": self.config.model, "input": texts},
         )
         resp.raise_for_status()
-        items = sorted(resp.json()["data"], key=lambda x: x["index"])
-        return [item["embedding"] for item in items]
+        # Guard against an OpenAI-compatible server that returns 200 with an
+        # unexpected shape ({"error": ...}, missing data/index/embedding) so a
+        # malformed body degrades to a clear error instead of a raw KeyError
+        # surfacing mid-recall.
+        payload = resp.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list) or not data:
+            raise RuntimeError(f"embeddings response missing 'data' array: {str(payload)[:200]}")
+        try:
+            items = sorted(data, key=lambda x: x["index"])
+            return [item["embedding"] for item in items]
+        except (KeyError, TypeError) as exc:
+            raise RuntimeError(f"embeddings response item malformed: {exc}") from exc
 
     async def close(self) -> None:
         await self._client.aclose()

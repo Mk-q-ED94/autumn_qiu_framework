@@ -79,16 +79,22 @@ class Checker:
             Message(role=Role.SYSTEM, content=self._eval_system),
             Message(role=Role.USER, content=user_content),
         ]
+        resp = await self.api.complete(messages, max_tokens=128)
+        # A non-string / empty response means we can't judge — pass through rather
+        # than loop forever. (We handle this explicitly instead of catching
+        # AttributeError, so a genuinely broken API object still surfaces.)
+        text = resp.strip() if isinstance(resp, str) else ""
+        if not text:
+            return True, ""
         try:
-            resp = await self.api.complete(messages, max_tokens=128)
-            data = json.loads(resp.strip())
-            if not isinstance(data, dict):
-                return True, ""
-            if data.get("ok"):
-                return True, ""
-            return False, data.get("issues", "quality check failed")
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            return True, ""  # unparseable / non-str response → pass through rather than loop forever
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return True, ""  # unparseable response → pass through
+        if not isinstance(data, dict):
+            return True, ""
+        if data.get("ok"):
+            return True, ""
+        return False, data.get("issues", "quality check failed")
 
     async def _correct(self, output: str, issues: str) -> str:
         messages = [
