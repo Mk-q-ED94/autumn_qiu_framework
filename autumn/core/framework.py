@@ -764,21 +764,43 @@ class Autumn:
         All MCP clients in the Terr are connected and their tools are bridged to
         Tool objects and registered alongside the Terr's direct tools and skills.
         The MCP clients are owned by Autumn after this call and disconnected on
-        close().
+        close(). If any embedded MCP fails to connect, the partial registration
+        is rolled back so a failure can't leave half a Terr live (orphaned tools
+        plus a connected-but-unregistered MCP server).
         """
-        for client in terr.mcps:
-            await client.connect()
-            self._mcp_clients.append(client)
-            for tool in await mcp_to_tools(client):
+        connected_clients: list[MCPClient] = []
+        registered_names: list[str] = []
+        try:
+            for client in terr.mcps:
+                await client.connect()
+                connected_clients.append(client)
+                self._mcp_clients.append(client)
+                for tool in await mcp_to_tools(client):
+                    _mark_terr_source(tool, terr)
+                    self.register_tool(tool)
+                    registered_names.append(tool.name)
+            for tool in terr.tools:
                 _mark_terr_source(tool, terr)
                 self.register_tool(tool)
-        for tool in terr.tools:
-            _mark_terr_source(tool, terr)
-            self.register_tool(tool)
-        for skill in terr.skills:
-            _mark_terr_source(skill, terr)
-            self.register_skill(skill)
-        self.plugins.register_terr(terr)
+                registered_names.append(tool.name)
+            for skill in terr.skills:
+                _mark_terr_source(skill, terr)
+                self.register_skill(skill)
+                registered_names.append(skill.name)
+            self.plugins.register_terr(terr)
+        except Exception:
+            for name in registered_names:
+                self.plugins.unregister(name)
+            for client in connected_clients:
+                try:
+                    self._mcp_clients.remove(client)
+                except ValueError:
+                    pass
+                try:
+                    await client.disconnect()
+                except Exception:  # noqa: BLE001 — rollback is best-effort
+                    pass
+            raise
 
     # ── codebase-memory token-saving layer ──────────────────────────────────────
 
@@ -838,6 +860,15 @@ class Autumn:
         b.codebase_memory_repo = target
         # Pre-warm the index off the turn path; the brief awaits the same lock.
         self._codebase_index_task = asyncio.create_task(self.codebase.ensure_indexed())
+
+        def _consume_index_result(task: asyncio.Task) -> None:
+            # Retrieve the result so a failure never surfaces as an "exception
+            # never retrieved" warning. ensure_indexed is failure-tolerant today,
+            # but this keeps the detached task safe if that ever changes.
+            if not task.cancelled():
+                task.exception()
+
+        self._codebase_index_task.add_done_callback(_consume_index_result)
         return True
 
     async def stop_codebase_memory(self) -> None:
@@ -872,23 +903,34 @@ class Autumn:
                 await backend.clear_session()
 
     async def close(self) -> None:
+        # Best-effort teardown: one failing step (a flaky MCP server raising on
+        # disconnect, say) must not strand the remaining clients — every other
+        # MCP subprocess and all four model HTTP clients would otherwise stay
+        # open for the process lifetime. __aexit__ awaits this, so we swallow
+        # rather than raise (a teardown error must not mask the body's exception).
+        async def _safely(coro) -> None:
+            try:
+                await coro
+            except Exception:  # noqa: BLE001 — teardown is best-effort
+                pass
+
         # Stop any in-flight codebase indexing before disconnecting its client.
         if self._codebase_index_task is not None:
             self._codebase_index_task.cancel()
             self._codebase_index_task = None
         # Drain any background indexing before tearing down the embedding client.
         for mom in (self.mom1, self.mom2, self.mom3):
-            await mom.flush_index()
-        for client in self._mcp_clients:
-            await client.disconnect()
+            await _safely(mom.flush_index())
+        for client in list(self._mcp_clients):
+            await _safely(client.disconnect())
         self._mcp_clients.clear()
-        await self.a1.close()
-        await self.a2.close()
-        await self.a3.close()
+        await _safely(self.a1.close())
+        await _safely(self.a2.close())
+        await _safely(self.a3.close())
         if self.a4 is not None:
-            await self.a4.close()
+            await _safely(self.a4.close())
         if self._embedding is not None:
-            await self._embedding.close()
+            await _safely(self._embedding.close())
 
     async def __aenter__(self):
         return self

@@ -4,6 +4,7 @@ import json
 import math
 import re
 import sqlite3
+import threading
 from array import array
 
 from ...types import SearchResult
@@ -44,21 +45,31 @@ class SQLiteVectorStore:
         self._db_path = db_path
         self._table = table
         self._conn: sqlite3.Connection | None = None
+        # Guards connection creation: ops run in the default executor, so a cold
+        # concurrent burst could otherwise have two threads both open a
+        # connection and orphan one (an fd / WAL leak).
+        self._init_lock = threading.Lock()
 
     # ── sync internals (run in executor) ─────────────────────────────────────
 
     def _ensure_conn(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-            self._conn.execute(
-                f"""CREATE TABLE IF NOT EXISTS {self._table} (
-                    id     TEXT PRIMARY KEY,
-                    text   TEXT NOT NULL,
-                    vector BLOB NOT NULL,
-                    meta   TEXT NOT NULL DEFAULT '{{}}'
-                )""",
-            )
-            self._conn.commit()
+        # Double-checked locking: fast path skips the lock once connected; the
+        # lock serialises first-use so the connection is created exactly once.
+        if self._conn is not None:
+            return self._conn
+        with self._init_lock:
+            if self._conn is None:
+                conn = sqlite3.connect(self._db_path, check_same_thread=False)
+                conn.execute(
+                    f"""CREATE TABLE IF NOT EXISTS {self._table} (
+                        id     TEXT PRIMARY KEY,
+                        text   TEXT NOT NULL,
+                        vector BLOB NOT NULL,
+                        meta   TEXT NOT NULL DEFAULT '{{}}'
+                    )""",
+                )
+                conn.commit()
+                self._conn = conn
         return self._conn
 
     def _sync_store(self, id: str, text: str, vector: list, metadata: dict) -> None:

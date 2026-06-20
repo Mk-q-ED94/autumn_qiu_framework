@@ -172,7 +172,11 @@ class HermesAPIInterface(ModelAPIInterface):
         payload = {"model": self.model, "messages": full, **kwargs}
         data = await self._post_with_retry(self._completion_endpoint, payload)
         self._record_usage(data)
-        raw = data["choices"][0]["message"].get("content") or ""
+        # Degrade gracefully on an empty/malformed body (some OpenAI-compatible
+        # servers return {} or {"choices": []} under load) — mirror the base
+        # class guard rather than letting choices[0] raise into the ReAct loop.
+        choices = data.get("choices") or []
+        raw = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
 
         # Strip <thinking> first, then look for tool calls in the remainder.
         after_think, thinking = self._extract_thinking(raw)

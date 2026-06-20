@@ -11,17 +11,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import httpx
-
 from ..core.components.skill import Skill
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 from ._http import (
     _DEFAULT_TIMEOUT,
     FetchError,
-    assert_url_allowed,
     looks_like_html,
     safe_fetch,
+    safe_head,
     strip_html,
 )
 
@@ -40,15 +38,10 @@ async def _http_get_json(url: str, timeout: float = _DEFAULT_TIMEOUT) -> Any:
 
 
 async def _http_head(url: str, timeout: float = _DEFAULT_TIMEOUT) -> dict[str, Any]:
-    await assert_url_allowed(url)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-        resp = await client.head(url)
-        # Don't raise — HEAD on 4xx is common; surface the status to the model.
-        return {
-            "status": resp.status_code,
-            "url": str(resp.url),
-            "headers": {k: v for k, v in resp.headers.items()},
-        }
+    # safe_head re-validates every redirect hop (no SSRF-via-redirect) and drops
+    # sensitive response headers. A 4xx status is surfaced, not raised.
+    status, final_url, headers = await safe_head(url, timeout=timeout)
+    return {"status": status, "url": final_url, "headers": headers}
 
 
 async def _fetch_text(url: str, timeout: float = _DEFAULT_TIMEOUT, max_chars: int = 20_000) -> str:

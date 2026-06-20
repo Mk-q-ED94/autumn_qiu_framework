@@ -15,6 +15,7 @@ from autumn.builtin._http import (
     is_text_content,
     looks_like_html,
     safe_fetch,
+    safe_head,
     strip_html,
 )
 from autumn.builtin.knowledge_terr import _parse_ddg_results
@@ -97,6 +98,34 @@ async def test_safe_fetch_returns_body_and_content_type(monkeypatch):
     assert status == 200
     assert body == "hello"
     assert "text/plain" in ctype
+
+
+async def test_safe_head_revalidates_redirect_to_internal(monkeypatch):
+    # A public URL that 302s to the cloud-metadata IP must be refused — safe_head
+    # re-runs the SSRF guard on every hop instead of following blindly (the hole
+    # a plain follow_redirects=True client leaves open).
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(302, headers={"location": "http://169.254.169.254/latest/"}),
+    )
+    _patch_httpx(monkeypatch, transport)
+    with pytest.raises(FetchError):
+        await safe_head("http://8.8.8.8/redir")
+
+
+async def test_safe_head_strips_sensitive_headers(monkeypatch):
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(200, headers={
+            "content-type": "text/html",
+            "set-cookie": "session=secret",
+            "x-ok": "1",
+        }),
+    )
+    _patch_httpx(monkeypatch, transport)
+    status, url, headers = await safe_head("http://8.8.8.8/probe")
+    assert status == 200
+    lower = {k.lower() for k in headers}
+    assert "x-ok" in lower
+    assert "set-cookie" not in lower  # a target's session cookie must not leak to the model
 
 
 # ── DuckDuckGo parsing ────────────────────────────────────────────────────────

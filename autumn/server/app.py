@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field
 from ..core.config import AutumnConfig, ModelConfig
 from ..core.framework import Autumn
 from ..core.memory.project import project_context, reset_current_project, set_current_project
-from ..core.security import MAX_REQUEST_BYTES, redact_secrets
+from ..core.security import (
+    FetchError,
+    MAX_REQUEST_BYTES,
+    assert_url_allowed,
+    redact_secrets,
+)
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
 from . import integrations as integrations_mod
 
@@ -947,12 +952,22 @@ def create_app() -> FastAPI:
         if not req.base_url.strip():
             raise HTTPException(status_code=400, detail="Base URL is required.")
 
+        endpoint = _model_endpoint(req.base_url)
+        # Same SSRF policy the model-facing fetchers enforce: refuse
+        # loopback/private/metadata targets unless AUTUMN_ALLOW_PRIVATE_NETWORK=1
+        # (which a localhost-Ollama setup legitimately sets).
+        try:
+            await assert_url_allowed(endpoint)
+        except FetchError as exc:
+            raise HTTPException(status_code=400, detail=f"Base URL not allowed: {exc}") from exc
+
         try:
             async with httpx.AsyncClient(
                 headers=_headers_for(req.protocol, req.api_key.strip()),
                 timeout=30.0,
+                trust_env=False,
             ) as client:
-                response = await client.get(_model_endpoint(req.base_url))
+                response = await client.get(endpoint)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise HTTPException(
@@ -993,9 +1008,12 @@ def create_app() -> FastAPI:
             # Re-establish saved platform integrations on the new instance —
             # old.close() disconnected the previous MCP clients.
             await _reapply_integrations(request.app, new_autumn)
-        # Re-arm the codebase-memory layer on the rebuilt instance when its env
-        # flag is on (runtime-only toggles revert to .env on rebuild, like 4D).
-        await _autostart_codebase_memory(request.app, new_autumn)
+            # Re-arm the codebase-memory layer on the rebuilt instance when its
+            # env flag is on (runtime-only toggles revert to .env on rebuild,
+            # like 4D). Kept inside apply_lock so a concurrent apply can't close
+            # this instance out from under the autostart (which spawns an MCP
+            # subprocess) — integration_lock it acquires is a different lock.
+            await _autostart_codebase_memory(request.app, new_autumn)
         return ApplyConfigResponse(status="ok", configured=True)
 
     @app.post("/process", response_model=ProcessResponse)
@@ -1071,23 +1089,37 @@ def create_app() -> FastAPI:
         project_id: str | None = None,
     ):
         autumn = _autumn_or_503(request)
+        # The body-limit middleware only sees Content-Length, so a GET like
+        # /stream?input=<MBs> would otherwise bypass the cost/DoS guard. Enforce
+        # it explicitly on the query-string inputs that feed the model pipeline.
+        limit = _max_body_bytes()
+        for field, value in (("input", input), ("project_instructions", project_instructions)):
+            if value and len(value.encode("utf-8")) > limit:
+                raise HTTPException(
+                    status_code=413, detail=f"{field} exceeds {limit} bytes.",
+                )
         effective_input = _apply_project_context(input, project_instructions)
 
         async def event_stream():
             # Bind the active project for this stream. Set inside the generator so
             # the per-event Tasks spawned below copy a context that includes it,
             # which is what makes project-scoped memory skills resolve correctly.
-            await _activate_project(autumn, project_id)
-            proj_token = set_current_project(project_id) if project_id else None
-            stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
-            iterator = stream_fn(
-                effective_input,
-                mission_route=route,
-                input_type=input_type,
-                task_type=task_type,
-            ).__aiter__()
+            # Project activation + iterator construction live inside the try so a
+            # failure there still emits a structured error frame + [DONE] instead
+            # of tearing the SSE stream down with no signal to the client.
+            proj_token = None
+            iterator = None
             next_task: asyncio.Task | None = None
             try:
+                await _activate_project(autumn, project_id)
+                proj_token = set_current_project(project_id) if project_id else None
+                stream_fn = getattr(autumn, "stream_with_trace", autumn.stream)
+                iterator = stream_fn(
+                    effective_input,
+                    mission_route=route,
+                    input_type=input_type,
+                    task_type=task_type,
+                ).__aiter__()
                 while True:
                     if await request.is_disconnected():
                         return

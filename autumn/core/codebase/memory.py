@@ -101,6 +101,11 @@ class CodebaseMemory:
                 # project arg; retry without it before giving up.
                 raw = await self._call("get_architecture", {})
             brief = raw.strip()
+            if not brief:
+                # Transient empty result (graph still warming up, server hiccup).
+                # Don't cache it — a later code task should get a real brief
+                # instead of being stuck with "" for this instance's lifetime.
+                return ""
             if len(brief) > max_chars:
                 brief = brief[:max_chars].rstrip() + " …"
             self._brief = brief
