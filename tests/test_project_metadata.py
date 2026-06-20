@@ -1,8 +1,8 @@
 """Tests for project metadata — type, description, goals, files, environment.
 
-Covers both the data-layer (ProjectMeta dataclasses and ProjectZone methods)
-and the A4-powered WP4 intelligence methods (draft_description, draft_goals,
-infer_environment), and the server endpoints that expose them.
+Covers both the data layer (ProjectMeta dataclasses and ProjectZone methods)
+and the A1-led WP1 coordination methods (draft_description, draft_goals,
+infer_environment), plus the server endpoints that expose them.
 """
 import json
 import os
@@ -19,8 +19,7 @@ from autumn.core.memory.project import (
     ProjectMemory,
     ProjectZone,
 )
-from autumn.core.workspace.wp4 import WP4Mem
-from autumn.core.memory.base import MemoryArea
+from autumn.core.workspace.wp1 import WP1Tot
 
 
 # ── doubles ───────────────────────────────────────────────────────────────────
@@ -35,16 +34,10 @@ class _StubAPI:
         return self.reply
 
 
-def _wp4(api=None, projects=None) -> WP4Mem:
-    backend = DictBackend()
+def _wp1(api=None, projects=None) -> WP1Tot:
     if projects is None:
-        projects = ProjectMemory(backend)
-    return WP4Mem(
-        api,
-        MemoryArea("wp4", DictBackend()),
-        zones={"shared": MemoryArea("shared", DictBackend())},
-        projects=projects,
-    )
+        projects = ProjectMemory(DictBackend())
+    return WP1Tot(api, None, None, None, projects=projects)
 
 
 # ── ProjectGoals ──────────────────────────────────────────────────────────────
@@ -193,28 +186,30 @@ async def test_project_memory_update_metadata_delegates():
     assert meta2.project_type == "code"
 
 
-# ── WP4 project intelligence ──────────────────────────────────────────────────
+# ── WP1 project coordination ──────────────────────────────────────────────────
 
 async def test_draft_description_calls_api_and_returns_stripped():
     api = _StubAPI("  A framework for building AI agents.  ")
     pm = ProjectMemory(DictBackend())
-    wp4 = _wp4(api=api, projects=pm)
-    result = await wp4.draft_description("it helps build agents quickly", "proj")
+    wp1 = _wp1(api=api, projects=pm)
+    result = await wp1.draft_description("it helps build agents quickly", "proj")
     assert result == "A framework for building AI agents."
     assert api.calls
+    assert "You are A1" in api.calls[0][0].content
 
 
 async def test_draft_description_requires_model():
     pm = ProjectMemory(DictBackend())
-    with pytest.raises(RuntimeError, match="A4 model slot"):
-        await _wp4(api=None, projects=pm).draft_description("text", "proj")
+    with pytest.raises(RuntimeError, match="A1 model slot"):
+        await _wp1(api=None, projects=pm).draft_description("text", "proj")
 
 
 async def test_draft_description_requires_projects():
     api = _StubAPI("desc")
-    wp4 = WP4Mem(api, MemoryArea("wp4", DictBackend()), zones={}, projects=None)
+    wp1 = _wp1(api=api, projects=None)
+    wp1.projects = None
     with pytest.raises(ValueError, match="Project memory is not configured"):
-        await wp4.draft_description("text", "proj")
+        await wp1.draft_description("text", "proj")
 
 
 async def test_draft_goals_parses_json_response():
@@ -222,8 +217,8 @@ async def test_draft_goals_parses_json_response():
         '{"master": "ship v2", "long_term": ["scale", "i18n"], "short_term": ["auth"]}'
     )
     pm = ProjectMemory(DictBackend())
-    wp4 = _wp4(api=api, projects=pm)
-    goals = await wp4.draft_goals("we want to scale and add i18n", "proj")
+    wp1 = _wp1(api=api, projects=pm)
+    goals = await wp1.draft_goals("we want to scale and add i18n", "proj")
     assert goals.master == "ship v2"
     assert goals.long_term == ["scale", "i18n"]
     assert goals.short_term == ["auth"]
@@ -233,8 +228,8 @@ async def test_draft_goals_includes_description_in_prompt():
     api = _StubAPI('{"master": "x", "long_term": [], "short_term": []}')
     pm = ProjectMemory(DictBackend())
     await pm.zone("proj").set_meta(ProjectMeta(description="An AI-powered editor"))
-    wp4 = _wp4(api=api, projects=pm)
-    await wp4.draft_goals("be fast", "proj")
+    wp1 = _wp1(api=api, projects=pm)
+    await wp1.draft_goals("be fast", "proj")
     # The description should appear in the user message
     user_msg_content = api.calls[0][1].content
     assert "AI-powered editor" in user_msg_content
@@ -243,16 +238,16 @@ async def test_draft_goals_includes_description_in_prompt():
 async def test_draft_goals_falls_back_on_bad_json():
     api = _StubAPI("just some text that is not json")
     pm = ProjectMemory(DictBackend())
-    wp4 = _wp4(api=api, projects=pm)
-    goals = await wp4.draft_goals("goals description", "proj")
+    wp1 = _wp1(api=api, projects=pm)
+    goals = await wp1.draft_goals("goals description", "proj")
     assert isinstance(goals, ProjectGoals)
     assert "just some text" in goals.master
 
 
 async def test_draft_goals_requires_model():
     pm = ProjectMemory(DictBackend())
-    with pytest.raises(RuntimeError, match="A4 model slot"):
-        await _wp4(api=None, projects=pm).draft_goals("text", "proj")
+    with pytest.raises(RuntimeError, match="A1 model slot"):
+        await _wp1(api=None, projects=pm).draft_goals("text", "proj")
 
 
 async def test_infer_environment_parses_and_persists():
@@ -266,8 +261,8 @@ async def test_infer_environment_parses_and_persists():
         description="A web API",
         goals=ProjectGoals(master="ship v1"),
     ))
-    wp4 = _wp4(api=api, projects=pm)
-    meta = await wp4.infer_environment("proj")
+    wp1 = _wp1(api=api, projects=pm)
+    meta = await wp1.infer_environment("proj")
     assert meta.environment.terrs == ["code", "search"]
     assert meta.environment.agent_channel == "dev"
     # persisted
@@ -283,8 +278,8 @@ async def test_infer_environment_includes_project_context_in_prompt():
         description="Studying LLM alignment",
         goals=ProjectGoals(master="publish paper"),
     ))
-    wp4 = _wp4(api=api, projects=pm)
-    await wp4.infer_environment("proj")
+    wp1 = _wp1(api=api, projects=pm)
+    await wp1.infer_environment("proj")
     user_msg = api.calls[0][1].content
     assert "research" in user_msg
     assert "Studying LLM alignment" in user_msg
@@ -297,8 +292,8 @@ async def test_infer_environment_survives_bad_json():
     await pm.zone("proj").set_meta(ProjectMeta(
         environment=ProjectEnvironment(terrs=["original"])
     ))
-    wp4 = _wp4(api=api, projects=pm)
-    meta = await wp4.infer_environment("proj")
+    wp1 = _wp1(api=api, projects=pm)
+    meta = await wp1.infer_environment("proj")
     # Environment unchanged since parsing failed
     assert meta.environment.terrs == ["original"]
 
@@ -310,30 +305,22 @@ async def test_infer_environment_extracts_json_from_markdown():
         "\n```"
     )
     pm = ProjectMemory(DictBackend())
-    wp4 = _wp4(api=api, projects=pm)
-    meta = await wp4.infer_environment("proj")
+    wp1 = _wp1(api=api, projects=pm)
+    meta = await wp1.infer_environment("proj")
     assert meta.environment.terrs == ["code"]
-
-
-async def test_infer_environment_logs_to_audit():
-    api = _StubAPI('{"terrs": [], "skills": [], "tools": [], "mcp": [], "agent_channel": null}')
-    pm = ProjectMemory(DictBackend())
-    wp4 = _wp4(api=api, projects=pm)
-    await wp4.infer_environment("proj")
-    log = await wp4.audit_log()
-    assert any(e.content.get("action") == "infer_environment" for e in log)
 
 
 async def test_infer_environment_requires_model():
     pm = ProjectMemory(DictBackend())
-    with pytest.raises(RuntimeError, match="A4 model slot"):
-        await _wp4(api=None, projects=pm).infer_environment("proj")
+    with pytest.raises(RuntimeError, match="A1 model slot"):
+        await _wp1(api=None, projects=pm).infer_environment("proj")
 
 
 async def test_infer_environment_requires_projects():
-    wp4 = WP4Mem(_StubAPI(), MemoryArea("wp4", DictBackend()), zones={}, projects=None)
+    wp1 = _wp1(api=_StubAPI())
+    wp1.projects = None
     with pytest.raises(ValueError, match="Project memory is not configured"):
-        await wp4.infer_environment("proj")
+        await wp1.infer_environment("proj")
 
 
 # ── server endpoints ──────────────────────────────────────────────────────────
@@ -349,17 +336,12 @@ def _make_client(api=None):
     with TestClient(app) as client:
         from autumn.core.memory.backends import DictBackend as DB
         pm = ProjectMemory(DB())
-        wp4 = WP4Mem(
-            api,
-            MemoryArea("wp4", DB()),
-            zones={"shared": MemoryArea("shared", DB())},
-            projects=pm,
-        )
+        wp1 = _wp1(api=api, projects=pm)
 
         class _FakeAutumn:
             def __init__(self):
                 self.projects = pm
-                self.wp4 = wp4
+                self.wp1 = wp1
 
             def describe_terrs(self):
                 return []
@@ -440,10 +422,11 @@ def test_draft_description_returns_text():
         assert r.json()["description"] == "A clean API framework."
 
 
-def test_draft_description_requires_a4():
+def test_draft_description_requires_a1():
     with _make_client(api=None) as (client, _):
         r = client.post("/projects/p/describe", json={"input": "idea"})
         assert r.status_code == 400
+        assert "A1" in r.json()["detail"]
 
 
 def test_draft_goals_returns_structured():
@@ -458,10 +441,11 @@ def test_draft_goals_returns_structured():
         assert "scale" in d["long_term"]
 
 
-def test_draft_goals_requires_a4():
+def test_draft_goals_requires_a1():
     with _make_client(api=None) as (client, _):
         r = client.post("/projects/p/goals", json={"input": "text"})
         assert r.status_code == 400
+        assert "A1" in r.json()["detail"]
 
 
 def test_infer_environment_endpoint():
@@ -477,7 +461,8 @@ def test_infer_environment_endpoint():
         assert d["environment"]["agent_channel"] == "dev"
 
 
-def test_infer_environment_requires_a4():
+def test_infer_environment_requires_a1():
     with _make_client(api=None) as (client, _):
         r = client.post("/projects/p/infer-environment")
         assert r.status_code == 400
+        assert "A1" in r.json()["detail"]

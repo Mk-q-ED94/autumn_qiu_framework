@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Literal
 
 from ..components.selector import Selector
 from ..interaction import UserInteraction
+from ..project_intelligence import (
+    draft_description as coordinate_project_description,
+    draft_goals as coordinate_project_goals,
+    infer_environment as coordinate_project_environment,
+)
 from ..types import (
     InputType,
     Message,
@@ -23,7 +28,7 @@ from .wp3 import WP3Mis
 
 if TYPE_CHECKING:
     from ..memory.access import Mom1AccessBroker
-    from ..memory.project import ProjectMemory
+    from ..memory.project import ProjectGoals, ProjectMemory, ProjectMeta
     from .wp4 import WP4Mem
 
 _ADVISORY_PREFIX = "\n\n---\n[质量提示] "
@@ -190,6 +195,29 @@ class WP1Tot(WorkspaceBase):
         self._task_planning = task_planning
         self._supervision = supervision
         self._archive = archive
+
+    def _project_context(self):
+        """Return the A1 API and project store required for metadata discussion."""
+        if self.api is None:
+            raise RuntimeError("Project discussion needs the A1 model slot; none is configured.")
+        if self.projects is None:
+            raise ValueError("Project memory is not configured.")
+        return self.api, self.projects
+
+    async def draft_description(self, user_input: str, project_id: str) -> str:
+        """Lead an A1 discussion that produces a concise project description."""
+        api, _ = self._project_context()
+        return await coordinate_project_description(api, user_input)
+
+    async def draft_goals(self, user_input: str, project_id: str) -> "ProjectGoals":
+        """Lead an A1 discussion that structures the project's goal hierarchy."""
+        api, projects = self._project_context()
+        return await coordinate_project_goals(api, projects, user_input, project_id)
+
+    async def infer_environment(self, project_id: str) -> "ProjectMeta":
+        """Have A1 infer and persist the project's execution environment."""
+        api, projects = self._project_context()
+        return await coordinate_project_environment(api, projects, project_id)
 
     async def process(
         self,

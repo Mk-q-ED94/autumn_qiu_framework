@@ -747,8 +747,8 @@ identical to 0.2.2. Rationale and the upstream comparison live in
 - **Project metadata** — each project now carries a structured **type**,
   **description**, **goals** (one master + long-term + short-term), tracked
   **files**, and an AI-inferred **environment** (terrs, skills, tools, MCP, agent
-  channel). WP4 drafts descriptions and goals and infers environments through
-  A4; managed over HTTP under `/projects/{id}/metadata|files|describe|goals|infer-environment`.
+  channel). A1 leads description/goal discussions and environment inference;
+  managed over HTTP under `/projects/{id}/metadata|files|describe|goals|infer-environment`.
 - **Per-project shared memory** — every project id gets an isolated zone that is
   *shared* across all workspaces and turns within that project.
 - **Memory lifecycle** — importance & pinning, TTL/expiry, time-decay,

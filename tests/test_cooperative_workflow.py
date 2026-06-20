@@ -7,6 +7,8 @@ knowledge Terr, and the master-switch config gates.
 """
 import json
 
+import pytest
+
 from autumn.core.components.agent import Agent, _inject_note
 from autumn.core.components.selector import Selector
 from autumn.core.components.skill import Skill
@@ -234,7 +236,7 @@ def test_cognitive_api_stays_local_below_threshold():
     assert wp4._cognitive_api(100) is local
 
 
-async def test_project_discussion_always_delegates_regardless_of_size():
+async def test_legacy_wp4_project_helper_always_forwards_to_a1():
     local, strong = RecordingAPI(response="A description."), RecordingAPI(response="A description.")
     from autumn.core.memory.project import ProjectMemory
     projects = ProjectMemory(DictBackend())
@@ -242,11 +244,27 @@ async def test_project_discussion_always_delegates_regardless_of_size():
     wp4 = WP4Mem(
         local, MemoryArea("wp4", DictBackend()),
         zones={"shared": shared}, projects=projects,
-        delegation_api=strong, delegation_threshold=100000,  # huge threshold
+        project_api=strong,
     )
     await wp4.draft_description("tiny", "p1")
-    # Project discussion bypasses the threshold → the strong model was used.
+    # The compatibility path may not fall back to the local A4 model.
     assert strong.calls and not local.calls
+
+
+async def test_legacy_wp4_project_helper_never_falls_back_to_a4():
+    local = RecordingAPI(response="A description.")
+    from autumn.core.memory.project import ProjectMemory
+    projects = ProjectMemory(DictBackend())
+    wp4 = WP4Mem(
+        local,
+        MemoryArea("wp4", DictBackend()),
+        zones={"shared": SharedZone(DictBackend())},
+        projects=projects,
+    )
+
+    with pytest.raises(RuntimeError, match="A1 model slot"):
+        await wp4.draft_description("tiny", "p1")
+    assert not local.calls
 
 
 # ── 5. knowledge Terr ─────────────────────────────────────────────────────────
