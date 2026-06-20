@@ -359,6 +359,32 @@ struct FourDStatus: Decodable, Equatable {
     }
 }
 
+/// State of the codebase-memory token-saving layer (`GET /config/codebase-memory`).
+struct CodebaseMemoryStatus: Decodable, Equatable {
+    let enabled: Bool        // behaviour flag (intent; the layer auto-starts when on)
+    let connected: Bool      // whether the code-graph MCP is live right now
+    let indexed: Bool        // whether the repo has been indexed into the graph yet
+    let repo: String         // repo scoped for indexing ("" = server working directory)
+    let toolCount: Int
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, connected, indexed, repo, error
+        case toolCount = "tool_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        connected = try c.decode(Bool.self, forKey: .connected)
+        // Tolerate an older server that predates the `indexed` field.
+        indexed = try c.decodeIfPresent(Bool.self, forKey: .indexed) ?? false
+        repo = try c.decodeIfPresent(String.self, forKey: .repo) ?? ""
+        toolCount = try c.decodeIfPresent(Int.self, forKey: .toolCount) ?? 0
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
 struct PushPreviewEntry: Identifiable, Decodable, Equatable {
     let id: String
     let text: String

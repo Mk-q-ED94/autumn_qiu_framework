@@ -443,7 +443,33 @@ python -m pytest
 
 ## 开发历程
 
-当前版本：**0.3.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+当前版本：**0.3.2**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+
+### 0.3.2 — 2026-06-20 · 代码库记忆（省 token 代码图谱）+ 全自写 macOS 外壳
+
+新增框架级的**代码库记忆**子系统——用代码图谱去省 agent 的 token；并完成 macOS 客户端从系统模板组件到全手写外壳的迁移。
+
+- **代码库记忆——框架级的省 token 子系统。** 将外部的 `codebase-memory-mcp` 代码情报服务
+  （MIT）深度接入框架，成为一等公民的底层能力（`autumn/core/codebase/`、`Autumn.codebase`），
+  而不只是工具袋里多一件工具：
+  - **主动注入架构地图。** 开启后框架会把代码库索引成知识图谱，执行器（**WP2**）在每个
+    **CODE** 任务前自动注入一份图谱推导出的紧凑「架构地图」——A2 一开始就有方向，不必再烧
+    token 逐文件重建结构。
+  - **原生 `codebase` 能力域。** 图谱工具（`search_graph` / `trace_path` /
+    `get_architecture` / `query_graph` / `get_code_snippet`）被注册为一等能力域，供 agent
+    按需深挖；上游项目自述在结构探索上可省约 99% 的 token。
+  - **一个开关，框架自有。** 由 `codebase_memory_enabled` 行为开关控制（默认关闭；
+    `CODEBASE_MEMORY_ENABLED` / `CODEBASE_MEMORY_REPO`）。`Autumn.start_codebase_memory()`
+    负责连接 MCP、注册能力域并在后台预热索引；开关打开时服务器自动启动，也可通过
+    `GET`/`POST /config/codebase-memory` 与桌面端 **设置 → 高级** 实时切换。需主机安装
+    `uvx`/`npx`；整层容错（二进制缺失时退化为「无额外上下文」，绝不打断一轮对话）。
+- **全自写 macOS 外壳** —— macOS 客户端弃用了最后一批系统模板组件
+  （`NavigationSplitView`、基于 `List` 的侧栏、系统工具栏与 `.inspector` 修饰符），改为
+  手写 SwiftUI 外壳：用普通 `HStack` 做分栏 + 暖纸色侧栏（新增 `Autumn.colors.sidebar`
+  令牌）+ 令牌化的 `AutumnNavItem` + 内容区内置标题栏 + 自定义滑出检视面板——与 WinUI
+  端「自有外壳、非模板」的方向对齐。全程走 Paper & Clay 令牌，遵循 `accessibilityReduceMotion`。
+- **测试** —— 新增 `tests/test_codebase_memory.py`（核心组件 + WP2 注入 + 框架装卸）与一个
+  框架驱动的服务端端点测试；**1022 通过**，ruff 干净。
 
 ### 0.3.1 — 2026-06-17 · 客户端优化与适配
 

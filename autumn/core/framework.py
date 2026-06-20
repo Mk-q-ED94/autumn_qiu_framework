@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from .components.mcp_bridge import mcp_to_tools
 from .components.skill import Skill
 from .components.terr import Terr
 from .components.tool import Tool
+from .codebase import CodebaseMemory
 from .config import AutumnConfig
 from .interaction import UserInteraction
 from .memory.backends import (
@@ -113,6 +115,14 @@ class Autumn:
         self.a2 = A2(config.a2)
         self.a3 = A3(config.a3)
         self.a4 = A4(config.a4) if config.a4 is not None else None
+
+        # Codebase-memory token-saving layer (off until start_codebase_memory()).
+        # The brief provider is wired into WP2 unconditionally and reads these
+        # live, so the layer can be toggled at runtime without a rebuild.
+        self.codebase: CodebaseMemory | None = None
+        self._codebase_client: MCPClient | None = None
+        self._codebase_terr_names: list[str] = []
+        self._codebase_index_task: "asyncio.Task | None" = None
 
         db = config.storage.db_path
         b = config.behavior
@@ -241,6 +251,9 @@ class Autumn:
             system_prompt=p.wp2_task,
             tool_provider=self._collect_plugins,
             agent_max_steps=b.agent_max_steps,
+            # Always wired; returns "" until the codebase layer is started, so a
+            # runtime toggle takes effect without rebuilding WP2.
+            codebase_brief_provider=self._codebase_brief,
         )
         self.wp3 = WP3Mis(
             self.a3, self.mom3,
@@ -767,6 +780,88 @@ class Autumn:
             self.register_skill(skill)
         self.plugins.register_terr(terr)
 
+    # ── codebase-memory token-saving layer ──────────────────────────────────────
+
+    _CODEBASE_TERR_DESC = (
+        "Codebase knowledge graph — query code structure (definitions, call "
+        "graph, imports, architecture, routes) instead of reading files. Prefer "
+        "search_graph / trace_path / get_architecture / query_graph / "
+        "get_code_snippet over opening files; it is far cheaper in tokens."
+    )
+
+    async def _codebase_brief(self, task_input: str, task_type: TaskType | None) -> str:
+        """WP2 brief provider: a code-structure digest for CODE tasks, else "".
+
+        Gated here (not in WP2) so the executor stays generic: only code-shaped
+        tasks pay for the brief, and only when the layer is actually running.
+        """
+        cb = self.codebase
+        if cb is None or task_type != TaskType.CODE:
+            return ""
+        return await cb.architecture_brief()
+
+    async def start_codebase_memory(self, repo: str | None = None) -> bool:
+        """Bring the code-graph layer online: connect, register tools, pre-warm.
+
+        Builds the ``codebase-memory-mcp`` client (catalog factory), connects it,
+        registers its tools as a native ``codebase`` Terr so the agent can run
+        deep graph queries, wraps it in :class:`CodebaseMemory` for the proactive
+        brief, and kicks off indexing in the background so the first code task is
+        fast. Idempotent; re-pointing at a different repo reconnects + re-indexes.
+        Returns True once the MCP server is connected (indexing may still run).
+        """
+        from ..builtin.mcp_catalog import mcp_codebase_memory
+
+        b = self.config.behavior
+        target = (repo if repo is not None else b.codebase_memory_repo) or ""
+        target = target.strip()
+        if self.codebase is not None:
+            if target == self.codebase.repo:
+                return True  # already running on this repo
+            await self.stop_codebase_memory()
+
+        client = mcp_codebase_memory(target or None)
+        await client.connect()
+        self._codebase_client = client
+        self._mcp_clients.append(client)
+
+        terr = Terr(name="codebase", description=self._CODEBASE_TERR_DESC)
+        tools = await mcp_to_tools(client)
+        self._codebase_terr_names = []
+        for tool in tools:
+            _mark_terr_source(tool, terr)
+            self.register_tool(tool)
+            self._codebase_terr_names.append(tool.name)
+        self.plugins.register_terr(terr)
+
+        self.codebase = CodebaseMemory(client, target)
+        b.codebase_memory_repo = target
+        # Pre-warm the index off the turn path; the brief awaits the same lock.
+        self._codebase_index_task = asyncio.create_task(self.codebase.ensure_indexed())
+        return True
+
+    async def stop_codebase_memory(self) -> None:
+        """Tear down the code-graph layer: unregister tools/Terr, disconnect, idle."""
+        if self._codebase_index_task is not None:
+            self._codebase_index_task.cancel()
+            self._codebase_index_task = None
+        for name in self._codebase_terr_names:
+            self.plugins.unregister(name)
+        self._codebase_terr_names = []
+        self.plugins.unregister_terr("codebase")
+        client = self._codebase_client
+        self._codebase_client = None
+        self.codebase = None
+        if client is not None:
+            try:
+                self._mcp_clients.remove(client)
+            except ValueError:
+                pass
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     async def end_session(self) -> None:
@@ -777,6 +872,10 @@ class Autumn:
                 await backend.clear_session()
 
     async def close(self) -> None:
+        # Stop any in-flight codebase indexing before disconnecting its client.
+        if self._codebase_index_task is not None:
+            self._codebase_index_task.cancel()
+            self._codebase_index_task = None
         # Drain any background indexing before tearing down the embedding client.
         for mom in (self.mom1, self.mom2, self.mom3):
             await mom.flush_index()

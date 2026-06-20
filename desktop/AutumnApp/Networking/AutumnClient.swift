@@ -431,6 +431,28 @@ final class AutumnClient {
         return try JSONDecoder().decode(FourDStatus.self, from: data)
     }
 
+    func fetchCodebaseMemoryStatus() async throws -> CodebaseMemoryStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("config/codebase-memory"))
+        request.timeoutInterval = 15
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(CodebaseMemoryStatus.self, from: data)
+    }
+
+    func updateCodebaseMemory(enabled: Bool, repo: String?) async throws -> CodebaseMemoryStatus {
+        var request = URLRequest(url: baseURL.appendingPathComponent("config/codebase-memory"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Generous: enabling spawns the MCP subprocess (uvx/npx may fetch it first).
+        request.timeoutInterval = 45
+        request.httpBody = try JSONEncoder().encode(
+            CodebaseMemoryConfigBody(enabled: enabled, repo: repo)
+        )
+        let (data, response) = try await Self.session.data(for: request)
+        try Self.requireOK(response, data: data)
+        return try JSONDecoder().decode(CodebaseMemoryStatus.self, from: data)
+    }
+
     func pushPreview(area: MemoryArea, query: String) async throws -> PushPreviewResponse {
         var request = URLRequest(url: baseURL.appendingPathComponent("memory/push/preview"))
         request.httpMethod = "POST"

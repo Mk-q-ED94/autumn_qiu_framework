@@ -142,6 +142,11 @@ class BehaviorConfig:
     a4_delegate_to_a1: bool = True  # A4's heavy cognitive ops (consolidate/evolve/project) use A1 instead of A4
     a4_delegation_threshold: int = 2000  # Min source chars before A4 delegates to A1; smaller ops stay on local A4
     a4_knowledge_terr: bool = False  # Register a web-retrieval Terr and give A4 a research() path over it
+    # Codebase-memory token-saving layer (codebase-memory-mcp). When on, the
+    # server connects the code-graph MCP at startup so agents query structure
+    # (calls/imports/architecture) instead of reading files. Off = today's behaviour.
+    codebase_memory_enabled: bool = False
+    codebase_memory_repo: str = ""  # Repo to scope/index; empty = server working directory
 
     @classmethod
     def from_env(cls, prefix: str = "") -> "BehaviorConfig":
@@ -181,6 +186,10 @@ class BehaviorConfig:
                 env("A4_DELEGATION_THRESHOLD"), cls.a4_delegation_threshold,
             ),
             a4_knowledge_terr=_to_bool(env("A4_KNOWLEDGE_TERR"), cls.a4_knowledge_terr),
+            codebase_memory_enabled=_to_bool(
+                env("CODEBASE_MEMORY_ENABLED"), cls.codebase_memory_enabled,
+            ),
+            codebase_memory_repo=env("CODEBASE_MEMORY_REPO") or cls.codebase_memory_repo,
         )
 
     # ── cooperative-workflow effective gates (master switch applied) ─────────────

@@ -79,6 +79,40 @@ def mcp_memory(*, binary: str = "npx") -> StdioMCPClient:
     )
 
 
+def mcp_codebase_memory(repo: str | None = None, *, binary: str = "uvx") -> StdioMCPClient:
+    """``codebase-memory-mcp`` — index a codebase into a knowledge graph.
+
+    A code-intelligence MCP server (DeusData/codebase-memory-mcp, MIT) that
+    parses a repository into a queryable graph of functions/classes/routes and
+    their call/import/inherit edges. The agent then answers structural questions
+    with graph queries (``search_graph`` / ``trace_path`` / ``get_architecture``
+    / ``query_graph``) instead of reading files one by one — the project reports
+    ~99% fewer tokens on structural exploration. This is the engine behind
+    Autumn's optional *codebase memory* token-saving layer.
+
+    Parameters
+    ----------
+    repo:
+        Absolute path to the repository the server should operate on. Passed as
+        the subprocess working directory so on-launch indexing and the
+        background change-watcher scope to this tree; the agent still indexes it
+        explicitly via ``index_repository``. ``None`` leaves the cwd inherited.
+    binary:
+        Launcher. ``"uvx"`` (default) runs the published PyPI package, ``"npx"``
+        the npm package; any other value is treated as a direct path to the
+        natively-installed ``codebase-memory-mcp`` binary.
+    """
+    if binary == "npx":
+        command = ["npx", "-y", "codebase-memory-mcp"]
+    elif binary == "uvx":
+        command = ["uvx", "codebase-memory-mcp"]
+    else:
+        # Treat `binary` as a path to the natively-installed server binary
+        # (e.g. produced by the project's install.sh).
+        command = [binary]
+    return StdioMCPClient(command=command, cwd=repo or None)
+
+
 def mcp_postgres(connection_string: str, *, binary: str = "npx") -> StdioMCPClient:
     """Official ``@modelcontextprotocol/server-postgres`` — read-only SQL access.
 
@@ -403,6 +437,7 @@ __all__ = [
     "mcp_github",
     "mcp_puppeteer",
     "mcp_memory",
+    "mcp_codebase_memory",
     "mcp_postgres",
     "mcp_slack",
     "mcp_gitlab",

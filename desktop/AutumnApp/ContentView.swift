@@ -39,18 +39,20 @@ struct ContentView: View {
     }
 
     private var mainLayout: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             SidebarView(
                 selection: $selectedSectionRaw,
                 selectedConversationID: conversationSelection
             )
-                .navigationSplitViewColumnWidth(min: 220, ideal: Autumn.sizing.sidebarWidth)
-        } detail: {
-            NavigationStack {
-                detailView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AutumnPageBackground())
-            }
+            .frame(width: Autumn.sizing.sidebarWidth)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.08))
+                .frame(width: Autumn.stroke.hairline)
+
+            detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AutumnPageBackground())
         }
     }
 

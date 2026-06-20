@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Centralised design tokens for AutumnDesktop.
 ///
@@ -104,6 +107,16 @@ enum Autumn {
             case .terrs: return sage
             }
         }
+
+        // Sidebar warm paper — the one explicit named solid in the language.
+        // Adaptive: warm linen in light mode, deep warm charcoal in dark mode.
+        #if os(macOS)
+        static let sidebar = Color(NSColor { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(srgbRed: 0.110, green: 0.094, blue: 0.078, alpha: 1)
+                : NSColor(srgbRed: 0.953, green: 0.929, blue: 0.906, alpha: 1)
+        })
+        #endif
 
         static func workspace(_ name: String) -> Color {
             switch name {
