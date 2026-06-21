@@ -243,9 +243,10 @@ class _FakeAsyncClient:
     status_code = 200
     requests = []
 
-    def __init__(self, headers=None, timeout=None):
+    def __init__(self, headers=None, timeout=None, trust_env=None):
         self.headers = headers or {}
         self.timeout = timeout
+        self.trust_env = trust_env
 
     async def __aenter__(self):
         return self
@@ -371,6 +372,23 @@ def test_models_provider_error_returns_502(unconfigured_client, monkeypatch):
     )
 
     assert r.status_code == 502
+
+
+def test_models_rejects_internal_base_url(unconfigured_client, monkeypatch):
+    # SSRF guard: a metadata/loopback base_url must be refused (400) before any
+    # outbound fetch — the same policy the model-facing fetchers enforce.
+    monkeypatch.setattr(server_app.httpx, "AsyncClient", _FakeAsyncClient)
+    _FakeAsyncClient.requests = []
+    r = unconfigured_client.post(
+        "/models",
+        json={
+            "api_key": "sk-test",
+            "base_url": "http://169.254.169.254",
+            "protocol": "openai",
+        },
+    )
+    assert r.status_code == 400
+    assert _FakeAsyncClient.requests == []  # never reached the network
 
 
 # ── /config/apply ─────────────────────────────────────────────────────────────
@@ -709,6 +727,14 @@ def test_stream_rejects_invalid_route(configured_client):
 def test_stream_503_when_unconfigured(unconfigured_client):
     r = unconfigured_client.get("/stream", params={"input": "hi"})
     assert r.status_code == 503
+
+
+def test_stream_rejects_oversized_input(configured_client, monkeypatch):
+    # The body-limit middleware only sees Content-Length, so the GET query string
+    # of /stream needs its own guard against cost-amplification.
+    monkeypatch.setenv("AUTUMN_MAX_BODY_BYTES", "1024")
+    r = configured_client.get("/stream", params={"input": "x" * 2048})
+    assert r.status_code == 413
 
 
 # ── /memory/{area}/history ────────────────────────────────────────────────────

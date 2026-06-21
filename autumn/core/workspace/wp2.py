@@ -21,6 +21,11 @@ _TOOL_RESULT_MAX = 120
 # Returns a snapshot of (tools, skills) available for this turn.
 ToolProvider = Callable[[], tuple[list[Tool], list[Skill]]]
 
+# Returns a compact codebase-structure brief for (task_input, task_type), or "".
+# The framework gates this on the codebase-memory layer being enabled + the task
+# being code-shaped; WP2 just injects whatever non-empty string it returns.
+CodebaseBriefProvider = Callable[[str, "TaskType | None"], Awaitable[str]]
+
 _TASK_HINTS: dict[TaskType, str] = {
     TaskType.CODE: "Focus on correctness, test coverage, and code style.",
     TaskType.SEARCH: "Prefer search and retrieval tools to ground your answer in facts before synthesizing.",
@@ -108,15 +113,34 @@ def _apply_plan_hint(system: str, plan_hint: str | None) -> str:
     return f"{system}\n\n## A1 Suggested Approach\n{plan_hint}"
 
 
+def _apply_codebase_brief(system: str, brief: str) -> str:
+    """Inject a code-structure map so the executor starts oriented, not blind.
+
+    This is the framework-level token saving: the brief is a graph-derived digest
+    of the codebase, so A2 spends its budget on the change rather than on reading
+    files to rediscover structure. Deeper questions go to the ``codebase`` Terr.
+    """
+    if not brief:
+        return system
+    return (
+        f"{system}\n\n## Codebase map (graph-derived; query the `codebase` "
+        f"tools for detail rather than reading files)\n{brief}"
+    )
+
+
 def _compose_system(
     base: str,
     task_type: TaskType | None,
     turn_context: str,
     plan_hint: str | None,
+    codebase_brief: str = "",
 ) -> str:
-    """Build the full WP2 system prompt: base + task hint + push context + plan."""
+    """Build the full WP2 system prompt: base + task hint + codebase map + push + plan."""
     return _apply_plan_hint(
-        _apply_turn_context(_apply_hint(base, task_type), turn_context),
+        _apply_turn_context(
+            _apply_codebase_brief(_apply_hint(base, task_type), codebase_brief),
+            turn_context,
+        ),
         plan_hint,
     )
 
@@ -141,11 +165,26 @@ class WP2Tas(WorkspaceBase):
         system_prompt: str | None = None,
         tool_provider: ToolProvider | None = None,
         agent_max_steps: int = 10,
+        codebase_brief_provider: CodebaseBriefProvider | None = None,
     ):
         super().__init__(api, memory)
         self._system = system_prompt or _DEFAULT_SYSTEM
         self._tool_provider = tool_provider
         self._agent_max_steps = agent_max_steps
+        # Optional: yields a code-structure brief the framework injects into code
+        # tasks (the codebase-memory token-saving layer). None / "" → no change.
+        self._codebase_brief_provider = codebase_brief_provider
+
+    async def _resolve_codebase_brief(
+        self, task_input: str, task_type: TaskType | None,
+    ) -> str:
+        """Ask the provider for a code-structure brief; "" when absent/failing."""
+        if self._codebase_brief_provider is None:
+            return ""
+        try:
+            return await self._codebase_brief_provider(task_input, task_type)
+        except Exception:
+            return ""  # the layer is an optimisation; never let it break a turn
 
     async def process(self, task_input: str, task_type: TaskType | None = None) -> str:
         output, *_ = await self._execute(task_input, task_type)
@@ -192,6 +231,7 @@ class WP2Tas(WorkspaceBase):
         supervisor: Supervisor | None = None,
     ) -> tuple[str, list[WorkflowStage], int | None, int | None]:
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
+        codebase_brief = await self._resolve_codebase_brief(task_input, task_type)
         tool_stages: list[WorkflowStage] = []
         prompt_total = 0
         completion_total = 0
@@ -202,7 +242,7 @@ class WP2Tas(WorkspaceBase):
             agent_started = time.perf_counter()
             result, agent_prompt, agent_completion = await self._run_with_agent(
                 task_input, tools, skills, steps, task_type, turn_context=turn_context,
-                plan_hint=plan_hint, supervisor=supervisor,
+                plan_hint=plan_hint, supervisor=supervisor, codebase_brief=codebase_brief,
             )
             agent_stage = _agent_to_stage(
                 round((time.perf_counter() - agent_started) * 1000, 1),
@@ -216,7 +256,10 @@ class WP2Tas(WorkspaceBase):
                 completion_total += agent_completion
                 any_usage = True
         else:
-            result = await self._run_plain(task_input, task_type, turn_context=turn_context, plan_hint=plan_hint)
+            result = await self._run_plain(
+                task_input, task_type, turn_context=turn_context,
+                plan_hint=plan_hint, codebase_brief=codebase_brief,
+            )
             usage = getattr(self.api, "last_usage", None)
             if usage:
                 prompt_total += usage.get("prompt_tokens") or 0
@@ -248,9 +291,10 @@ class WP2Tas(WorkspaceBase):
         task_type: TaskType | None = None,
         turn_context: str = "",
         plan_hint: str | None = None,
+        codebase_brief: str = "",
     ) -> str:
         """Single completion — the original WP2 behavior, used when no tools exist."""
-        system = _compose_system(self._system, task_type, turn_context, plan_hint)
+        system = _compose_system(self._system, task_type, turn_context, plan_hint, codebase_brief)
         messages = [
             Message(role=Role.SYSTEM, content=system),
             Message(role=Role.USER, content=task_input),
@@ -267,6 +311,7 @@ class WP2Tas(WorkspaceBase):
         turn_context: str = "",
         plan_hint: str | None = None,
         supervisor: Supervisor | None = None,
+        codebase_brief: str = "",
     ) -> tuple[str, int, int]:
         """ReAct loop with tool access; carries WP2's persona + Mom2 history.
 
@@ -274,7 +319,7 @@ class WP2Tas(WorkspaceBase):
         totals are the agent loop's aggregate (0 when the provider doesn't return
         usage stats).
         """
-        instructions = _compose_system(self._system, task_type, turn_context, plan_hint)
+        instructions = _compose_system(self._system, task_type, turn_context, plan_hint, codebase_brief)
         agent = Agent(
             name="WP2-Tas",
             api=self.api,
@@ -316,6 +361,7 @@ class WP2Tas(WorkspaceBase):
         persisted even if the stream is interrupted mid-flight.
         """
         tools, skills = self._tool_provider() if self._tool_provider else ([], [])
+        codebase_brief = await self._resolve_codebase_brief(task_input, task_type)
 
         if tools or skills:
             # Tool-driven turn cannot be true-streamed; buffer then chunk.
@@ -326,7 +372,7 @@ class WP2Tas(WorkspaceBase):
                 agent_started = time.perf_counter()
                 result, _, _ = await self._run_with_agent(
                     task_input, tools, skills, steps, task_type, turn_context=turn_context,
-                    plan_hint=plan_hint, supervisor=supervisor,
+                    plan_hint=plan_hint, supervisor=supervisor, codebase_brief=codebase_brief,
                 )
                 agent_stage = _agent_to_stage(
                     round((time.perf_counter() - agent_started) * 1000, 1),
@@ -349,7 +395,7 @@ class WP2Tas(WorkspaceBase):
             yield stages
             return
 
-        system = _compose_system(self._system, task_type, turn_context, plan_hint)
+        system = _compose_system(self._system, task_type, turn_context, plan_hint, codebase_brief)
         messages = [
             Message(role=Role.SYSTEM, content=system),
             Message(role=Role.USER, content=task_input),

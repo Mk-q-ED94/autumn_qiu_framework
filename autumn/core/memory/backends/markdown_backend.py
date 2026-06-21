@@ -54,6 +54,9 @@ _FENCE = "---"
 _HISTORY_SUB = "history"
 _KV_DIR = "_kv"
 _ROOT_AREA = "_root"  # holds keys that arrived without an "<area>:" prefix
+# Multi-segment zone names ("project:<id>") carry a colon, which is illegal in a
+# Windows path component — store it on disk with this filesystem-safe stand-in.
+_AREA_DISK_SEP = "~"
 
 
 # ── frontmatter (de)serialisation — JSON values, no YAML dep ──────────────────
@@ -137,11 +140,18 @@ class MarkdownBackend(MemoryBackend):
     # ── key routing ───────────────────────────────────────────────────────────
 
     def _split(self, key: str) -> tuple[str, str]:
-        area, sep, sub = key.partition(":")
+        # Split on the LAST colon so a multi-segment zone name keeps its full
+        # identity as the area and only the leaf is the sub-key. Partitioning on
+        # the first colon mis-routed "project:<id>:history" (area "project", sub
+        # "<id>:history") into a single opaque _kv blob instead of exploding it
+        # into per-entry files — defeating the whole point of this backend for
+        # project memory. rpartition keeps "<zone>:history" and "<zone>:<kv>"
+        # consistently under the same area dir.
+        area, sep, sub = key.rpartition(":")
         return (area, sub) if sep else (_ROOT_AREA, key)
 
     def _area_dir(self, area: str) -> Path:
-        return self._root / area
+        return self._root / area.replace(":", _AREA_DISK_SEP)
 
     def _kv_path(self, key: str) -> Path:
         area, _ = self._split(key)
@@ -223,7 +233,7 @@ class MarkdownBackend(MemoryBackend):
         for area_dir in self._root.iterdir():
             if not area_dir.is_dir():
                 continue
-            area = area_dir.name
+            area = area_dir.name.replace(_AREA_DISK_SEP, ":")
             if any(p.is_file() and p.suffix == ".md" for p in area_dir.iterdir()):
                 result.append(_HISTORY_SUB if area == _ROOT_AREA else f"{area}:{_HISTORY_SUB}")
             kv_dir = area_dir / _KV_DIR

@@ -305,6 +305,24 @@ def test_plugin_loader_silent_when_same_type_reused():
     assert loader.get("foo") is t2
 
 
+def test_plugin_loader_skips_unloadable_file(tmp_path):
+    """A malformed/binary .py in the plugin dir must be skipped with a warning,
+    not crash the whole directory load (None spec / None loader guard)."""
+    from autumn.plugins.loader import PluginLoader
+
+    good = tmp_path / "good_plugin.py"
+    good.write_text("from autumn.core.components.tool import Tool\n"
+                    "my_tool = Tool('plug_ok', 'd', lambda: 'x', [])\n")
+    broken = tmp_path / "broken_plugin.py"
+    broken.write_text("this is (not valid python ::::\n")  # raises on exec, still skipped
+
+    loader = PluginLoader()
+    with pytest.warns(UserWarning):
+        loader.load_from_directory(tmp_path)
+    # The good plugin still registered despite the broken sibling.
+    assert loader.get("plug_ok") is not None
+
+
 async def test_selector_all_task_types():
     for tt in ("code", "search", "write", "data", "general"):
         api = _MockAPI(json.dumps({"type": "task", "task_type": tt, "confidence": 0.9}))

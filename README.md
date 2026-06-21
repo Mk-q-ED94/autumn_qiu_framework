@@ -509,8 +509,73 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.3.1**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.3.3**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### 0.3.3 — 2026-06-20 · Project-wide correctness, security & resource-leak hardening
+
+A full-codebase audit pass — no new features, just fixes. Each fix carries a
+regression test; **1039 passing**, ruff clean.
+
+- **Correctness.** `architecture_brief()` no longer caches a transient empty
+  result (one unlucky first CODE task could otherwise disable the
+  codebase-memory layer for the process's lifetime); vector/hybrid recall hits
+  are stamped "now", so a zone running 4D **and** time-decay no longer decays
+  every semantic hit to zero and sorts it last; the markdown backend stores a
+  multi-segment zone key (`project:<id>:history`) as per-entry files instead of
+  one opaque blob; the quality checker, Hermes tool-call parsing and the
+  embeddings client all degrade gracefully on a malformed model/provider
+  response instead of raising.
+- **Security.** `http_head` re-validates every redirect hop (closing an
+  SSRF-via-redirect bypass) and strips sensitive response headers; `/models`
+  enforces the same SSRF policy as the model-facing fetchers; `/stream` bounds
+  its query-string inputs (the body-limit middleware only saw `Content-Length`);
+  the data tools cap emitted size, not just parsed input.
+- **Resource leaks & lifecycle.** A failed stdio-MCP handshake reaps its
+  subprocess instead of leaking it; `Autumn.close()` tears down every client
+  best-effort so one failure can't strand the rest; `add_terr` rolls back a
+  partial registration on connect failure; the SQLite vector/lexical stores
+  guard connection creation against a cold-start race; `/config/apply` re-arms
+  codebase memory inside its lock; the SSE stream emits a structured error frame
+  even when project activation fails; the plugin loader skips an unloadable file
+  instead of crashing the directory load.
+
+### 0.3.2 — 2026-06-20 · Codebase memory (token-saving code graph) + fully custom macOS shell
+
+Adds a framework-level **codebase-memory** subsystem that spends a code graph to
+save the agent's tokens, and finishes the macOS client's move off stock platform
+chrome onto a fully hand-drawn shell.
+
+- **Codebase memory — a framework-level token-saving subsystem.** Wraps the
+  external `codebase-memory-mcp` code-intelligence server (MIT) and weaves it
+  into the framework as a first-class layer (`autumn/core/codebase/`,
+  `Autumn.codebase`), not just another tool in the bag:
+  - **Proactive brief injection.** When enabled, the framework indexes the repo
+    into a knowledge graph and the executor (**WP2**) prepends a compact,
+    graph-derived *architecture map* to every **CODE** task — so A2 starts
+    oriented instead of spending tokens reading files to rediscover structure.
+  - **Native `codebase` Terr.** The graph tools (`search_graph` / `trace_path` /
+    `get_architecture` / `query_graph` / `get_code_snippet`) are registered as a
+    first-class capability domain for deeper on-demand queries; the upstream
+    project reports ~99% fewer tokens on structural exploration.
+  - **One switch, framework-owned.** Gated by the `codebase_memory_enabled`
+    behaviour flag (off by default; `CODEBASE_MEMORY_ENABLED` /
+    `CODEBASE_MEMORY_REPO`). `Autumn.start_codebase_memory()` connects the MCP,
+    registers the Terr and pre-warms the index in the background; the server
+    auto-starts it when the flag is on, and it's a live switch at
+    `GET`/`POST /config/codebase-memory` and the desktop **设置 → 高级** tab. Needs
+    `uvx`/`npx` on the host; the whole layer is failure-tolerant (a missing
+    binary degrades to "no extra context", never breaking a turn).
+- **Fully custom macOS shell** — the macOS client drops the last of its stock
+  platform chrome (`NavigationSplitView`, the `List`-based sidebar, the system
+  toolbar and the `.inspector` modifier) for a hand-drawn SwiftUI shell: a plain
+  `HStack` split with a warm-paper sidebar (new `Autumn.colors.sidebar` token), a
+  token-driven `AutumnNavItem`, an in-content title bar, and a custom sliding
+  inspector panel — matching the WinUI client's "own shell, not template"
+  direction. Paper & Clay tokens throughout; `accessibilityReduceMotion` honoured.
+- **Tests** — adds `tests/test_codebase_memory.py` (core component + WP2 brief
+  injection + framework wiring) and a framework-driven server endpoint test;
+  **1022 passing**, ruff clean.
 
 ### 0.3.1 — 2026-06-17 · Client optimization & adaptation
 

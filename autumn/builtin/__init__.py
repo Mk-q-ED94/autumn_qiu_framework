@@ -33,6 +33,7 @@ from .math_terr import math_terr
 from .mcp_catalog import (
     KNOWN_MCPS,
     mcp_brave_search,
+    mcp_codebase_memory,
     mcp_everything,
     mcp_fetch,
     mcp_filesystem,
@@ -162,6 +163,7 @@ __all__ = [
     "mcp_github",
     "mcp_puppeteer",
     "mcp_memory",
+    "mcp_codebase_memory",
     "mcp_postgres",
     "mcp_slack",
     "mcp_gitlab",

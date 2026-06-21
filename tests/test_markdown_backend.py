@@ -56,6 +56,35 @@ async def test_clear_wipes_everything(tmp_path):
     assert await b.keys() == []
 
 
+async def test_multi_segment_zone_history_explodes_into_per_entry_files(tmp_path):
+    # A ProjectZone is named "project:<id>", so its history key has two colons.
+    # It must still explode into per-entry .md files (the backend's whole point),
+    # not collapse into one opaque _kv blob.
+    b = MarkdownBackend(tmp_path)
+    await b.set("project:acme:history", [
+        MemoryEntry(id="e1", content="first", timestamp=1.0).to_dict(),
+        MemoryEntry(id="e2", content="second", timestamp=2.0).to_dict(),
+    ])
+    # Per-entry, human-readable files (under a filesystem-safe area dir).
+    entry_files = sorted(p.name for p in tmp_path.rglob("*.md"))
+    assert entry_files == ["e1.md", "e2.md"]
+    # Round-trips, and keys() reconstructs the original colon-bearing key.
+    got = await b.get("project:acme:history")
+    assert [e["content"] for e in got] == ["first", "second"]
+    assert "project:acme:history" in set(await b.keys())
+
+
+async def test_multi_segment_zone_kv_and_history_share_area(tmp_path):
+    # KV pairs for a project zone land alongside its history, and both round-trip.
+    b = MarkdownBackend(tmp_path)
+    await b.set("project:acme:history", [
+        MemoryEntry(id="e1", content="x", timestamp=1.0).to_dict(),
+    ])
+    await b.set("project:acme:note", "remember this")
+    assert await b.get("project:acme:note") == "remember this"
+    assert set(await b.keys()) == {"project:acme:history", "project:acme:note"}
+
+
 # ── history: 4D round-trip + readability ────────────────────────────────────────
 
 async def test_history_round_trip_preserves_4d_dimensions(tmp_path):

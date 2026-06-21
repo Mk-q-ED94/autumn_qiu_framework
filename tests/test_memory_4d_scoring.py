@@ -66,6 +66,36 @@ async def test_recall_fourd_trigger_cue_boost():
     assert res[0].content == "cued"  # cue overlap boosts trigger weight
 
 
+async def test_recall_semantic_hit_survives_time_decay(tmp_path):
+    # Regression: vector synthetic entries were stamped timestamp=0.0, so when a
+    # zone had BOTH 4D and a decay half-life on, the huge synthetic age decayed
+    # their activation to 0 — silently sorting every semantic hit dead last and
+    # effectively disabling semantic recall. A relevant hit must still rank.
+    from autumn.core.memory.backends.vector_backend import SQLiteVectorStore
+
+    class _Emb:
+        # query "needle" → [1,0]; the doc → [0.8,0.6] (cosine 0.8, an *unpinned*
+        # 1.2 importance, so time-decay actually applies to it).
+        _vecs = {"needle": [1.0, 0.0], "the needle we want": [0.8, 0.6]}
+
+        async def embed(self, text):
+            return list(self._vecs.get(text, [0.0, 1.0]))
+
+        async def embed_batch(self, texts):
+            return [await self.embed(t) for t in texts]
+
+    area = MemoryArea("t", DictBackend(), decay_half_life=86400.0, fourd_enabled=True)
+    area.enable_vector(_Emb(), SQLiteVectorStore(str(tmp_path / "v.db")), auto_index=True)
+    await area.index("n1", "the needle we want")
+    # Two recent unrelated entries it must out-rank (it would sink below them
+    # when decayed to activation 0).
+    for i in range(2):
+        await area.append_history(f"recent note {i}", tags=["topic"], importance=1.0)
+
+    res = await area.recall("needle", tags=["topic"], k=5)
+    assert "needle" in str(res[0].content)  # relevance wins; not decayed to the bottom
+
+
 async def test_recall_flag_off_ignores_dimensions():
     # Same setup as the utility test, but flag off → recency wins, dims ignored.
     area = MemoryArea("t", DictBackend(), fourd_enabled=False)

@@ -443,7 +443,50 @@ python -m pytest
 
 ## 开发历程
 
-当前版本：**0.3.1**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+当前版本：**0.3.3**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+
+### 0.3.3 — 2026-06-20 · 全项目正确性、安全与资源泄漏加固
+
+一次全代码库审查——不加新功能，只修问题。每条修复都配了回归测试；**1039 通过**，ruff 干净。
+
+- **正确性。** `architecture_brief()` 不再缓存瞬时空结果（否则首个 CODE 任务一旦踩中，整个
+  进程生命周期内代码库记忆层都会失效）；向量/混合检索命中条目盖上「当前时间」，当一个 zone
+  同时开启 4D 与时间衰减时，语义命中不再被衰减到 0 而排到最后；markdown 后端把多段 zone 键
+  （`project:<id>:history`）存为逐条文件而非单个不透明 blob；质量检查器、Hermes 工具调用解析
+  与嵌入客户端在模型/服务端返回畸形响应时优雅降级，而非抛错。
+- **安全。** `http_head` 现在逐跳复核重定向（堵住 SSRF-via-redirect 绕过）并剥离敏感响应头；
+  `/models` 执行与面向模型的抓取器相同的 SSRF 策略；`/stream` 对查询串入参设上限（body 上限
+  中间件此前只看 `Content-Length`）；数据工具对「输出」体积设上限，而不只是解析输入。
+- **资源泄漏与生命周期。** stdio-MCP 握手失败会回收子进程而非泄漏；`Autumn.close()` 尽力拆除
+  每个客户端，一处失败不致拖垮其余；`add_terr` 在连接失败时回滚部分注册；SQLite 向量/词法
+  存储为连接创建加锁以防冷启动竞态；`/config/apply` 在锁内重新装载代码库记忆；SSE 流即便项目
+  激活失败也会发出结构化 error 帧；插件加载器跳过无法加载的文件，而非让整个目录加载崩溃。
+
+### 0.3.2 — 2026-06-20 · 代码库记忆（省 token 代码图谱）+ 全自写 macOS 外壳
+
+新增框架级的**代码库记忆**子系统——用代码图谱去省 agent 的 token；并完成 macOS 客户端从系统模板组件到全手写外壳的迁移。
+
+- **代码库记忆——框架级的省 token 子系统。** 将外部的 `codebase-memory-mcp` 代码情报服务
+  （MIT）深度接入框架，成为一等公民的底层能力（`autumn/core/codebase/`、`Autumn.codebase`），
+  而不只是工具袋里多一件工具：
+  - **主动注入架构地图。** 开启后框架会把代码库索引成知识图谱，执行器（**WP2**）在每个
+    **CODE** 任务前自动注入一份图谱推导出的紧凑「架构地图」——A2 一开始就有方向，不必再烧
+    token 逐文件重建结构。
+  - **原生 `codebase` 能力域。** 图谱工具（`search_graph` / `trace_path` /
+    `get_architecture` / `query_graph` / `get_code_snippet`）被注册为一等能力域，供 agent
+    按需深挖；上游项目自述在结构探索上可省约 99% 的 token。
+  - **一个开关，框架自有。** 由 `codebase_memory_enabled` 行为开关控制（默认关闭；
+    `CODEBASE_MEMORY_ENABLED` / `CODEBASE_MEMORY_REPO`）。`Autumn.start_codebase_memory()`
+    负责连接 MCP、注册能力域并在后台预热索引；开关打开时服务器自动启动，也可通过
+    `GET`/`POST /config/codebase-memory` 与桌面端 **设置 → 高级** 实时切换。需主机安装
+    `uvx`/`npx`；整层容错（二进制缺失时退化为「无额外上下文」，绝不打断一轮对话）。
+- **全自写 macOS 外壳** —— macOS 客户端弃用了最后一批系统模板组件
+  （`NavigationSplitView`、基于 `List` 的侧栏、系统工具栏与 `.inspector` 修饰符），改为
+  手写 SwiftUI 外壳：用普通 `HStack` 做分栏 + 暖纸色侧栏（新增 `Autumn.colors.sidebar`
+  令牌）+ 令牌化的 `AutumnNavItem` + 内容区内置标题栏 + 自定义滑出检视面板——与 WinUI
+  端「自有外壳、非模板」的方向对齐。全程走 Paper & Clay 令牌，遵循 `accessibilityReduceMotion`。
+- **测试** —— 新增 `tests/test_codebase_memory.py`（核心组件 + WP2 注入 + 框架装卸）与一个
+  框架驱动的服务端端点测试；**1022 通过**，ruff 干净。
 
 ### 0.3.1 — 2026-06-17 · 客户端优化与适配
 

@@ -93,13 +93,16 @@ struct ProjectSidebarView: View {
     // ── body content ─────────────────────────────────────────────────────────
 
     private var content: some View {
-        List(selection: bindingSelection) {
-            ForEach(projects.projects) { project in
-                projectSection(project)
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(projects.projects) { project in
+                    projectSection(project)
+                }
+                unfiledSection
             }
-            unfiledSection
+            .padding(.horizontal, Autumn.spacing.xs)
+            .padding(.vertical, Autumn.spacing.xs)
         }
-        .listStyle(.sidebar)
     }
 
     @ViewBuilder
@@ -221,6 +224,7 @@ struct ProjectSidebarView: View {
 
     @ViewBuilder
     private func conversationRow(_ conversation: Conversation) -> some View {
+        let isSelected = selectedConversationID == conversation.id
         let isEditing = renamingConversationID == conversation.id
         ConversationRowContent(
             conversation: conversation,
@@ -233,7 +237,13 @@ struct ProjectSidebarView: View {
             onCancelRename: { renamingConversationID = nil },
             onStartFirstMessage: { selectedConversationID = conversation.id }
         )
-        .tag(conversation.id)
+        .padding(.horizontal, Autumn.spacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                .fill(isSelected ? Autumn.colors.clay.opacity(0.12) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { selectedConversationID = conversation.id }
         .draggable(conversation.id.uuidString)
         .contextMenu {
             Button("重命名") {
@@ -274,15 +284,6 @@ struct ProjectSidebarView: View {
         }
         .padding(.horizontal, Autumn.spacing.md)
         .padding(.top, Autumn.spacing.sm)
-    }
-
-    // ── selection plumbing ───────────────────────────────────────────────────
-
-    private var bindingSelection: Binding<UUID?> {
-        Binding(
-            get: { selectedConversationID },
-            set: { selectedConversationID = $0 }
-        )
     }
 
     private func handleEditorSubmit(

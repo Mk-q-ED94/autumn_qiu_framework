@@ -69,8 +69,14 @@ class PluginLoader:
             if path.name.startswith("_"):
                 continue
             spec = importlib.util.spec_from_file_location(path.stem, path)
-            module = importlib.util.module_from_spec(spec)
+            if spec is None or spec.loader is None:
+                warnings.warn(
+                    f"Plugin {path.name!r} is not a loadable module. Skipping.",
+                    stacklevel=2,
+                )
+                continue
             try:
+                module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
             except Exception as e:  # noqa: BLE001 — one broken plugin must not abort the rest
                 warnings.warn(

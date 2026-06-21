@@ -50,6 +50,11 @@ class StdioMCPClient(MCPClient):
         self._stderr_task: asyncio.Task | None = None
 
     async def connect(self) -> None:
+        # Idempotency guard: re-connecting without disconnecting would orphan the
+        # previous subprocess + drain task with no handle to reap them.
+        if self._proc is not None:
+            raise RuntimeError("StdioMCPClient is already connected; disconnect() first")
+
         # Inherit parent env and overlay caller-provided vars so PATH etc. work.
         proc_env: dict[str, str] | None = None
         if self.env is not None:
@@ -67,7 +72,15 @@ class StdioMCPClient(MCPClient):
         # Drain stderr in the background so the pipe never fills up (which
         # would deadlock the server) and so we can surface the tail on errors.
         self._stderr_task = asyncio.create_task(self._drain_stderr())
-        await self._initialize()
+        try:
+            await self._initialize()
+        except BaseException:
+            # A failed handshake (timeout, server crash on init) must not leave a
+            # zombie subprocess behind — callers only track the client after a
+            # successful connect, so we own the cleanup here. disconnect() is
+            # null-safe and idempotent.
+            await self.disconnect()
+            raise
 
     async def disconnect(self) -> None:
         if self._stderr_task is not None:

@@ -304,6 +304,29 @@ async def test_stdio_disconnect_cancels_stderr_task():
     assert task.done()
 
 
+async def test_stdio_connect_reaps_subprocess_on_init_failure():
+    # A server that never answers initialize → connect() times out. The failed
+    # handshake must not strand a zombie subprocess + drain task (the caller only
+    # tracks the client after a *successful* connect, so connect owns cleanup).
+    body = "import sys\nfor _line in sys.stdin:\n    pass\n"
+    client = StdioMCPClient(_python_script(body), timeout=0.5)
+    with pytest.raises(TimeoutError):
+        await client.connect()
+    assert client._proc is None          # subprocess reaped
+    assert client._stderr_task is None   # drain task cancelled
+
+
+async def test_stdio_connect_refuses_double_connect():
+    # Re-connecting without disconnecting would orphan the first subprocess.
+    client = StdioMCPClient(_python_script(_server_script()))
+    await client.connect()
+    try:
+        with pytest.raises(RuntimeError):
+            await client.connect()
+    finally:
+        await client.disconnect()
+
+
 async def test_stdio_unexpected_close_surfaces_stderr_tail():
     """Server crashes during a request — the error should include stderr context."""
     body = """

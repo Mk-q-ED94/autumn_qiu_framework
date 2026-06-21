@@ -251,6 +251,20 @@ async def test_complete_with_tools_raw_tool_call(hermes):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("body", [{}, {"choices": []}, {"choices": [{}]}])
+async def test_complete_with_tools_raw_tolerates_empty_body(hermes, body):
+    # Some OpenAI-compatible servers return {} or {"choices": []} under load.
+    # That must degrade to "no text, no tool calls", not raise KeyError/IndexError
+    # into the ReAct loop (the base class guards this; the Hermes override now too).
+    with patch.object(hermes, "_post_with_retry", new=AsyncMock(return_value=body)):
+        text, calls = await hermes.complete_with_tools_raw(
+            [{"role": "user", "content": "hi"}], [_SIMPLE_TOOL],
+        )
+    assert text == ""
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_complete_with_tools_raw_final_answer(hermes):
     tool_response_body = {
         "choices": [{"message": {"role": "assistant",
