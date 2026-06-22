@@ -85,11 +85,19 @@
 - **关联**：满足 `docs/api-stability.md` §6 中「4D push 端到端用例」前置条件，为 `fourd_*` /
   `/memory/4d/*` 在 1.0 升 🟢 解锁。
 
-### ⬜ 7. MCP stdio 客户端的重连/退避
+### ✅ 7. MCP stdio 客户端的重连/退避
 - **现状**：0.3.3 已修 `connect()` 的子进程泄漏与幂等守卫，但断连后无重连。
 - **动作**：给 `StdioMCPClient` 加可选的 disconnect 检测 + 指数退避重连（失败容忍，
   降级到「无该 Terr」）。
 - **判据**：模拟 server 崩溃 → 客户端不挂死、能恢复或干净降级。
+- **落地**：`StdioMCPClient` 新增 `max_reconnect_attempts`（默认 0=关，行为与今日逐字一致）
+  + `reconnect_backoff_base/cap`。新增 `MCPConnectionLost(RuntimeError)` 专指传输层断裂
+  （EOF / 断管 / 无进程），与「服务端返回的工具 error」区分——只有前者触发重连。请求在
+  传输丢失时按指数退避 respawn 并重试，超预算则抛出让上层降级；`disconnect()` latch `_closed`
+  阻止意外复活；`_generation` + lock 处理并发重连竞态。`connect()` 期间 `_connecting` 守卫
+  防止握手自我递归重连。长生命周期的 `mcp_codebase_memory` 工厂已默认开启
+  `max_reconnect_attempts=3`。测试 `tests/test_mcp.py` +5（崩溃恢复 / 预算耗尽降级 /
+  默认关闭向后兼容 / 关闭后不复活 / 幂等守卫保持）。计数 1082 → 1087。
 
 ### ⬜ 8. 插件 / Terr 热重载
 - **动作**：评估 `PluginLoader` 支持运行时重载 `.py`（无需重启 server），至少做到

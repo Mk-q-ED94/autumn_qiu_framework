@@ -110,7 +110,10 @@ def mcp_codebase_memory(repo: str | None = None, *, binary: str = "uvx") -> Stdi
         # Treat `binary` as a path to the natively-installed server binary
         # (e.g. produced by the project's install.sh).
         command = [binary]
-    return StdioMCPClient(command=command, cwd=repo or None)
+    # This server is long-lived (it backs the codebase-memory layer for the whole
+    # session) and runs a background change-watcher, so a transient crash should
+    # self-heal rather than silently disable the layer until the next restart.
+    return StdioMCPClient(command=command, cwd=repo or None, max_reconnect_attempts=3)
 
 
 def mcp_postgres(connection_string: str, *, binary: str = "npx") -> StdioMCPClient:
