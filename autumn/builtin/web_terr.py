@@ -5,11 +5,19 @@ Tools are opt-in because they make network requests. Fetches go through the
 shared :mod:`autumn.builtin._http` helper, which streams a 2MB size cap and
 refuses private/loopback/metadata targets by default (the model picks the URL);
 set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to fetch internal hosts.
+
+Primitive tools (standalone-callable):
+    http_get, http_get_json, http_head, http_post, parse_url, build_url
+
+Compound skills (orchestrate multiple primitives):
+    fetch_text, batch_fetch
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urljoin, urlunsplit, urlsplit
 
 from ..core.components.skill import Skill
 from ..core.components.terr import Terr
@@ -22,6 +30,9 @@ from ._http import (
     safe_head,
     strip_html,
 )
+
+
+# ── Primitive tool functions (exported for standalone use) ────────────────────
 
 
 async def _http_get(url: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
@@ -44,6 +55,77 @@ async def _http_head(url: str, timeout: float = _DEFAULT_TIMEOUT) -> dict[str, A
     return {"status": status, "url": final_url, "headers": headers}
 
 
+async def _http_post(
+    url: str,
+    data: dict | str | None = None,
+    headers: dict | None = None,
+    timeout: float = _DEFAULT_TIMEOUT,
+) -> str:
+    """POST to a URL and return the response body as text.
+
+    If ``data`` is a dict, it is serialized to JSON and sent with
+    Content-Type: application/json.  If ``data`` is a string it is sent
+    as the raw body.  Pass custom ``headers`` to override Content-Type or
+    add auth tokens.
+    """
+    req_headers: dict[str, str] = {}
+    if headers:
+        req_headers.update(headers)
+
+    if isinstance(data, dict):
+        body_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        req_headers.setdefault("Content-Type", "application/json")
+        _, response_body, _ = await safe_fetch(
+            url, method="POST", content=body_bytes, headers=req_headers, timeout=timeout
+        )
+    elif isinstance(data, str):
+        _, response_body, _ = await safe_fetch(
+            url, method="POST", content=data, headers=req_headers or None, timeout=timeout
+        )
+    else:
+        _, response_body, _ = await safe_fetch(
+            url, method="POST", headers=req_headers or None, timeout=timeout
+        )
+    return response_body
+
+
+async def _parse_url(url: str) -> dict[str, Any]:
+    """Parse a URL into its components: scheme, host, path, query, fragment, params."""
+    parts = urlsplit(url)
+    return {
+        "scheme": parts.scheme,
+        "host": parts.netloc,
+        "path": parts.path,
+        "query": parts.query,
+        "fragment": parts.fragment,
+        "params": {
+            k: v[0] if len(v) == 1 else v
+            for k, v in parse_qs(parts.query).items()
+        },
+    }
+
+
+async def _build_url(
+    base: str,
+    path: str = "",
+    params: dict | None = None,
+) -> str:
+    """Construct a URL from a base, optional path suffix, and optional query params.
+
+    Merges ``path`` onto ``base`` using standard URL joining semantics,
+    then appends ``params`` as a query string.
+    """
+    url = urljoin(base, path) if path else base
+    if params:
+        query = urlencode({k: v for k, v in params.items()}, doseq=True)
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}{query}"
+    return url
+
+
+# ── Compound skill functions (exported for standalone use) ────────────────────
+
+
 async def _fetch_text(url: str, timeout: float = _DEFAULT_TIMEOUT, max_chars: int = 20_000) -> str:
     """Skill: GET ``url`` and return readable text (HTML stripped if needed)."""
     _, body, content_type = await safe_fetch(url, timeout=timeout)
@@ -53,16 +135,61 @@ async def _fetch_text(url: str, timeout: float = _DEFAULT_TIMEOUT, max_chars: in
     return text
 
 
+async def _batch_fetch(
+    urls: list[str],
+    max_chars: int = 10_000,
+    timeout: float = _DEFAULT_TIMEOUT,
+) -> list[dict[str, Any]]:
+    """Skill: fetch multiple URLs in parallel and return readable text for each.
+
+    Returns a list of ``{url, content, error}`` dicts.  ``content`` is the
+    readable text (HTML stripped); ``error`` is a string when the fetch failed.
+    At most 20 URLs per call; parallel fetches share the same timeout.
+    """
+    if len(urls) > 20:
+        raise ValueError("batch_fetch supports at most 20 URLs per call")
+
+    async def _one(url: str) -> dict[str, Any]:
+        try:
+            _, body, content_type = await safe_fetch(url, timeout=timeout)
+            text = strip_html(body) if looks_like_html(content_type, body) else body
+            if len(text) > max_chars:
+                text = text[:max_chars] + f"\n[truncated at {max_chars} chars]"
+            return {"url": url, "content": text, "error": None}
+        except Exception as e:  # noqa: BLE001
+            return {"url": url, "content": None, "error": str(e)}
+
+    return list(await asyncio.gather(*[_one(u) for u in urls]))
+
+
+# ── Terr factory ──────────────────────────────────────────────────────────────
+
+
 def web_terr() -> Terr:
-    """Build the ``web`` Terr — HTTP GET / HEAD / JSON fetch + text-extract skill.
+    """Build the ``web`` Terr — HTTP requests, URL utilities, and text extraction.
 
     Fetches stream a 2MB cap and refuse private/loopback/metadata hosts by
     default (the model picks the URL). Set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to
     permit internal hosts; a proxy/container is still wise for stronger control.
+
+    Primitive tools (standalone-callable):
+        http_get(url, timeout)              → GET → response body text
+        http_get_json(url, timeout)         → GET → parsed JSON
+        http_head(url, timeout)             → HEAD → {status, url, headers}
+        http_post(url, data, headers)       → POST (JSON dict or raw str) → text
+        parse_url(url)                      → decompose URL into components
+        build_url(base, path, params)       → assemble URL from parts
+
+    Compound skills (orchestrate primitives):
+        fetch_text(url, timeout, max_chars) → GET + HTML strip → readable text
+        batch_fetch(urls, max_chars)        → parallel fetch up to 20 URLs
     """
     return Terr(
         name="web",
-        description="HTTP GET, HEAD, JSON fetch, and text extraction from web pages.",
+        description=(
+            "HTTP GET, HEAD, POST, JSON fetch, URL construction, and text "
+            "extraction from web pages. Batch fetch for parallel retrieval."
+        ),
         tools=[
             Tool(
                 name="http_get",
@@ -100,6 +227,58 @@ def web_terr() -> Terr:
                                   required=False),
                 ],
             ),
+            Tool(
+                name="http_post",
+                description=(
+                    "POST to a URL and return the response body as text. "
+                    "If data is a dict it is JSON-serialized (Content-Type: application/json). "
+                    "If data is a string it is sent as the raw body."
+                ),
+                fn=_http_post,
+                parameters=[
+                    ToolParameter("url", "string", "URL to POST to (http or https)."),
+                    ToolParameter("data", "object",
+                                  "Request body: a dict (→ JSON) or string (→ raw).",
+                                  required=False,
+                                  extra={"description": "Dict or string body."}),
+                    ToolParameter("headers", "object",
+                                  "Additional request headers.",
+                                  required=False,
+                                  extra={"additionalProperties": {"type": "string"}}),
+                    ToolParameter("timeout", "number",
+                                  "Request timeout in seconds.",
+                                  required=False),
+                ],
+            ),
+            Tool(
+                name="parse_url",
+                description=(
+                    "Parse a URL into its components: scheme, host, path, "
+                    "query, fragment, and a params dict of decoded query parameters."
+                ),
+                fn=_parse_url,
+                parameters=[
+                    ToolParameter("url", "string", "The URL to parse."),
+                ],
+            ),
+            Tool(
+                name="build_url",
+                description=(
+                    "Construct a URL from a base, optional path, and optional "
+                    "query parameters dict."
+                ),
+                fn=_build_url,
+                parameters=[
+                    ToolParameter("base", "string", "Base URL."),
+                    ToolParameter("path", "string",
+                                  "Path to append/join onto base.",
+                                  required=False),
+                    ToolParameter("params", "object",
+                                  "Query parameters to append.",
+                                  required=False,
+                                  extra={"additionalProperties": True}),
+                ],
+            ),
         ],
         skills=[
             Skill(
@@ -119,8 +298,34 @@ def web_terr() -> Terr:
                                   required=False),
                 ],
             ),
+            Skill(
+                name="batch_fetch",
+                description=(
+                    "Fetch up to 20 URLs in parallel and return a list of "
+                    "{url, content, error} dicts. HTML is stripped; content "
+                    "is truncated at max_chars per URL."
+                ),
+                handler=_batch_fetch,
+                parameters=[
+                    ToolParameter("urls", "array", "List of URLs to fetch (max 20).",
+                                  extra={"items": {"type": "string"}}),
+                    ToolParameter("max_chars", "integer",
+                                  "Max chars per page. Default 10000.",
+                                  required=False),
+                    ToolParameter("timeout", "number",
+                                  "Request timeout in seconds per URL.",
+                                  required=False),
+                ],
+            ),
         ],
     )
 
 
-__all__ = ["web_terr"]
+__all__ = [
+    "web_terr",
+    # primitive fns
+    "_http_get", "_http_get_json", "_http_head", "_http_post",
+    "_parse_url", "_build_url",
+    # compound skill fns
+    "_fetch_text", "_batch_fetch",
+]

@@ -9,11 +9,23 @@ The same skills are ordinary Terr skills, so A2/A3 can use them too once the
 domain is registered. Fetches go through the shared :mod:`autumn.builtin._http`
 helper, which streams a 2MB size cap and refuses private/loopback/metadata
 targets by default (set ``AUTUMN_ALLOW_PRIVATE_NETWORK=1`` to allow them).
+
+Primitive skills (standalone-callable):
+    web_search, fetch_document, knowledge_base_query
+
+Compound skills (orchestrate multiple primitives):
+    research, web_search_and_fetch
+
+Optional MCP integration:
+    Pass ``mcp_brave_search_client`` to enable API-powered Brave Search as a
+    supplemental MCP in the returned Terr's ``mcps`` list.  The framework's
+    ``add_terr`` pipeline connects and bridges it automatically.
 """
 from __future__ import annotations
 
 import re
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from ..core.components.skill import Skill
 from ..core.components.terr import Terr
@@ -28,6 +40,9 @@ from ._http import (
     strip_html,
 )
 
+if TYPE_CHECKING:
+    from ..core.components.mcp_stdio import StdioMCPClient
+
 _DDG_HTML = "https://html.duckduckgo.com/html/"
 
 # DuckDuckGo HTML result anchors and snippets (no API key required).
@@ -39,6 +54,7 @@ _SNIPPET_RE = re.compile(
     r'<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>',
     re.IGNORECASE | re.DOTALL,
 )
+_URL_RE = re.compile(r"https?://[^\s\n\]]+")
 
 
 def _parse_ddg_results(html: str, count: int) -> list[tuple[str, str, str]]:
@@ -59,6 +75,9 @@ def _parse_ddg_results(html: str, count: int) -> list[tuple[str, str, str]]:
         snippet = clean_inline(sm.group(1)) if sm else ""
         results.append((title, url, snippet))
     return results
+
+
+# ── Primitive skill functions (exported for standalone use) ───────────────────
 
 
 async def _ddg_search(query: str, max_results: int = 5) -> str:
@@ -113,8 +132,82 @@ async def _fetch_document(url: str, max_chars: int = 20_000) -> str:
     return text
 
 
+# ── Compound skill functions (exported for standalone use) ────────────────────
+
+
+async def _research(
+    query: str,
+    max_results: int = 3,
+    max_chars_per_page: int = 5_000,
+) -> str:
+    """Compound skill: search the web then fetch and inline the top result pages.
+
+    Combines ``web_search`` and ``fetch_document`` into a single call that
+    returns a formatted report with the search result list followed by the
+    full readable text of each top page. Ideal for grounding the model in
+    real-world facts on a specific topic.
+    """
+    try:
+        count = max(1, min(int(max_results), 5))
+    except (TypeError, ValueError):
+        count = 3
+    try:
+        per_page = max(500, int(max_chars_per_page))
+    except (TypeError, ValueError):
+        per_page = 5_000
+
+    # Step 1: search
+    search_out = await _ddg_search(query, max_results=count)
+    if search_out.startswith("[web_search"):
+        return search_out
+
+    # Extract URLs from the search result text
+    urls = _URL_RE.findall(search_out)[:count]
+
+    # Step 2: fetch each page
+    parts = [f"## Search: {query}\n\n{search_out}\n"]
+    for url in urls:
+        content = await _fetch_document(url, max_chars=per_page)
+        parts.append(f"\n### {url}\n{content}")
+
+    return "\n".join(parts)
+
+
+async def _web_search_and_fetch(
+    query: str,
+    max_results: int = 3,
+    max_chars_per_page: int = 3_000,
+) -> list[dict[str, str]]:
+    """Compound skill: search the web and return structured results with fetched content.
+
+    Returns a list of ``{url, content}`` dicts — one per search result whose
+    page was successfully fetched. Errors are included in the content string
+    so the caller always gets a complete list.
+    """
+    try:
+        count = max(1, min(int(max_results), 5))
+    except (TypeError, ValueError):
+        count = 3
+
+    search_out = await _ddg_search(query, max_results=count)
+    if search_out.startswith("[web_search"):
+        return [{"url": "", "content": search_out}]
+
+    urls = _URL_RE.findall(search_out)[:count]
+    results: list[dict[str, str]] = []
+    for url in urls:
+        content = await _fetch_document(url, max_chars=max_chars_per_page)
+        results.append({"url": url, "content": content})
+    return results
+
+
+# ── Terr factory ──────────────────────────────────────────────────────────────
+
+
 def knowledge_terr(
     recall_fn: Callable[[str, int], Awaitable[str]] | None = None,
+    *,
+    mcp_brave_search_client: "StdioMCPClient | None" = None,
 ) -> Terr:
     """Build the ``knowledge`` Terr — web search, document fetch, KB query.
 
@@ -125,6 +218,20 @@ def knowledge_terr(
         store and returns formatted snippets. When omitted, ``knowledge_base_query``
         reports that no local store is wired. The framework supplies one bound to
         the shared memory zone when it registers this Terr.
+    mcp_brave_search_client:
+        Optional :class:`StdioMCPClient` for the official Brave Search MCP
+        server (``mcp_brave_search("your-key")``). When provided, it is added
+        to the Terr's ``mcps`` list so ``Autumn.add_terr`` can connect it and
+        expose its tools alongside the built-in DuckDuckGo search skill.
+
+    Primitive skills (standalone-callable):
+        web_search(query, max_results)              → DuckDuckGo (no API key)
+        fetch_document(url, max_chars)              → readable text from URL
+        knowledge_base_query(query, k)              → local knowledge store lookup
+
+    Compound skills (orchestrate primitives):
+        research(query, max_results, max_chars)     → search + fetch + inline
+        web_search_and_fetch(query, max_results)    → structured {url, content} list
     """
 
     async def _knowledge_base_query(query: str, k: int = 5) -> str:
@@ -139,12 +246,15 @@ def knowledge_terr(
         except Exception as e:  # noqa: BLE001 — surface to the model, never crash the loop
             return f"[knowledge_base_query failed: {e}]"
 
+    mcps = [mcp_brave_search_client] if mcp_brave_search_client is not None else []
+
     return Terr(
         name="knowledge",
         description=(
-            "External knowledge retrieval: web search, document fetch, and a query "
-            "into the local knowledge store. A4 uses this to ground memory work in "
-            "facts no local model holds on its own."
+            "External knowledge retrieval: web search (DuckDuckGo, no API key), "
+            "document fetch, local knowledge store, and compound research skills "
+            "that search + fetch in one call. A4 uses this to ground memory work "
+            "in facts no local model holds on its own."
         ),
         skills=[
             Skill(
@@ -195,8 +305,59 @@ def knowledge_terr(
                     ),
                 ],
             ),
+            Skill(
+                name="research",
+                description=(
+                    "Search the web and inline the content of the top result pages "
+                    "into a single formatted report. Combines web_search + fetch_document "
+                    "in one call — ideal for grounding the model in current facts."
+                ),
+                handler=_research,
+                parameters=[
+                    ToolParameter("query", "string", "The research question."),
+                    ToolParameter(
+                        "max_results", "integer",
+                        "How many pages to fetch (1–5, default 3).",
+                        required=False,
+                    ),
+                    ToolParameter(
+                        "max_chars_per_page", "integer",
+                        "Character limit per fetched page (default 5000).",
+                        required=False,
+                    ),
+                ],
+            ),
+            Skill(
+                name="web_search_and_fetch",
+                description=(
+                    "Search the web and return a list of {url, content} dicts "
+                    "with the fetched text of each result page. "
+                    "Structured alternative to research for programmatic use."
+                ),
+                handler=_web_search_and_fetch,
+                parameters=[
+                    ToolParameter("query", "string", "What to search for."),
+                    ToolParameter(
+                        "max_results", "integer",
+                        "How many results to fetch (1–5, default 3).",
+                        required=False,
+                    ),
+                    ToolParameter(
+                        "max_chars_per_page", "integer",
+                        "Character limit per page (default 3000).",
+                        required=False,
+                    ),
+                ],
+            ),
         ],
+        mcps=mcps,
     )
 
 
-__all__ = ["knowledge_terr"]
+__all__ = [
+    "knowledge_terr",
+    # primitive skill fns
+    "_ddg_search", "_fetch_document",
+    # compound skill fns
+    "_research", "_web_search_and_fetch",
+]

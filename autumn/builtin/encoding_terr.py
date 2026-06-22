@@ -1,29 +1,55 @@
 """Encoding / hashing capability domain.
 
-Base64, hex, URL percent-encoding, cryptographic digests, and UUID generation —
-all stdlib, no I/O. The model reaches for these constantly when massaging a
+Base64, hex, URL percent-encoding, cryptographic digests, UUID generation,
+HMAC signing, random token generation, and JSON/base64 round-trips — all
+stdlib, no I/O. The model reaches for these constantly when massaging a
 tool's stringified payload, fingerprinting content for dedup, or building a
 request URL, so shipping them built-in saves every agent author the boilerplate.
 Inputs are size-bounded to keep a pathological payload from pinning the loop.
+
+Primitive tools (standalone-callable):
+    base64_encode, base64_decode, hash_text, hex_encode, hex_decode,
+    url_encode, url_decode, uuid_generate, hmac_sign, random_token,
+    json_to_base64, base64_to_json
+
+Compound skills (orchestrate multiple primitives):
+    fingerprint
 """
 from __future__ import annotations
 
 import base64
 import binascii
 import hashlib
+import hmac as _hmac
+import json
+import secrets
 import urllib.parse
 import uuid
+from typing import Any
 
+from ..core.components.skill import Skill
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
 _MAX_INPUT = 1_000_000  # 1MB cap; protects the framework from OOM on bad input.
 _HASH_ALGOS = ("md5", "sha1", "sha256", "sha512")
+_HMAC_ALGOS = ("sha256", "sha512", "sha1", "md5")
+
+_TOKEN_CHARSETS = {
+    "alphanumeric": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    "hex": "0123456789abcdef",
+    "alpha": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "numeric": "0123456789",
+    "urlsafe": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_",
+}
 
 
 def _check_size(value: str, label: str = "text") -> None:
     if len(value) > _MAX_INPUT:
         raise ValueError(f"{label} exceeds {_MAX_INPUT} chars")
+
+
+# ── Primitive tool functions (exported for standalone use) ────────────────────
 
 
 async def _base64_encode(text: str, urlsafe: bool = False) -> str:
@@ -79,11 +105,89 @@ async def _uuid_generate(count: int = 1) -> list[str]:
     return [str(uuid.uuid4()) for _ in range(count)]
 
 
+async def _hmac_sign(message: str, key: str, algorithm: str = "sha256") -> str:
+    """HMAC-sign a message with a key. Returns hex digest."""
+    algo = algorithm.lower()
+    if algo not in _HMAC_ALGOS:
+        raise ValueError(
+            f"unsupported algorithm: {algorithm!r}; use one of {_HMAC_ALGOS}"
+        )
+    _check_size(message)
+    sig = _hmac.new(key.encode("utf-8"), message.encode("utf-8"), algo)
+    return sig.hexdigest()
+
+
+async def _random_token(length: int = 32, charset: str = "alphanumeric") -> str:
+    """Generate a cryptographically random token string."""
+    if length < 1 or length > 1024:
+        raise ValueError("length must be between 1 and 1024")
+    if charset in _TOKEN_CHARSETS:
+        alphabet = _TOKEN_CHARSETS[charset]
+    else:
+        alphabet = charset  # treat as a literal alphabet string
+    if not alphabet:
+        raise ValueError("charset cannot be empty")
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+async def _json_to_base64(data: Any) -> str:
+    """Serialize ``data`` to compact JSON then encode as URL-safe base64."""
+    text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    _check_size(text, "serialized data")
+    return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii")
+
+
+async def _base64_to_json(data: str) -> Any:
+    """Decode a URL-safe base64 string and parse it as JSON."""
+    _check_size(data, "data")
+    try:
+        raw = base64.urlsafe_b64decode(data)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(f"invalid base64: {exc}") from exc
+    return json.loads(raw.decode("utf-8"))
+
+
+# ── Compound skill functions (exported for standalone use) ────────────────────
+
+
+async def _fingerprint(data: Any) -> str:
+    """Canonical JSON → SHA-256 hex digest.
+
+    Serialises ``data`` with sorted keys and no whitespace (canonical form),
+    then SHA-256 hashes the result. Identical data structures always produce
+    the same fingerprint regardless of dict key order — useful for content
+    deduplication, change detection, and cache keying.
+    """
+    text = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# ── Terr factory ──────────────────────────────────────────────────────────────
+
+
 def encoding_terr() -> Terr:
-    """Build the ``encoding`` Terr — base64/hex/URL codecs, hashing, UUIDs."""
+    """Build the ``encoding`` Terr.
+
+    Primitive tools (standalone-callable):
+        base64_encode/decode(text, urlsafe)     → base64 codec
+        hash_text(text, algorithm)              → md5/sha1/sha256/sha512 digest
+        hex_encode/decode(text)                 → hex codec
+        url_encode/decode(text, safe)           → percent-encoding codec
+        uuid_generate(count)                    → random UUID v4 strings
+        hmac_sign(message, key, algorithm)      → HMAC-SHA256/512/1 hex digest
+        random_token(length, charset)           → cryptographically random string
+        json_to_base64(data)                    → JSON → URL-safe base64
+        base64_to_json(data)                    → URL-safe base64 → JSON
+
+    Compound skills (orchestrate primitives):
+        fingerprint(data)                       → canonical SHA-256 for any JSON value
+    """
     return Terr(
         name="encoding",
-        description="Base64/hex/URL encoding, cryptographic hashing, UUID generation.",
+        description=(
+            "Base64/hex/URL encoding, cryptographic hashing, HMAC signing, "
+            "UUID generation, random tokens, and JSON/base64 round-trips."
+        ),
         tools=[
             Tool(
                 name="base64_encode",
@@ -164,8 +268,91 @@ def encoding_terr() -> Terr:
                                   required=False),
                 ],
             ),
+            Tool(
+                name="hmac_sign",
+                description=(
+                    "HMAC-sign a message with a secret key and return the hex digest. "
+                    "Algorithms: sha256 (default), sha512, sha1, md5."
+                ),
+                fn=_hmac_sign,
+                parameters=[
+                    ToolParameter("message", "string", "The message to sign."),
+                    ToolParameter("key", "string", "The secret key."),
+                    ToolParameter("algorithm", "string",
+                                  "sha256 | sha512 | sha1 | md5.",
+                                  required=False,
+                                  extra={"enum": list(_HMAC_ALGOS)}),
+                ],
+            ),
+            Tool(
+                name="random_token",
+                description=(
+                    "Generate a cryptographically random token string. "
+                    "Charsets: alphanumeric (default), hex, alpha, numeric, urlsafe, "
+                    "or pass a literal alphabet string."
+                ),
+                fn=_random_token,
+                parameters=[
+                    ToolParameter("length", "integer",
+                                  "Token length in characters (1–1024). Default 32.",
+                                  required=False),
+                    ToolParameter("charset", "string",
+                                  "alphanumeric | hex | alpha | numeric | urlsafe | custom alphabet.",
+                                  required=False),
+                ],
+            ),
+            Tool(
+                name="json_to_base64",
+                description=(
+                    "Serialize a JSON-serializable value to compact JSON, "
+                    "then URL-safe base64-encode it. Useful for embedding structured "
+                    "data in URLs or headers."
+                ),
+                fn=_json_to_base64,
+                parameters=[
+                    ToolParameter("data", "object",
+                                  "Any JSON-serializable value.",
+                                  extra={"description": "Any JSON-serializable value."}),
+                ],
+            ),
+            Tool(
+                name="base64_to_json",
+                description="Decode a URL-safe base64 string and parse it as JSON.",
+                fn=_base64_to_json,
+                parameters=[
+                    ToolParameter("data", "string", "The URL-safe base64-encoded JSON."),
+                ],
+            ),
+        ],
+        skills=[
+            Skill(
+                name="fingerprint",
+                description=(
+                    "Compute a canonical SHA-256 fingerprint for any JSON-serializable value. "
+                    "Uses sorted keys and compact serialization so identical structures always "
+                    "produce the same digest regardless of key order. Use for deduplication, "
+                    "change detection, or cache keying."
+                ),
+                handler=_fingerprint,
+                parameters=[
+                    ToolParameter("data", "object",
+                                  "Any JSON-serializable value to fingerprint.",
+                                  extra={"description": "Any JSON-serializable value."}),
+                ],
+            ),
         ],
     )
 
 
-__all__ = ["encoding_terr", "_MAX_INPUT", "_HASH_ALGOS"]
+__all__ = [
+    "encoding_terr",
+    "_MAX_INPUT",
+    "_HASH_ALGOS",
+    "_HMAC_ALGOS",
+    # primitive fns
+    "_base64_encode", "_base64_decode", "_hash_text", "_hex_encode", "_hex_decode",
+    "_url_encode", "_url_decode", "_uuid_generate",
+    "_hmac_sign", "_random_token", "_json_to_base64", "_base64_to_json",
+    # compound skill fns
+    "_fingerprint",
+]

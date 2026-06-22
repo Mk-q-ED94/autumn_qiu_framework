@@ -4,15 +4,23 @@
 expressions without ever touching :func:`eval`. Constants like ``pi`` and
 ``e`` and the common ``math.*`` functions are exposed; everything else is
 rejected at parse time.
+
+Primitive tools (standalone-callable):
+    calc, stats, percentage, clamp, linear_scale, convert_unit
+
+Compound skills (orchestrate multiple primitives):
+    stats_summary
 """
 from __future__ import annotations
 
 import ast
+import json
 import math
 import operator
 import statistics
 from typing import Any
 
+from ..core.components.skill import Skill
 from ..core.components.terr import Terr
 from ..core.components.tool import Tool, ToolParameter
 
@@ -125,6 +133,9 @@ def _eval_node(node: ast.AST) -> Any:
     raise ValueError(f"unsupported syntax: {type(node).__name__}")
 
 
+# ── Primitive tool functions (exported for standalone use) ────────────────────
+
+
 async def _calc(expression: str) -> str:
     """Evaluate ``expression`` against a tiny arithmetic grammar."""
     # 1024 chars is plenty for honest math; bigger inputs usually mean abuse.
@@ -163,11 +174,153 @@ async def _stats(values: list[float], metric: str = "mean") -> str:
     raise ValueError(f"unknown metric: {metric}")
 
 
+async def _percentage(value: float, total: float) -> str:
+    """Return ``value`` as a percentage of ``total``."""
+    if total == 0:
+        raise ValueError("total cannot be zero")
+    return f"{(value / total * 100):.6g}%"
+
+
+async def _clamp(value: float, min_v: float, max_v: float) -> float:
+    """Clamp ``value`` to the range [min_v, max_v]."""
+    if min_v > max_v:
+        raise ValueError(f"min_v ({min_v}) must be <= max_v ({max_v})")
+    return max(min_v, min(max_v, value))
+
+
+async def _linear_scale(
+    value: float,
+    in_min: float,
+    in_max: float,
+    out_min: float,
+    out_max: float,
+) -> float:
+    """Linearly map ``value`` from [in_min, in_max] to [out_min, out_max]."""
+    if in_min == in_max:
+        raise ValueError("in_min and in_max must be different")
+    return out_min + (value - in_min) / (in_max - in_min) * (out_max - out_min)
+
+
+# Unit tables: every unit stored as its factor relative to the base unit.
+_LENGTH_UNITS: dict[str, float] = {
+    "mm": 0.001, "cm": 0.01, "m": 1.0, "km": 1000.0,
+    "in": 0.0254, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344,
+}
+_WEIGHT_UNITS: dict[str, float] = {
+    "mg": 1e-6, "g": 0.001, "kg": 1.0, "t": 1000.0,
+    "oz": 0.028349523125, "lb": 0.45359237,
+}
+_AREA_UNITS: dict[str, float] = {
+    "cm2": 1e-4, "m2": 1.0, "km2": 1e6,
+    "in2": 6.4516e-4, "ft2": 0.09290304, "acre": 4046.8564224, "ha": 10_000.0,
+}
+_TIME_UNITS: dict[str, float] = {
+    "ms": 0.001, "s": 1.0, "min": 60.0, "h": 3600.0,
+    "day": 86400.0, "week": 604800.0,
+}
+_UNIT_GROUPS: list[dict[str, float]] = [_LENGTH_UNITS, _WEIGHT_UNITS, _AREA_UNITS, _TIME_UNITS]
+_TEMP_UNITS = {"c", "f", "k"}
+
+
+async def _convert_unit(value: float, from_unit: str, to_unit: str) -> str:
+    """Convert a numeric value between compatible units.
+
+    Supports length (mm/cm/m/km/in/ft/yd/mi), weight (mg/g/kg/t/oz/lb),
+    area (cm2/m2/km2/in2/ft2/acre/ha), time (ms/s/min/h/day/week), and
+    temperature (c/f/k).
+    """
+    fu, tu = from_unit.lower(), to_unit.lower()
+    # Temperature needs special handling (offset, not ratio)
+    if fu in _TEMP_UNITS or tu in _TEMP_UNITS:
+        if fu == "c":
+            celsius = float(value)
+        elif fu == "f":
+            celsius = (float(value) - 32) * 5 / 9
+        elif fu == "k":
+            celsius = float(value) - 273.15
+        else:
+            raise ValueError(f"unknown temperature unit: {from_unit!r}")
+        if tu == "c":
+            result = celsius
+        elif tu == "f":
+            result = celsius * 9 / 5 + 32
+        elif tu == "k":
+            result = celsius + 273.15
+        else:
+            raise ValueError(f"unknown temperature unit: {to_unit!r}")
+        return f"{result:.10g}"
+    for group in _UNIT_GROUPS:
+        if fu in group and tu in group:
+            base = float(value) * group[fu]
+            return f"{base / group[tu]:.10g}"
+    raise ValueError(
+        f"incompatible or unknown units: {from_unit!r} → {to_unit!r}. "
+        "Supported groups: length, weight, area, time, temperature (c/f/k)."
+    )
+
+
+# ── Compound skill functions (exported for standalone use) ────────────────────
+
+
+async def _stats_summary(values: list[float]) -> str:
+    """Return all common statistics at once as a JSON object.
+
+    Computes count, min, max, sum, mean, median, stdev (if ≥2 values),
+    variance, and quartiles (q1, q3).
+    """
+    if not values:
+        raise ValueError("values list is empty")
+    nums = sorted(float(v) for v in values)
+    n = len(nums)
+    result: dict[str, Any] = {
+        "count": n,
+        "min": nums[0],
+        "max": nums[-1],
+        "sum": sum(nums),
+        "mean": statistics.fmean(nums),
+        "median": statistics.median(nums),
+    }
+    if n >= 2:
+        result["stdev"] = statistics.stdev(nums)
+        result["variance"] = statistics.variance(nums)
+    # Quartiles (method: lower/upper halves)
+    lower = nums[: n // 2]
+    upper = nums[(n + 1) // 2:]
+    if lower:
+        result["q1"] = statistics.median(lower)
+    if upper:
+        result["q3"] = statistics.median(upper)
+    result["range"] = nums[-1] - nums[0]
+    return json.dumps(
+        {k: round(v, 10) if isinstance(v, float) else v for k, v in result.items()},
+        ensure_ascii=False,
+    )
+
+
+# ── Terr factory ──────────────────────────────────────────────────────────────
+
+
 def math_terr() -> Terr:
-    """Build the ``math`` Terr — safe arithmetic and basic statistics."""
+    """Build the ``math`` Terr — safe arithmetic, statistics, and unit conversion.
+
+    Primitive tools (standalone-callable):
+        calc(expression)                          → safe AST-evaluated arithmetic
+        stats(values, metric)                     → single statistic over a list
+        percentage(value, total)                  → value as percent of total
+        clamp(value, min_v, max_v)                → bound a value to a range
+        linear_scale(value, in_min, in_max, …)   → linear interpolation / remapping
+        convert_unit(value, from_unit, to_unit)   → cross-unit numeric conversion
+
+    Compound skills (orchestrate primitives):
+        stats_summary(values)                     → all statistics as JSON
+    """
     return Terr(
         name="math",
-        description="Safe arithmetic evaluation and basic statistics.",
+        description=(
+            "Safe arithmetic, statistics, and numeric utility operations. "
+            "Primitive tools for single calculations; compound skill for full "
+            "descriptive statistics in one call."
+        ),
         tools=[
             Tool(
                 name="calc",
@@ -196,5 +349,80 @@ def math_terr() -> Terr:
                                                   "max", "sum", "count"]}),
                 ],
             ),
+            Tool(
+                name="percentage",
+                description="Return value as a percentage of total (e.g. 25/200 → '12.5%').",
+                fn=_percentage,
+                parameters=[
+                    ToolParameter("value", "number", "The numerator."),
+                    ToolParameter("total", "number", "The denominator (must be non-zero)."),
+                ],
+            ),
+            Tool(
+                name="clamp",
+                description="Clamp a number to the range [min_v, max_v].",
+                fn=_clamp,
+                parameters=[
+                    ToolParameter("value", "number", "The value to clamp."),
+                    ToolParameter("min_v", "number", "Lower bound."),
+                    ToolParameter("max_v", "number", "Upper bound."),
+                ],
+            ),
+            Tool(
+                name="linear_scale",
+                description=(
+                    "Linearly remap a value from one range to another. "
+                    "Useful for normalising or scaling sensor readings, coordinates, etc."
+                ),
+                fn=_linear_scale,
+                parameters=[
+                    ToolParameter("value", "number", "Input value to remap."),
+                    ToolParameter("in_min", "number", "Minimum of the input range."),
+                    ToolParameter("in_max", "number", "Maximum of the input range."),
+                    ToolParameter("out_min", "number", "Minimum of the output range."),
+                    ToolParameter("out_max", "number", "Maximum of the output range."),
+                ],
+            ),
+            Tool(
+                name="convert_unit",
+                description=(
+                    "Convert a numeric value between compatible units. "
+                    "Length: mm/cm/m/km/in/ft/yd/mi. "
+                    "Weight: mg/g/kg/t/oz/lb. "
+                    "Area: cm2/m2/km2/in2/ft2/acre/ha. "
+                    "Time: ms/s/min/h/day/week. "
+                    "Temperature: c/f/k."
+                ),
+                fn=_convert_unit,
+                parameters=[
+                    ToolParameter("value", "number", "The numeric value to convert."),
+                    ToolParameter("from_unit", "string", "Source unit (e.g. 'kg', 'ft', 'c')."),
+                    ToolParameter("to_unit", "string", "Target unit (e.g. 'lb', 'm', 'f')."),
+                ],
+            ),
+        ],
+        skills=[
+            Skill(
+                name="stats_summary",
+                description=(
+                    "Compute all common descriptive statistics over a list of numbers "
+                    "in a single call. Returns JSON with: count, min, max, sum, mean, "
+                    "median, stdev (if ≥2), variance, q1, q3, and range."
+                ),
+                handler=_stats_summary,
+                parameters=[
+                    ToolParameter("values", "array", "Numeric values.",
+                                  extra={"items": {"type": "number"}}),
+                ],
+            ),
         ],
     )
+
+
+__all__ = [
+    "math_terr",
+    # primitive fns
+    "_calc", "_stats", "_percentage", "_clamp", "_linear_scale", "_convert_unit",
+    # compound skill fns
+    "_stats_summary",
+]
