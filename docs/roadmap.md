@@ -37,11 +37,16 @@
 
 ## P1 — 质量与稳定性（让工程质量配得上版本号）
 
-### ⬜ 3. 三端 E2E / 冒烟测试
+### 🟡 3. 三端 E2E / 冒烟测试
 - **现状**：1039 条测试全在 `tests/` 的单元/集成层，没有任何客户端 E2E。
 - **动作**：对 HTTP/SSE 契约写一套契约测试（启服务 → 跑一轮 direct + convert + recall/remember
   → 断言 SSE 帧序）；至少 Web 端加 Playwright 冒烟。
 - **判据**：CI 多一个 e2e job，能抓到「前后端契约漂移」。
+- **进展（2026-06-22）**：完成 HTTP/SSE 契约测试层（35 条），覆盖：健康探针、认证门控、
+  503/413 防护、/process + /trace + /intent 响应结构、SSE 帧序（chunk → trace → [DONE]）、
+  流内错误帧格式、Terr 管理、记忆端点、安全响应头、枚举值全集。测试计数 1039 → 1074。
+- **落地**：`tests/test_http_sse_contract.py`（本批次 commit）。
+- **待收口**：Web 端 Playwright 冒烟 + CI e2e job（需浏览器环境）。
 
 ### ⬜ 4. API 冻结边界决策（为 1.0 铺路）
 - **现状**：0.3.3 仍是 0.x，无向后兼容承诺。
@@ -49,11 +54,13 @@
   写一份 `docs/api-stability.md` 标注 stable / experimental。
 - **判据**：有明确的「1.0 要冻结这些、可以继续动那些」清单。
 
-### ⬜ 5. HTTP/SSE 契约文档化
+### ✅ 5. HTTP/SSE 契约文档化
 - **现状**：契约散落在 `autumn/server/app.py`，三端各自实现。
 - **动作**：把端点、SSE 事件类型、心跳/取消语义写成单一 `docs/http-sse-contract.md`
   （含计费-取消保护那条边界）。
 - **判据**：新客户端能只看文档接入。
+- **落地**：`docs/http-sse-contract.md`（本批次 commit）。覆盖全部 40+ 端点、SSE 帧格式与
+  心跳/断线/计费语义、安全边界（SSRF / 大小限制 / 响应头过滤）、枚举值表。
 
 ---
 
