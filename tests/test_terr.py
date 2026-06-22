@@ -257,11 +257,14 @@ def test_plugin_loader_terrs_isolated_from_regular_registry():
 
 
 class _FakeAutumn:
-    """Minimal Autumn stand-in that borrows open_terr without needing real config."""
+    """Minimal Autumn stand-in that borrows the real Terr-lifecycle methods
+    without needing real config/models."""
 
     def __init__(self):
         from autumn.plugins.loader import PluginLoader
         self.plugins = PluginLoader()
+        self._mcp_clients = []
+        self._terr_clients = {}
 
     def register_tool(self, tool):
         self.plugins.register(tool.name, tool)
@@ -269,9 +272,12 @@ class _FakeAutumn:
     def register_skill(self, skill):
         self.plugins.register(skill.name, skill)
 
-    # Borrow the real implementation — Python's descriptor protocol passes self.
+    # Borrow the real implementations — Python's descriptor protocol passes self.
     from autumn.core.framework import Autumn
     open_terr = Autumn.open_terr
+    add_terr = Autumn.add_terr
+    remove_terr = Autumn.remove_terr
+    reload_terr = Autumn.reload_terr
 
 
 class _MockMCPClient:
@@ -479,3 +485,131 @@ def test_agent_no_warning_when_explicit_overrides_terr():
         warnings.simplefilter("error")
         agent = Agent("ag", _MockAPI([]), tools=[explicit], terrs=[terr])
     assert agent.tools["fetch"] is explicit
+
+
+# ── P2 #8: runtime Terr remove / reload (hot-swap, no restart) ─────────────────
+
+
+async def test_add_then_remove_terr_unregisters_callables():
+    fa = _FakeAutumn()
+    terr = Terr("search", "search", tools=[_make_tool("brave")],
+                skills=[_make_skill("summarize")])
+    await fa.add_terr(terr)
+    assert "brave" in fa.plugins.all() and "summarize" in fa.plugins.all()
+    assert "search" in fa.plugins.all_terrs()
+
+    removed = await fa.remove_terr("search")
+    assert removed is True
+    assert "brave" not in fa.plugins.all()
+    assert "summarize" not in fa.plugins.all()
+    assert "search" not in fa.plugins.all_terrs()
+
+
+async def test_remove_unknown_terr_is_noop():
+    fa = _FakeAutumn()
+    assert await fa.remove_terr("ghost") is False  # idempotent, no raise
+
+
+async def test_remove_terr_disconnects_owned_mcp():
+    mcp = _MockMCPClient(tool_specs=[
+        {"name": "web_search", "description": "search",
+         "inputSchema": {"type": "object", "properties": {}, "required": []}},
+    ])
+    fa = _FakeAutumn()
+    terr = Terr("search", "search", mcps=[mcp])
+    await fa.add_terr(terr)
+    assert "web_search" in fa.plugins.all()
+    assert mcp in fa._mcp_clients and mcp.connected
+
+    await fa.remove_terr("search")
+    assert "web_search" not in fa.plugins.all()   # bridged tool unregistered
+    assert mcp.disconnected                        # server disconnected
+    assert mcp not in fa._mcp_clients              # dropped from ownership
+
+
+async def test_reload_terr_swaps_definition():
+    fa = _FakeAutumn()
+    await fa.add_terr(Terr("calc", "v1", tools=[_make_tool("old_op")]))
+    assert "old_op" in fa.plugins.all()
+
+    # A rebuilt domain of the same name replaces the old one wholesale.
+    await fa.reload_terr(Terr("calc", "v2", tools=[_make_tool("new_op")]))
+    assert "new_op" in fa.plugins.all()
+    assert "old_op" not in fa.plugins.all()        # stale callable gone
+    assert list(fa.plugins.all_terrs()).count("calc") == 1
+
+
+async def test_reload_terr_preserves_disabled_state():
+    fa = _FakeAutumn()
+    await fa.add_terr(Terr("net", "v1", tools=[_make_tool("ping")]))
+    fa.plugins.set_terr_enabled("net", False)
+
+    await fa.reload_terr(Terr("net", "v2", tools=[_make_tool("ping2")]))
+    assert fa.plugins.is_terr_enabled("net") is False  # off stays off across swap
+
+
+async def test_reload_terr_swaps_owned_mcp():
+    old_mcp = _MockMCPClient()
+    new_mcp = _MockMCPClient()
+    fa = _FakeAutumn()
+    await fa.add_terr(Terr("dom", "v1", mcps=[old_mcp]))
+    assert old_mcp in fa._mcp_clients
+
+    await fa.reload_terr(Terr("dom", "v2", mcps=[new_mcp]))
+    assert old_mcp.disconnected            # old server torn down
+    assert new_mcp.connected               # new server brought up
+    assert old_mcp not in fa._mcp_clients
+    assert new_mcp in fa._mcp_clients
+
+
+# ── P2 #8: PluginLoader directory hot-reload ──────────────────────────────────
+
+
+def _write_demo_plugin(path, tool_name: str, extra_terr: str | None = None):
+    body = (
+        "from autumn.core.components.terr import Terr\n"
+        "from autumn.core.components.tool import Tool\n"
+        "\n"
+        f"demo = Terr('demo', 'demo domain', tools=[Tool('{tool_name}', 't', lambda: None, [])])\n"
+    )
+    if extra_terr:
+        body += f"{extra_terr} = Terr('{extra_terr}', 'x', tools=[Tool('{extra_terr}_t', 't', lambda: None, [])])\n"
+    path.write_text(body)
+
+
+def test_reload_from_directory_picks_up_edits(tmp_path):
+    from autumn.plugins.loader import PluginLoader
+
+    plugin = tmp_path / "demo.py"
+    _write_demo_plugin(plugin, "v1tool")
+    loader = PluginLoader()
+    loader.load_from_directory(tmp_path)
+    assert "demo" in loader.all_terrs()
+    assert "v1tool" in loader.all()
+
+    # Edit the file on disk, then reload — the change must take effect.
+    _write_demo_plugin(plugin, "v2tool")
+    delta = loader.reload_from_directory(tmp_path)
+    assert "v2tool" in loader.all()
+    assert "v1tool" not in loader.all()   # stale callable from the old version gone
+    assert "demo" in loader.all_terrs()
+    assert delta == {"removed": [], "loaded": ["demo"]}
+
+
+def test_reload_from_directory_drops_deleted_terr(tmp_path):
+    from autumn.plugins.loader import PluginLoader
+
+    plugin = tmp_path / "demo.py"
+    _write_demo_plugin(plugin, "v1tool", extra_terr="extra")
+    loader = PluginLoader()
+    loader.load_from_directory(tmp_path)
+    assert {"demo", "extra"} <= set(loader.all_terrs())
+    assert "extra_t" in loader.all()
+
+    # Rewrite the file without the 'extra' Terr — reload must remove it cleanly.
+    _write_demo_plugin(plugin, "v1tool")
+    delta = loader.reload_from_directory(tmp_path)
+    assert "extra" not in loader.all_terrs()
+    assert "extra_t" not in loader.all()   # its callable removed too
+    assert "demo" in loader.all_terrs()
+    assert delta["removed"] == ["extra"]
