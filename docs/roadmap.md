@@ -48,11 +48,14 @@
 - **落地**：`tests/test_http_sse_contract.py`（本批次 commit）。
 - **待收口**：Web 端 Playwright 冒烟 + CI e2e job（需浏览器环境）。
 
-### ⬜ 4. API 冻结边界决策（为 1.0 铺路）
+### ✅ 4. API 冻结边界决策（为 1.0 铺路）
 - **现状**：0.3.3 仍是 0.x，无向后兼容承诺。
 - **动作**：盘点对外面（server 路由 + `Autumn` 公共方法）哪些算稳定 API、哪些是内部实现；
   写一份 `docs/api-stability.md` 标注 stable / experimental。
 - **判据**：有明确的「1.0 要冻结这些、可以继续动那些」清单。
+- **落地**：`docs/api-stability.md`（本批次 commit）。三级分类（🟢 Stable / 🟡 Experimental /
+  🔴 Internal）覆盖包导出、`Autumn` 方法、`BehaviorConfig` 字段、HTTP 端点、内置工具名；
+  并附 §6「走向 1.0 的收敛清单」，明确每个 🟡 升 🟢 的前置条件。
 
 ### ✅ 5. HTTP/SSE 契约文档化
 - **现状**：契约散落在 `autumn/server/app.py`，三端各自实现。
