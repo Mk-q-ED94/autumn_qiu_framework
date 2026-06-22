@@ -276,7 +276,7 @@ def test_knowledge_terr_structure():
     assert terr.name == "knowledge"
     names = {s.name for s in terr.skills}
     assert names == {"web_search", "fetch_document", "knowledge_base_query",
-                     "research", "web_search_and_fetch"}
+                     "research", "web_search_and_fetch", "cross_reference"}
     # Every skill is stamped with the domain identity.
     assert all(s.source_terr == "knowledge" for s in terr.skills)
 

@@ -170,7 +170,94 @@ async def _zip_records(keys: list[str], values: list) -> list[dict]:
     return [{k: v} for k, v in zip(keys, values)]
 
 
+async def _window(items: list, size: int, step: int = 1) -> list:
+    """Produce overlapping sliding windows of ``size`` elements, advancing ``step``.
+
+    ``window([1,2,3,4], 2)`` → ``[[1,2],[2,3],[3,4]]``. Only full-size windows
+    are returned; a trailing partial window is dropped.
+    """
+    _check_size(items)
+    if size < 1:
+        raise ValueError("size must be >= 1")
+    if step < 1:
+        raise ValueError("step must be >= 1")
+    return [items[i:i + size] for i in range(0, len(items) - size + 1, step)]
+
+
 # ── Compound skill functions (exported for standalone use) ────────────────────
+
+
+_AGG_FUNCS = ("count", "sum", "avg", "min", "max")
+
+
+async def _aggregate(
+    rows: list,
+    group_by: str,
+    agg: str = "count",
+    field: str | None = None,
+) -> list:
+    """Group a list of dicts by ``group_by`` and reduce each group (SQL GROUP BY).
+
+    ``agg`` selects the reduction: count (default), sum, avg, min, or max.
+    All aggregations except ``count`` require ``field`` — the numeric column to
+    reduce. Returns a list of ``{group_by: key, <agg>: value, count: n}`` dicts,
+    one per group, sorted by group key.
+    """
+    _check_size(rows, "rows")
+    if agg not in _AGG_FUNCS:
+        raise ValueError(f"unknown agg: {agg!r}; use one of {_AGG_FUNCS}")
+    if agg != "count" and not field:
+        raise ValueError(f"agg={agg!r} requires a numeric 'field'")
+
+    groups: dict[str, list] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("every row must be a dict")
+        groups.setdefault(str(row.get(group_by)), []).append(row)
+
+    out: list[dict] = []
+    for key in sorted(groups):
+        members = groups[key]
+        record: dict[str, Any] = {group_by: key, "count": len(members)}
+        if agg != "count":
+            nums = [
+                float(m[field]) for m in members
+                if field in m and isinstance(m[field], (int, float))
+            ]
+            label = f"{agg}_{field}"
+            if not nums:
+                record[label] = None
+            elif agg == "sum":
+                record[label] = sum(nums)
+            elif agg == "avg":
+                record[label] = round(sum(nums) / len(nums), 10)
+            elif agg == "min":
+                record[label] = min(nums)
+            elif agg == "max":
+                record[label] = max(nums)
+        out.append(record)
+    return out
+
+
+async def _pivot(rows: list, index: str, column: str, value: str) -> list:
+    """Reshape long-form records into a wide pivot table.
+
+    Each distinct ``index`` value becomes one output row; each distinct
+    ``column`` value becomes a field on that row, filled with the matching
+    ``value``. The last value wins on a collision. Missing cells are omitted.
+
+    Example: rows of ``{date, metric, n}`` pivoted on index=date, column=metric,
+    value=n produces one row per date with a field per metric.
+    """
+    _check_size(rows, "rows")
+    table: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("every row must be a dict")
+        idx = str(row.get(index))
+        col = str(row.get(column))
+        table.setdefault(idx, {index: idx})[col] = row.get(value)
+    return list(table.values())
 
 
 async def _top_n(rows: list, field: str, n: int = 5, reverse: bool = True) -> list:
@@ -374,8 +461,61 @@ def collection_terr() -> Terr:
                     ToolParameter("values", "array", "Corresponding values."),
                 ],
             ),
+            Tool(
+                name="window",
+                description=(
+                    "Produce overlapping sliding windows of a fixed size. "
+                    "window([1,2,3,4], 2) → [[1,2],[2,3],[3,4]]. "
+                    "Trailing partial windows are dropped."
+                ),
+                fn=_window,
+                parameters=[
+                    ToolParameter("items", "array", "The list to window."),
+                    ToolParameter("size", "integer", "Window length."),
+                    ToolParameter("step", "integer",
+                                  "Elements to advance between windows. Default 1.",
+                                  required=False),
+                ],
+            ),
         ],
         skills=[
+            Skill(
+                name="aggregate",
+                description=(
+                    "Group a list of dicts by a field and reduce each group (SQL GROUP BY). "
+                    "agg: count (default), sum, avg, min, max. Non-count aggregations "
+                    "require a numeric 'field'. Returns one {group, <agg>, count} dict per group."
+                ),
+                handler=_aggregate,
+                parameters=[
+                    ToolParameter("rows", "array", "The dict rows to aggregate.",
+                                  extra={"items": {"type": "object"}}),
+                    ToolParameter("group_by", "string", "The field to group on."),
+                    ToolParameter("agg", "string",
+                                  "count | sum | avg | min | max.",
+                                  required=False,
+                                  extra={"enum": list(_AGG_FUNCS)}),
+                    ToolParameter("field", "string",
+                                  "Numeric field to reduce (required unless agg=count).",
+                                  required=False),
+                ],
+            ),
+            Skill(
+                name="pivot",
+                description=(
+                    "Reshape long-form records into a wide pivot table. Each distinct "
+                    "index value becomes a row; each distinct column value becomes a "
+                    "field filled from value. Last value wins on collision."
+                ),
+                handler=_pivot,
+                parameters=[
+                    ToolParameter("rows", "array", "The long-form dict rows.",
+                                  extra={"items": {"type": "object"}}),
+                    ToolParameter("index", "string", "Field whose values become rows."),
+                    ToolParameter("column", "string", "Field whose values become columns."),
+                    ToolParameter("value", "string", "Field supplying each cell's value."),
+                ],
+            ),
             Skill(
                 name="top_n",
                 description=(
@@ -423,7 +563,7 @@ __all__ = [
     "_MAX_ITEMS",
     # primitive fns
     "_unique", "_flatten", "_chunk", "_frequencies", "_group_by", "_sort_records",
-    "_filter_records", "_pluck", "_zip_records",
+    "_filter_records", "_pluck", "_zip_records", "_window",
     # compound skill fns
-    "_top_n", "_join_records",
+    "_top_n", "_join_records", "_aggregate", "_pivot",
 ]

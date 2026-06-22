@@ -246,6 +246,23 @@ def knowledge_terr(
         except Exception as e:  # noqa: BLE001 — surface to the model, never crash the loop
             return f"[knowledge_base_query failed: {e}]"
 
+    async def _cross_reference(query: str, max_results: int = 5) -> str:
+        """Compound skill: query BOTH the local knowledge store and the web,
+        returning the two perspectives side by side.
+
+        This fuses the domain's two distinct retrieval paths — internal memory
+        and the open web — so the model can spot where they agree, where local
+        knowledge is missing, and where the web adds fresh detail. When no local
+        store is wired the local section says so and the web results still stand.
+        """
+        local = await _knowledge_base_query(query, max_results)
+        web = await _ddg_search(query, max_results)
+        return (
+            f"## Cross-reference: {query}\n\n"
+            f"### Local knowledge\n{local}\n\n"
+            f"### Web search\n{web}"
+        )
+
     mcps = [mcp_brave_search_client] if mcp_brave_search_client is not None else []
 
     return Terr(
@@ -345,6 +362,23 @@ def knowledge_terr(
                     ToolParameter(
                         "max_chars_per_page", "integer",
                         "Character limit per page (default 3000).",
+                        required=False,
+                    ),
+                ],
+            ),
+            Skill(
+                name="cross_reference",
+                description=(
+                    "Query BOTH the local knowledge store and the web for a topic and "
+                    "return the two perspectives side by side. Fuses internal memory "
+                    "with open-web search to reveal agreement, gaps, and fresh detail."
+                ),
+                handler=_cross_reference,
+                parameters=[
+                    ToolParameter("query", "string", "The topic to cross-reference."),
+                    ToolParameter(
+                        "max_results", "integer",
+                        "Results to pull from each source (default 5).",
                         required=False,
                     ),
                 ],

@@ -259,6 +259,39 @@ async def _convert_unit(value: float, from_unit: str, to_unit: str) -> str:
     )
 
 
+async def _solve_linear(a: float, b: float) -> str:
+    """Solve the linear equation a·x + b = 0 for x. Returns x = -b/a."""
+    if a == 0:
+        raise ValueError("coefficient 'a' must be non-zero for a unique solution")
+    return f"{(-b / a):.10g}"
+
+
+async def _compound_interest(
+    principal: float,
+    rate: float,
+    periods: float,
+    times_per_period: int = 1,
+) -> str:
+    """Compute the future value under compound interest as a JSON object.
+
+    ``rate`` is the per-period nominal rate (e.g. 0.05 for 5%). ``periods`` is
+    the number of periods. ``times_per_period`` is the compounding frequency
+    within each period (1 = annual, 12 = monthly when a period is a year).
+    Returns JSON with the final amount and the total interest earned.
+    """
+    if times_per_period < 1:
+        raise ValueError("times_per_period must be >= 1")
+    if principal < 0:
+        raise ValueError("principal must be non-negative")
+    n = times_per_period
+    amount = principal * (1 + rate / n) ** (n * periods)
+    return json.dumps({
+        "final_amount": round(amount, 6),
+        "interest": round(amount - principal, 6),
+        "principal": principal,
+    }, ensure_ascii=False)
+
+
 # ── Compound skill functions (exported for standalone use) ────────────────────
 
 
@@ -295,6 +328,40 @@ async def _stats_summary(values: list[float]) -> str:
         {k: round(v, 10) if isinstance(v, float) else v for k, v in result.items()},
         ensure_ascii=False,
     )
+
+
+async def _linear_regression(points: list[list[float]]) -> str:
+    """Fit a least-squares line y = slope·x + intercept over (x, y) points.
+
+    ``points`` is a list of ``[x, y]`` pairs. Returns JSON with slope,
+    intercept, r_squared (goodness of fit), and n (point count). Useful for
+    trend detection and simple forecasting.
+    """
+    if len(points) < 2:
+        raise ValueError("linear_regression requires at least two points")
+    try:
+        xs = [float(p[0]) for p in points]
+        ys = [float(p[1]) for p in points]
+    except (IndexError, TypeError, ValueError) as exc:
+        raise ValueError("each point must be a [x, y] numeric pair") from exc
+    n = len(xs)
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    ss_xx = sum((x - mean_x) ** 2 for x in xs)
+    if ss_xx == 0:
+        raise ValueError("all x values are identical; slope is undefined")
+    ss_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    slope = ss_xy / ss_xx
+    intercept = mean_y - slope * mean_x
+    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot else 1.0
+    return json.dumps({
+        "slope": round(slope, 10),
+        "intercept": round(intercept, 10),
+        "r_squared": round(r_squared, 10),
+        "n": n,
+    }, ensure_ascii=False)
 
 
 # ── Terr factory ──────────────────────────────────────────────────────────────
@@ -400,8 +467,48 @@ def math_terr() -> Terr:
                     ToolParameter("to_unit", "string", "Target unit (e.g. 'lb', 'm', 'f')."),
                 ],
             ),
+            Tool(
+                name="solve_linear",
+                description="Solve the linear equation a·x + b = 0 for x (returns -b/a).",
+                fn=_solve_linear,
+                parameters=[
+                    ToolParameter("a", "number", "Coefficient of x (must be non-zero)."),
+                    ToolParameter("b", "number", "Constant term."),
+                ],
+            ),
+            Tool(
+                name="compound_interest",
+                description=(
+                    "Compute future value under compound interest. Returns JSON with "
+                    "final_amount and interest. rate is the per-period rate (0.05 = 5%); "
+                    "times_per_period is the compounding frequency (1=annual, 12=monthly)."
+                ),
+                fn=_compound_interest,
+                parameters=[
+                    ToolParameter("principal", "number", "The starting principal."),
+                    ToolParameter("rate", "number", "Per-period nominal rate, e.g. 0.05."),
+                    ToolParameter("periods", "number", "Number of periods."),
+                    ToolParameter("times_per_period", "integer",
+                                  "Compounding frequency per period. Default 1.",
+                                  required=False),
+                ],
+            ),
         ],
         skills=[
+            Skill(
+                name="linear_regression",
+                description=(
+                    "Fit a least-squares line y = slope·x + intercept over a list of "
+                    "[x, y] points. Returns JSON with slope, intercept, r_squared, and n. "
+                    "Use for trend detection and simple forecasting."
+                ),
+                handler=_linear_regression,
+                parameters=[
+                    ToolParameter("points", "array",
+                                  "List of [x, y] numeric pairs.",
+                                  extra={"items": {"type": "array", "items": {"type": "number"}}}),
+                ],
+            ),
             Skill(
                 name="stats_summary",
                 description=(
@@ -423,6 +530,7 @@ __all__ = [
     "math_terr",
     # primitive fns
     "_calc", "_stats", "_percentage", "_clamp", "_linear_scale", "_convert_unit",
+    "_solve_linear", "_compound_interest",
     # compound skill fns
-    "_stats_summary",
+    "_stats_summary", "_linear_regression",
 ]

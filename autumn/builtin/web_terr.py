@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urljoin, urlunsplit, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from ..core.components.skill import Skill
 from ..core.components.terr import Terr
@@ -25,11 +26,25 @@ from ..core.components.tool import Tool, ToolParameter
 from ._http import (
     _DEFAULT_TIMEOUT,
     FetchError,
+    clean_inline,
     looks_like_html,
     safe_fetch,
     safe_head,
     strip_html,
 )
+
+# Crude HTML extractors — consistent with _http.strip_html's regex approach
+# (the codebase deliberately avoids pulling in a heavyweight HTML parser).
+_HREF_RE = re.compile(r'<a\b[^>]*?\bhref\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+_IMG_RE = re.compile(r'<img\b[^>]*?\bsrc\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_META_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_META_ATTR_RE = re.compile(
+    r'(name|property|content)\s*=\s*["\']([^"\']*)["\']', re.IGNORECASE
+)
+_TABLE_RE = re.compile(r"<table\b[^>]*>(.*?)</table>", re.IGNORECASE | re.DOTALL)
+_TR_RE = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
+_CELL_RE = re.compile(r"<(?:td|th)\b[^>]*>(.*?)</(?:td|th)>", re.IGNORECASE | re.DOTALL)
 
 
 # ── Primitive tool functions (exported for standalone use) ────────────────────
@@ -160,6 +175,69 @@ async def _batch_fetch(
             return {"url": url, "content": None, "error": str(e)}
 
     return list(await asyncio.gather(*[_one(u) for u in urls]))
+
+
+async def _extract_links(url: str, timeout: float = _DEFAULT_TIMEOUT) -> list[str]:
+    """Skill: fetch a page and return all hyperlink targets as absolute URLs.
+
+    Relative hrefs are resolved against the page URL; ``#`` fragments and
+    ``javascript:``/``mailto:`` pseudo-links are dropped. Results are
+    deduplicated, preserving first-seen order.
+    """
+    _, body, _ = await safe_fetch(url, timeout=timeout)
+    seen: set[str] = set()
+    links: list[str] = []
+    for href in _HREF_RE.findall(body):
+        href = href.strip()
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+        absolute = urljoin(url, href)
+        if absolute not in seen:
+            seen.add(absolute)
+            links.append(absolute)
+    return links
+
+
+async def _extract_metadata(url: str, timeout: float = _DEFAULT_TIMEOUT) -> dict[str, Any]:
+    """Skill: fetch a page and extract its title and ``<meta>`` tags.
+
+    Returns ``{title, description, meta}`` where ``meta`` maps each
+    name/property (e.g. ``og:title``, ``twitter:card``) to its content. Useful
+    for link previews and quick page summaries without reading the full body.
+    """
+    _, body, _ = await safe_fetch(url, timeout=timeout)
+    title_m = _TITLE_RE.search(body)
+    title = clean_inline(title_m.group(1)) if title_m else ""
+
+    meta: dict[str, str] = {}
+    for tag in _META_RE.findall(body):
+        attrs = {k.lower(): v for k, v in _META_ATTR_RE.findall(tag)}
+        key = attrs.get("name") or attrs.get("property")
+        if key and "content" in attrs:
+            meta[key] = clean_inline(attrs["content"])
+
+    description = meta.get("description") or meta.get("og:description", "")
+    return {"url": url, "title": title, "description": description, "meta": meta}
+
+
+async def _extract_tables(url: str, timeout: float = _DEFAULT_TIMEOUT) -> list[list[list[str]]]:
+    """Skill: fetch a page and extract its HTML tables as nested arrays.
+
+    Returns a list of tables; each table is a list of rows; each row is a list
+    of cell texts (tags stripped, whitespace collapsed). At most 20 tables and
+    200 rows per table are returned to bound output size.
+    """
+    _, body, _ = await safe_fetch(url, timeout=timeout)
+    tables: list[list[list[str]]] = []
+    for table_html in _TABLE_RE.findall(body)[:20]:
+        rows: list[list[str]] = []
+        for row_html in _TR_RE.findall(table_html)[:200]:
+            cells = [clean_inline(c) for c in _CELL_RE.findall(row_html)]
+            if cells:
+                rows.append(cells)
+        if rows:
+            tables.append(rows)
+    return tables
 
 
 # ── Terr factory ──────────────────────────────────────────────────────────────
@@ -317,6 +395,51 @@ def web_terr() -> Terr:
                                   required=False),
                 ],
             ),
+            Skill(
+                name="extract_links",
+                description=(
+                    "Fetch a page and return all hyperlink targets as absolute URLs "
+                    "(relative hrefs resolved; fragments and js/mailto links dropped; "
+                    "deduplicated in order)."
+                ),
+                handler=_extract_links,
+                parameters=[
+                    ToolParameter("url", "string", "The page URL to scrape links from."),
+                    ToolParameter("timeout", "number",
+                                  "Request timeout in seconds.",
+                                  required=False),
+                ],
+            ),
+            Skill(
+                name="extract_metadata",
+                description=(
+                    "Fetch a page and extract its title and <meta> tags (including "
+                    "OpenGraph/Twitter). Returns {url, title, description, meta}. "
+                    "Ideal for link previews and quick page summaries."
+                ),
+                handler=_extract_metadata,
+                parameters=[
+                    ToolParameter("url", "string", "The page URL to inspect."),
+                    ToolParameter("timeout", "number",
+                                  "Request timeout in seconds.",
+                                  required=False),
+                ],
+            ),
+            Skill(
+                name="extract_tables",
+                description=(
+                    "Fetch a page and extract its HTML tables as nested arrays "
+                    "(list of tables → rows → cell texts). Tags stripped; "
+                    "bounded to 20 tables and 200 rows each."
+                ),
+                handler=_extract_tables,
+                parameters=[
+                    ToolParameter("url", "string", "The page URL to scrape tables from."),
+                    ToolParameter("timeout", "number",
+                                  "Request timeout in seconds.",
+                                  required=False),
+                ],
+            ),
         ],
     )
 
@@ -328,4 +451,5 @@ __all__ = [
     "_parse_url", "_build_url",
     # compound skill fns
     "_fetch_text", "_batch_fetch",
+    "_extract_links", "_extract_metadata", "_extract_tables",
 ]

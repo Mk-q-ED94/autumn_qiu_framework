@@ -128,6 +128,75 @@ async def _time_floor(value: str, unit: str = "hour") -> str:
     return dt.isoformat()
 
 
+# Weekday name → Python weekday() index (Monday = 0).
+_WEEKDAY_INDEX = {
+    "monday": 0, "mon": 0, "tuesday": 1, "tue": 1, "wednesday": 2, "wed": 2,
+    "thursday": 3, "thu": 3, "friday": 4, "fri": 4, "saturday": 5, "sat": 5,
+    "sunday": 6, "sun": 6,
+}
+
+
+def _weekday_index(weekday: str | int) -> int:
+    if isinstance(weekday, int):
+        if not 0 <= weekday <= 6:
+            raise ValueError("weekday index must be 0 (Mon) .. 6 (Sun)")
+        return weekday
+    key = str(weekday).strip().lower()
+    if key not in _WEEKDAY_INDEX:
+        raise ValueError(f"unknown weekday: {weekday!r}")
+    return _WEEKDAY_INDEX[key]
+
+
+async def _business_days_between(start: str, end: str) -> str:
+    """Count business days (Mon–Fri) in the half-open interval [start, end).
+
+    Order-independent: if end precedes start the count is returned negative.
+    Only the date component is considered; times are ignored.
+    """
+    a = _parse_iso(start).date()
+    b = _parse_iso(end).date()
+    sign = 1
+    if b < a:
+        a, b, sign = b, a, -1
+    days = 0
+    cur = a
+    while cur < b:
+        if cur.weekday() < 5:  # Mon–Fri
+            days += 1
+        cur += timedelta(days=1)
+    return str(days * sign)
+
+
+async def _next_weekday(value: str, weekday: str | int, inclusive: bool = False) -> str:
+    """Return the ISO date of the next occurrence of ``weekday`` on or after ``value``.
+
+    ``weekday`` accepts a name ('Monday', 'mon') or an index (0 = Mon … 6 = Sun).
+    With ``inclusive=True``, ``value`` itself qualifies when it already falls on
+    that weekday; otherwise the search starts from the following day.
+    """
+    dt = _parse_iso(value)
+    target = _weekday_index(weekday)
+    delta = (target - dt.weekday()) % 7
+    if delta == 0 and not inclusive:
+        delta = 7
+    return (dt + timedelta(days=delta)).date().isoformat()
+
+
+async def _add_business_days(value: str, amount: int) -> str:
+    """Shift a timestamp by ``amount`` business days, skipping weekends.
+
+    Preserves the time-of-day component. A negative amount steps backwards.
+    """
+    dt = _parse_iso(value)
+    step = 1 if amount >= 0 else -1
+    remaining = abs(int(amount))
+    while remaining > 0:
+        dt += timedelta(days=step)
+        if dt.weekday() < 5:  # Mon–Fri
+            remaining -= 1
+    return dt.isoformat()
+
+
 # ── Compound skill functions (exported for standalone use) ────────────────────
 
 
@@ -319,6 +388,46 @@ def time_terr() -> Terr:
                                   extra={"enum": ["minute", "hour", "day", "month", "year"]}),
                 ],
             ),
+            Tool(
+                name="business_days_between",
+                description=(
+                    "Count business days (Mon–Fri) in the half-open interval [start, end). "
+                    "Returns a negative count when end precedes start."
+                ),
+                fn=_business_days_between,
+                parameters=[
+                    ToolParameter("start", "string", "ISO 8601 start date/time."),
+                    ToolParameter("end", "string", "ISO 8601 end date/time."),
+                ],
+            ),
+            Tool(
+                name="next_weekday",
+                description=(
+                    "Return the date of the next occurrence of a weekday on or after a "
+                    "timestamp. weekday accepts a name ('Monday') or index (0=Mon..6=Sun)."
+                ),
+                fn=_next_weekday,
+                parameters=[
+                    ToolParameter("value", "string", "ISO 8601 timestamp to search from."),
+                    ToolParameter("weekday", "string",
+                                  "Weekday name or index (0=Mon..6=Sun)."),
+                    ToolParameter("inclusive", "boolean",
+                                  "If true, value itself qualifies when it matches. Default false.",
+                                  required=False),
+                ],
+            ),
+            Tool(
+                name="add_business_days",
+                description=(
+                    "Shift a timestamp by an integer number of business days, "
+                    "skipping weekends. Negative steps backwards."
+                ),
+                fn=_add_business_days,
+                parameters=[
+                    ToolParameter("value", "string", "ISO 8601 timestamp."),
+                    ToolParameter("amount", "integer", "Signed number of business days to add."),
+                ],
+            ),
         ],
         skills=[
             Skill(
@@ -368,6 +477,7 @@ __all__ = [
     # primitive fns (standalone-callable)
     "_now", "_parse_time", "_time_diff", "_time_add",
     "_time_format", "_time_in_range", "_time_floor",
+    "_business_days_between", "_next_weekday", "_add_business_days",
     # compound skill fns
     "_time_today", "_time_since", "_schedule_info",
 ]

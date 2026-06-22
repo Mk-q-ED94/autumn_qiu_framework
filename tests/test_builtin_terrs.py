@@ -643,6 +643,382 @@ def test_known_mcps_catalog_shape():
         assert hasattr(mcp_catalog, entry["factory"])
 
 
+# ── deepened domain capabilities (second-tier) ────────────────────────────────
+
+
+# time: scheduling
+async def test_time_business_days_between():
+    terr = time_terr()
+    # Mon 2026-01-05 → Mon 2026-01-12 is exactly one week = 5 business days.
+    out = await _tool(terr, "business_days_between").call(
+        start="2026-01-05T00:00:00", end="2026-01-12T00:00:00")
+    assert out == "5"
+    # Reversed range is negative.
+    rev = await _tool(terr, "business_days_between").call(
+        start="2026-01-12T00:00:00", end="2026-01-05T00:00:00")
+    assert rev == "-5"
+
+
+async def test_time_next_weekday_by_name_and_index():
+    terr = time_terr()
+    # 2026-01-05 is a Monday; next Friday is 2026-01-09.
+    out = await _tool(terr, "next_weekday").call(value="2026-01-05T12:00:00", weekday="Friday")
+    assert out == "2026-01-09"
+    # Same weekday, non-inclusive → jumps a week.
+    nxt = await _tool(terr, "next_weekday").call(value="2026-01-05T12:00:00", weekday=0)
+    assert nxt == "2026-01-12"
+
+
+async def test_time_add_business_days_skips_weekend():
+    terr = time_terr()
+    # Fri 2026-01-09 + 1 business day = Mon 2026-01-12.
+    out = await _tool(terr, "add_business_days").call(value="2026-01-09T09:00:00", amount=1)
+    assert out.startswith("2026-01-12T09:00:00")
+
+
+async def test_time_since_and_schedule_info():
+    terr = time_terr()
+    since = await _run_skill(terr, "time_since", value="2000-01-01T00:00:00+00:00")
+    assert "ago" in since
+    info = json.loads(await _run_skill(terr, "schedule_info", value="2026-01-05T00:00:00+00:00"))
+    assert info["weekday"] == "Monday"
+    assert info["quarter"] == 1
+    assert info["is_weekend"] is False
+
+
+# math: numerical analysis + units
+async def test_math_convert_unit_groups():
+    conv = _tool(math_terr(), "convert_unit")
+    assert await conv.call(value=1, from_unit="km", to_unit="m") == "1000"
+    assert await conv.call(value=100, from_unit="c", to_unit="f") == "212"
+    assert await conv.call(value=1, from_unit="kg", to_unit="g") == "1000"
+
+
+async def test_math_convert_unit_rejects_incompatible():
+    with pytest.raises(ValueError, match="incompatible|unknown"):
+        await _tool(math_terr(), "convert_unit").call(value=1, from_unit="kg", to_unit="m")
+
+
+async def test_math_solve_and_interest():
+    terr = math_terr()
+    assert await _tool(terr, "solve_linear").call(a=2, b=-10) == "5"
+    out = json.loads(await _tool(terr, "compound_interest").call(
+        principal=1000, rate=0.1, periods=1))
+    assert out["final_amount"] == 1100
+
+
+async def test_math_linear_regression_perfect_fit():
+    out = json.loads(await _run_skill(math_terr(), "linear_regression",
+                                      points=[[0, 1], [1, 3], [2, 5]]))
+    assert out["slope"] == 2
+    assert out["intercept"] == 1
+    assert out["r_squared"] == 1
+
+
+async def test_math_stats_summary():
+    out = json.loads(await _run_skill(math_terr(), "stats_summary", values=[1, 2, 3, 4]))
+    assert out["count"] == 4
+    assert out["mean"] == 2.5
+    assert out["min"] == 1 and out["max"] == 4
+
+
+async def test_math_percentage_clamp_scale():
+    terr = math_terr()
+    assert await _tool(terr, "percentage").call(value=25, total=200) == "12.5%"
+    assert await _tool(terr, "clamp").call(value=15, min_v=0, max_v=10) == 10
+    assert await _tool(terr, "linear_scale").call(
+        value=5, in_min=0, in_max=10, out_min=0, out_max=100) == 50
+
+
+# text: templating, stats, sections
+async def test_text_render_template():
+    out = await _tool(text_terr(), "render_template").call(
+        text="Hello {{ name }}, you are {{ age }}.",
+        variables={"name": "Alice", "age": 30})
+    assert out == "Hello Alice, you are 30."
+
+
+async def test_text_render_template_leaves_unknown():
+    out = await _tool(text_terr(), "render_template").call(
+        text="{{ known }} and {{ unknown }}", variables={"known": "X"})
+    assert out == "X and {{ unknown }}"
+
+
+async def test_text_extract_sentences_and_numbers():
+    terr = text_terr()
+    sents = await _tool(terr, "extract_sentences").call(text="Hi there. How are you? Fine!")
+    assert len(sents) == 3
+    nums = await _tool(terr, "extract_numbers").call(text="cost 3.5 and 12 items, -7 left")
+    assert nums == ["3.5", "12", "-7"]
+
+
+async def test_text_stats_skill():
+    out = json.loads(await _run_skill(text_terr(), "text_stats",
+                                      text="One two three. Four five."))
+    assert out["words"] == 5
+    assert out["sentences"] == 2
+
+
+async def test_text_extract_sections():
+    md = "# Title\n\nintro\n\n## Section A\ntext\n\n### Sub\nmore"
+    out = await _run_skill(text_terr(), "extract_sections", text=md)
+    assert [s["level"] for s in out] == [1, 2, 3]
+    assert out[1]["title"] == "Section A"
+
+
+async def test_text_diff_and_truncate():
+    terr = text_terr()
+    diff = await _run_skill(terr, "text_diff", a="line1\nline2\n", b="line1\nCHANGED\n")
+    assert "CHANGED" in diff
+    trunc = await _tool(terr, "text_truncate").call(text="abcdefgh", max_chars=5)
+    assert trunc == "ab..."
+
+
+async def test_text_regex_replace():
+    out = await _tool(text_terr(), "regex_replace").call(
+        text="2026-01-05", pattern=r"(\d+)-(\d+)-(\d+)", replacement=r"\3/\2/\1")
+    assert out == "05/01/2026"
+
+
+# data: merge, flatten, transform, profile
+async def test_data_merge_and_flatten():
+    terr = data_terr()
+    merged = await _tool(terr, "merge_json").call(
+        base={"a": 1, "nested": {"x": 1}}, patch={"b": 2, "nested": {"y": 2}})
+    assert merged == {"a": 1, "b": 2, "nested": {"x": 1, "y": 2}}
+    flat = await _tool(terr, "flatten_json").call(data={"a": {"b": [1, 2]}})
+    assert flat == {"a.b.0": 1, "a.b.1": 2}
+
+
+async def test_data_json_transform_and_profile():
+    terr = data_terr()
+    out = await _run_skill(terr, "json_transform",
+                           data={"user": {"id": 1, "name": "Alice"}},
+                           mapping={"id": "user.id", "username": "user.name", "missing": "x.y"})
+    assert out == {"id": 1, "username": "Alice", "missing": None}
+    prof = json.loads(await _run_skill(terr, "data_profile",
+                                       rows=[{"a": 1, "b": "x"}, {"a": 2}]))
+    assert prof["row_count"] == 2
+    assert prof["columns"]["b"]["missing"] == 1
+
+
+async def test_data_csv_filter():
+    csv_text = "name,age\nalice,30\nbob,25\ncarol,40\n"
+    out = await _run_skill(data_terr(), "csv_filter",
+                           text=csv_text, field="age", op="gt", value="28")
+    assert "alice" in out and "carol" in out and "bob" not in out
+
+
+# collection: aggregate, pivot, window, join, filter
+async def test_collection_aggregate():
+    rows = [{"team": "red", "n": 10}, {"team": "red", "n": 20}, {"team": "blue", "n": 5}]
+    out = await _run_skill(collection_terr(), "aggregate",
+                           rows=rows, group_by="team", agg="sum", field="n")
+    by_team = {r["team"]: r for r in out}
+    assert by_team["red"]["sum_n"] == 30
+    assert by_team["red"]["count"] == 2
+    assert by_team["blue"]["sum_n"] == 5
+
+
+async def test_collection_pivot_and_window():
+    rows = [
+        {"date": "d1", "metric": "clicks", "v": 5},
+        {"date": "d1", "metric": "views", "v": 50},
+        {"date": "d2", "metric": "clicks", "v": 7},
+    ]
+    pivoted = await _run_skill(collection_terr(), "pivot",
+                               rows=rows, index="date", column="metric", value="v")
+    d1 = next(r for r in pivoted if r["date"] == "d1")
+    assert d1["clicks"] == 5 and d1["views"] == 50
+    win = await _tool(collection_terr(), "window").call(items=[1, 2, 3, 4], size=2)
+    assert win == [[1, 2], [2, 3], [3, 4]]
+
+
+async def test_collection_filter_pluck_join():
+    rows = [{"id": 1, "name": "a", "n": 5}, {"id": 2, "name": "b", "n": 15}]
+    filtered = await _tool(collection_terr(), "filter_records").call(
+        rows=rows, field="n", op="gt", value=10)
+    assert filtered == [{"id": 2, "name": "b", "n": 15}]
+    plucked = await _tool(collection_terr(), "pluck").call(rows=rows, fields=["id", "name"])
+    assert plucked == [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+    joined = await _run_skill(collection_terr(), "join_records",
+                              left=[{"id": 1, "x": "L"}], right=[{"id": 1, "y": "R"}], on="id")
+    assert joined == [{"id": 1, "x": "L", "y": "R"}]
+
+
+async def test_collection_top_n():
+    rows = [{"n": 3}, {"n": 1}, {"n": 9}, {"n": 5}]
+    out = await _run_skill(collection_terr(), "top_n", rows=rows, field="n", n=2)
+    assert [r["n"] for r in out] == [9, 5]
+
+
+# encoding: hmac, token, jwt, fingerprint, detect
+async def test_encoding_hmac_and_token():
+    import hashlib
+    import hmac as _hmac
+    terr = encoding_terr()
+    sig = await _tool(terr, "hmac_sign").call(message="msg", key="secret")
+    expected = _hmac.new(b"secret", b"msg", hashlib.sha256).hexdigest()
+    assert sig == expected and len(sig) == 64
+    tok = await _tool(terr, "random_token").call(length=16, charset="hex")
+    assert len(tok) == 16 and all(c in "0123456789abcdef" for c in tok)
+
+
+async def test_encoding_jwt_decode():
+    # Standard example JWT (HS256) — header {alg:HS256,typ:JWT}, payload {sub,name,iat}.
+    token = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+             "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
+             "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
+    out = await _tool(encoding_terr(), "jwt_decode").call(token=token)
+    assert out["header"]["alg"] == "HS256"
+    assert out["payload"]["name"] == "John Doe"
+
+
+async def test_encoding_jwt_rejects_malformed():
+    with pytest.raises(ValueError, match="three dot-separated"):
+        await _tool(encoding_terr(), "jwt_decode").call(token="not.a.jwt.token.x")
+
+
+async def test_encoding_fingerprint_order_invariant():
+    fp = _skill(encoding_terr(), "fingerprint")
+    a = await fp.execute(data={"x": 1, "y": 2})
+    b = await fp.execute(data={"y": 2, "x": 1})
+    assert a == b and len(a) == 64
+
+
+async def test_encoding_detect_and_roundtrip():
+    terr = encoding_terr()
+    assert await _tool(terr, "detect_encoding").call(data="48656c6c6f") == "hex"
+    assert await _tool(terr, "detect_encoding").call(data="hello%20world") == "url"
+    j2b = await _tool(terr, "json_to_base64").call(data={"k": "v"})
+    assert await _tool(terr, "base64_to_json").call(data=j2b) == {"k": "v"}
+
+
+# web: URL utils + scraping (mocked transport)
+async def test_web_parse_and_build_url():
+    terr = web_terr()
+    parsed = await _tool(terr, "parse_url").call(url="https://x.com/a/b?q=1&p=2")
+    assert parsed["host"] == "x.com" and parsed["params"]["q"] == "1"
+    built = await _tool(terr, "build_url").call(
+        base="https://x.com/api", path="search", params={"q": "hi"})
+    assert built == "https://x.com/search?q=hi"
+
+
+async def test_web_extract_links_and_metadata(monkeypatch):
+    import httpx
+    html = (
+        '<html><head><title>My Page</title>'
+        '<meta name="description" content="A test page">'
+        '<meta property="og:title" content="OG Title"></head>'
+        '<body><a href="/about">About</a><a href="https://ext.com/x">Ext</a>'
+        '<a href="#skip">frag</a></body></html>'
+    )
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, text=html))
+    _patch_httpx(monkeypatch, transport)
+    links = await _run_skill(web_terr(), "extract_links", url="https://site.com/page")
+    assert "https://site.com/about" in links
+    assert "https://ext.com/x" in links
+    assert not any("#skip" in lnk for lnk in links)
+    meta = await _run_skill(web_terr(), "extract_metadata", url="https://site.com/page")
+    assert meta["title"] == "My Page"
+    assert meta["description"] == "A test page"
+    assert meta["meta"]["og:title"] == "OG Title"
+
+
+async def test_web_extract_tables(monkeypatch):
+    import httpx
+    html = ("<table><tr><th>A</th><th>B</th></tr>"
+            "<tr><td>1</td><td>2</td></tr></table>")
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, text=html))
+    _patch_httpx(monkeypatch, transport)
+    tables = await _run_skill(web_terr(), "extract_tables", url="https://x.com")
+    assert tables == [[["A", "B"], ["1", "2"]]]
+
+
+async def test_web_http_post_json(monkeypatch):
+    import httpx
+
+    def handler(request):
+        return httpx.Response(200, text=request.content.decode())
+
+    transport = httpx.MockTransport(handler)
+    _patch_httpx(monkeypatch, transport)
+    out = await _tool(web_terr(), "http_post").call(url="https://x.com", data={"a": 1})
+    assert json.loads(out) == {"a": 1}
+
+
+# fs: search, copy/move, grep, tree, dir_stats, replace
+async def test_fs_search_copy_move():
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "a.txt").write_text("1")
+        Path(d, "b.log").write_text("2")
+        terr = fs_terr(d)
+        found = await _tool(terr, "search_files").call(pattern="*.txt")
+        assert [f["name"] for f in found] == ["a.txt"]
+        await _tool(terr, "copy_file").call(src="a.txt", dst="copy.txt")
+        assert Path(d, "copy.txt").read_text() == "1"
+        await _tool(terr, "move_file").call(src="copy.txt", dst="moved.txt")
+        assert not Path(d, "copy.txt").exists()
+        assert Path(d, "moved.txt").exists()
+
+
+async def test_fs_grep_and_tree_and_stats():
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "sub").mkdir()
+        Path(d, "sub", "x.py").write_text("import os\nprint('hi')\n")
+        Path(d, "y.py").write_text("print('bye')\n")
+        terr = fs_terr(d)
+        grep = await _run_skill(terr, "grep_files", pattern=r"print")
+        assert grep.count("print") >= 2
+        tree = await _run_skill(terr, "file_tree", path=".")
+        assert "sub/" in tree and "y.py" in tree
+        stats = json.loads(await _run_skill(terr, "dir_stats", path="."))
+        assert stats["files"] == 2
+        assert stats["by_extension"][".py"]["count"] == 2
+
+
+async def test_fs_replace_in_files_and_read_multiple():
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "a.txt").write_text("foo bar foo")
+        Path(d, "b.txt").write_text("nothing here")
+        terr = fs_terr(d)
+        summary = await _run_skill(terr, "replace_in_files",
+                                   find="foo", replace_with="X", file_glob="*.txt")
+        assert "2 replacement" in summary
+        assert Path(d, "a.txt").read_text() == "X bar X"
+        multi = await _run_skill(terr, "read_multiple", paths=["a.txt", "b.txt"])
+        assert multi["a.txt"] == "X bar X"
+
+
+# knowledge: research + cross_reference (mocked)
+async def test_knowledge_research_and_cross_reference(monkeypatch):
+    import httpx
+    from autumn.builtin import knowledge_terr
+
+    ddg_html = (
+        '<a class="result__a" href="https://r1.com">Result One</a>'
+        '<a class="result__snippet">snippet one</a>'
+    )
+
+    def handler(request):
+        if "duckduckgo" in str(request.url):
+            return httpx.Response(200, text=ddg_html)
+        return httpx.Response(200, text="<html><body>Page body text</body></html>")
+
+    transport = httpx.MockTransport(handler)
+    _patch_httpx(monkeypatch, transport)
+
+    async def recall_fn(query, k):
+        return f"local:{query}"
+
+    terr = knowledge_terr(recall_fn=recall_fn)
+    research = await _run_skill(terr, "research", query="topic", max_results=1)
+    assert "Result One" in research
+    xref = await _run_skill(terr, "cross_reference", query="topic")
+    assert "local:topic" in xref
+    assert "Result One" in xref
+
+
 # ── exposed source_terr metadata ──────────────────────────────────────────────
 
 

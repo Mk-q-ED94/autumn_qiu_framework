@@ -246,6 +246,49 @@ async def _csv_filter(
     return await _to_csv(filtered, delimiter=delimiter)
 
 
+async def _data_profile(rows: list[dict]) -> str:
+    """Profile a list-of-dicts dataset, returning a JSON column summary.
+
+    For each column (union of all keys across rows) reports: the distinct
+    Python types seen, null/missing count, number of distinct values, and a
+    sample value. The top level also reports the total row count. Use this to
+    understand the shape of an unfamiliar dataset before transforming it.
+    """
+    if not isinstance(rows, list):
+        raise ValueError("rows must be a list of dicts")
+    if not rows:
+        return json.dumps({"row_count": 0, "columns": {}}, ensure_ascii=False)
+
+    # Preserve first-seen column order.
+    columns: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("every row must be a dict")
+        for k in row:
+            if k not in columns:
+                columns.append(k)
+
+    profile: dict[str, Any] = {}
+    n = len(rows)
+    for col in columns:
+        present = [row[col] for row in rows if col in row and row[col] is not None]
+        missing = n - len(present)
+        types = sorted({type(v).__name__ for v in present})
+        distinct: set[Any] = set()
+        for v in present:
+            distinct.add(
+                json.dumps(v, sort_keys=True, ensure_ascii=False)
+                if isinstance(v, (dict, list)) else v
+            )
+        profile[col] = {
+            "types": types,
+            "missing": missing,
+            "distinct": len(distinct),
+            "sample": present[0] if present else None,
+        }
+    return json.dumps({"row_count": n, "columns": profile}, ensure_ascii=False)
+
+
 # ── Terr factory ──────────────────────────────────────────────────────────────
 
 
@@ -404,6 +447,19 @@ def data_terr() -> Terr:
                                   required=False),
                 ],
             ),
+            Skill(
+                name="data_profile",
+                description=(
+                    "Profile a list-of-dicts dataset and return a JSON column summary: "
+                    "per-column types, missing count, distinct count, and a sample value, "
+                    "plus the total row count. Use to understand an unfamiliar dataset."
+                ),
+                handler=_data_profile,
+                parameters=[
+                    ToolParameter("rows", "array", "The dataset as a list of dict rows.",
+                                  extra={"items": {"type": "object"}}),
+                ],
+            ),
         ],
     )
 
@@ -414,5 +470,5 @@ __all__ = [
     "_parse_json", "_to_json", "_parse_csv", "_to_csv", "_json_path",
     "_merge_json", "_flatten_json",
     # compound skill fns
-    "_json_transform", "_csv_filter",
+    "_json_transform", "_csv_filter", "_data_profile",
 ]

@@ -15,6 +15,7 @@ Compound skills (orchestrate multiple primitives):
 from __future__ import annotations
 
 import difflib
+import json
 import re
 import unicodedata
 
@@ -38,6 +39,12 @@ _EMAIL_RE = re.compile(
     re.IGNORECASE,
 )
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
+# A sentence is a run of non-terminator chars ending in . ! ? (or end of text).
+_SENTENCE_RE = re.compile(r"[^.!?\n]+(?:[.!?]+|\n|$)")
+# {{ name }} template placeholders.
+_TEMPLATE_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+# Markdown ATX heading: leading #'s then title.
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$", re.MULTILINE)
 
 _RE_FLAG_MAP = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL}
 
@@ -149,6 +156,34 @@ async def _regex_replace(text: str, pattern: str, replacement: str, flags: str =
     return re.sub(pattern, replacement, text, flags=_parse_flags(flags))
 
 
+async def _extract_sentences(text: str) -> list[str]:
+    """Split text into a list of trimmed sentences (terminator-aware)."""
+    _check_size(text)
+    out: list[str] = []
+    for m in _SENTENCE_RE.findall(text):
+        s = m.strip()
+        if s:
+            out.append(s)
+            if len(out) >= _MAX_MATCHES:
+                break
+    return out
+
+
+async def _render_template(text: str, variables: dict[str, object]) -> str:
+    """Substitute ``{{ name }}`` placeholders in ``text`` with values from ``variables``.
+
+    Placeholders without a matching key are left untouched, so a partial
+    variable set renders the known fields and leaves the rest as literals.
+    """
+    _check_size(text)
+
+    def _replace(m: "re.Match[str]") -> str:
+        key = m.group(1)
+        return str(variables[key]) if key in variables else m.group(0)
+
+    return _TEMPLATE_RE.sub(_replace, text)
+
+
 # ── Compound skill functions (exported for standalone use) ────────────────────
 
 
@@ -178,6 +213,50 @@ async def _text_normalize(text: str) -> str:
     normalized = unicodedata.normalize("NFC", text)
     lines = [" ".join(line.split()) for line in normalized.splitlines()]
     return "\n".join(lines).strip()
+
+
+async def _text_stats(text: str) -> str:
+    """Compute readability statistics for a block of text as JSON.
+
+    Returns: characters, words, sentences, lines, paragraphs, unique_words,
+    avg_word_length, and avg_sentence_length (words per sentence).
+    """
+    _check_size(text)
+    words = text.split()
+    sentences = [s.strip() for s in _SENTENCE_RE.findall(text) if s.strip()]
+    paragraphs = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
+    word_count = len(words)
+    sentence_count = len(sentences)
+    total_word_len = sum(len(w.strip(".,!?;:\"'()")) for w in words)
+    return json.dumps({
+        "characters": len(text),
+        "words": word_count,
+        "sentences": sentence_count,
+        "lines": text.count("\n") + (1 if text and not text.endswith("\n") else 0),
+        "paragraphs": len(paragraphs),
+        "unique_words": len({w.lower().strip(".,!?;:\"'()") for w in words}),
+        "avg_word_length": round(total_word_len / word_count, 2) if word_count else 0,
+        "avg_sentence_length": round(word_count / sentence_count, 2) if sentence_count else 0,
+    }, ensure_ascii=False)
+
+
+async def _extract_sections(text: str) -> list[dict[str, object]]:
+    """Parse Markdown ATX headings into a flat section outline.
+
+    Returns a list of ``{level, title, line}`` dicts in document order, where
+    ``level`` is the heading depth (1–6) and ``line`` is the 1-based line number.
+    Useful for building a table of contents or navigating a long document.
+    """
+    _check_size(text)
+    sections: list[dict[str, object]] = []
+    for m in _HEADING_RE.finditer(text):
+        level = len(m.group(1))
+        title = m.group(2).strip()
+        line_no = text.count("\n", 0, m.start()) + 1
+        sections.append({"level": level, "title": title, "line": line_no})
+        if len(sections) >= _MAX_MATCHES:
+            break
+    return sections
 
 
 # ── Terr factory ──────────────────────────────────────────────────────────────
@@ -319,8 +398,54 @@ def text_terr() -> Terr:
                                   required=False),
                 ],
             ),
+            Tool(
+                name="extract_sentences",
+                description="Split text into a list of trimmed sentences (terminator-aware).",
+                fn=_extract_sentences,
+                parameters=[
+                    ToolParameter("text", "string", "The text to split into sentences."),
+                ],
+            ),
+            Tool(
+                name="render_template",
+                description=(
+                    "Substitute {{ name }} placeholders in a template with values "
+                    "from a variables dict. Unknown placeholders are left untouched."
+                ),
+                fn=_render_template,
+                parameters=[
+                    ToolParameter("text", "string", "Template text with {{ placeholders }}."),
+                    ToolParameter("variables", "object",
+                                  "Mapping of placeholder name → value.",
+                                  extra={"additionalProperties": True}),
+                ],
+            ),
         ],
         skills=[
+            Skill(
+                name="text_stats",
+                description=(
+                    "Compute readability statistics for text as JSON: characters, words, "
+                    "sentences, lines, paragraphs, unique_words, avg_word_length, "
+                    "avg_sentence_length."
+                ),
+                handler=_text_stats,
+                parameters=[
+                    ToolParameter("text", "string", "The text to analyse."),
+                ],
+            ),
+            Skill(
+                name="extract_sections",
+                description=(
+                    "Parse Markdown ATX headings into a flat outline of "
+                    "{level, title, line} dicts. Use to build a table of contents "
+                    "or navigate a long document."
+                ),
+                handler=_extract_sections,
+                parameters=[
+                    ToolParameter("text", "string", "Markdown text to outline."),
+                ],
+            ),
             Skill(
                 name="text_diff",
                 description=(
@@ -358,6 +483,7 @@ __all__ = [
     # primitive fns
     "_count", "_regex_find", "_extract_urls", "_split", "_replace",
     "_extract_emails", "_extract_numbers", "_text_truncate", "_regex_replace",
+    "_extract_sentences", "_render_template",
     # compound skill fns
-    "_text_diff", "_text_normalize",
+    "_text_diff", "_text_normalize", "_text_stats", "_extract_sections",
 ]

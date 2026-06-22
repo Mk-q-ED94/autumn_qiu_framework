@@ -262,7 +262,7 @@ def test_master_switch_on_wires_features(tmp_path):
     assert autumn.wp1._supervision is True
     assert autumn.wp4._delegation_api is autumn.a1
     assert "knowledge" in {t["name"] for t in autumn.describe_terrs()}
-    assert len(autumn._collect_knowledge_skills()) == 5
+    assert len(autumn._collect_knowledge_skills()) == 6
     assert autumn.wp4.can_research is True
 
 

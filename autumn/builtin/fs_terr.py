@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import fnmatch
+import json
 import os
 import re
 import shutil
@@ -279,6 +280,96 @@ def fs_terr(root: str | Path) -> Terr:
                 result[p] = f"[error: {e}]"
         return result
 
+    async def replace_in_files(
+        find: str,
+        replace_with: str,
+        file_glob: str = "*",
+        path: str = ".",
+        regex: bool = False,
+    ) -> str:
+        """Find-and-replace across every matching file under ``path``.
+
+        With ``regex=False`` (default) ``find`` is a literal substring; with
+        ``regex=True`` it is a Python regex (``replace_with`` may use
+        backreferences). Only files whose content changes are rewritten.
+        Returns a summary of ``file: N replacement(s)`` lines. Files over 2MB
+        and binary/undecodable files are skipped.
+        """
+        target = _resolve_sandboxed(root_resolved, path)
+        if not target.is_dir():
+            raise NotADirectoryError(f"not a directory: {path}")
+        compiled = None
+        if regex:
+            try:
+                compiled = re.compile(find)
+            except re.error as exc:
+                raise ValueError(f"invalid regex pattern: {exc}") from exc
+
+        files = [
+            p for p in sorted(target.rglob(file_glob))
+            if _within_root(p, root_resolved) and p.is_file()
+        ]
+        summary: list[str] = []
+        total = 0
+        for file_path in files:
+            try:
+                if file_path.stat().st_size > _MAX_READ_BYTES:
+                    continue
+                content = file_path.read_text(encoding="utf-8")
+            except (PermissionError, OSError, UnicodeDecodeError):
+                continue
+            if compiled is not None:
+                new_content, count = compiled.subn(replace_with, content)
+            else:
+                count = content.count(find)
+                new_content = content.replace(find, replace_with) if count else content
+            if count:
+                file_path.write_text(new_content, encoding="utf-8")
+                rel = str(file_path.relative_to(root_resolved))
+                summary.append(f"{rel}: {count} replacement(s)")
+                total += count
+        if not summary:
+            return f"[replace_in_files: no occurrences of {find!r} found]"
+        return f"[{total} replacement(s) across {len(summary)} file(s)]\n" + "\n".join(summary)
+
+    async def dir_stats(path: str = ".") -> str:
+        """Summarise a directory subtree as JSON: file/dir counts, total size,
+        and a per-extension breakdown of count and bytes.
+
+        Traversal stays inside the sandbox root. Use to understand how a
+        directory is composed before deciding what to read or clean up.
+        """
+        target = _resolve_sandboxed(root_resolved, path)
+        if not target.is_dir():
+            raise NotADirectoryError(f"not a directory: {path}")
+        total_files = 0
+        total_dirs = 0
+        total_size = 0
+        by_ext: dict[str, dict[str, int]] = {}
+        for p in target.rglob("*"):
+            if not _within_root(p, root_resolved):
+                continue
+            if p.is_dir():
+                total_dirs += 1
+            elif p.is_file():
+                total_files += 1
+                try:
+                    size = p.stat().st_size
+                except OSError:
+                    size = 0
+                total_size += size
+                ext = p.suffix.lower() or "(none)"
+                bucket = by_ext.setdefault(ext, {"count": 0, "bytes": 0})
+                bucket["count"] += 1
+                bucket["bytes"] += size
+        return json.dumps({
+            "path": str(target.relative_to(root_resolved)) or ".",
+            "files": total_files,
+            "directories": total_dirs,
+            "total_bytes": total_size,
+            "by_extension": dict(sorted(by_ext.items(), key=lambda kv: -kv[1]["bytes"])),
+        }, ensure_ascii=False)
+
     return Terr(
         name="fs",
         description=f"Sandboxed filesystem rooted at {root_resolved}.",
@@ -423,6 +514,43 @@ def fs_terr(root: str | Path) -> Terr:
                     ToolParameter("paths", "array",
                                   "List of file paths (max 50) relative to sandbox root.",
                                   extra={"items": {"type": "string"}}),
+                ],
+            ),
+            Skill(
+                name="replace_in_files",
+                description=(
+                    "Find-and-replace across every matching file under a directory. "
+                    "Literal by default; set regex=true for pattern replacement with "
+                    "backreferences. Only changed files are rewritten. Returns a "
+                    "per-file replacement summary."
+                ),
+                handler=replace_in_files,
+                parameters=[
+                    ToolParameter("find", "string", "Literal substring or regex to find."),
+                    ToolParameter("replace_with", "string", "Replacement text."),
+                    ToolParameter("file_glob", "string",
+                                  "Glob to filter which files to edit. Default '*'.",
+                                  required=False),
+                    ToolParameter("path", "string",
+                                  "Directory to search under. Default '.'.",
+                                  required=False),
+                    ToolParameter("regex", "boolean",
+                                  "Treat find as a regex pattern. Default false.",
+                                  required=False),
+                ],
+            ),
+            Skill(
+                name="dir_stats",
+                description=(
+                    "Summarise a directory subtree as JSON: file/directory counts, "
+                    "total size in bytes, and a per-extension breakdown of count and "
+                    "bytes. Use to understand how a directory is composed."
+                ),
+                handler=dir_stats,
+                parameters=[
+                    ToolParameter("path", "string",
+                                  "Directory to summarise. Default '.'.",
+                                  required=False),
                 ],
             ),
         ],

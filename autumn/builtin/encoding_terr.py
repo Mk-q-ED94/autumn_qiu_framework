@@ -22,6 +22,7 @@ import binascii
 import hashlib
 import hmac as _hmac
 import json
+import re
 import secrets
 import urllib.parse
 import uuid
@@ -145,6 +146,70 @@ async def _base64_to_json(data: str) -> Any:
     except (binascii.Error, ValueError) as exc:
         raise ValueError(f"invalid base64: {exc}") from exc
     return json.loads(raw.decode("utf-8"))
+
+
+def _b64url_segment(seg: str) -> bytes:
+    """Decode a single base64url JWT segment, adding the padding JWTs omit."""
+    padded = seg + "=" * (-len(seg) % 4)
+    return base64.urlsafe_b64decode(padded)
+
+
+async def _jwt_decode(token: str) -> dict[str, Any]:
+    """Decode a JWT's header and payload WITHOUT verifying its signature.
+
+    Splits the three dot-separated segments, base64url-decodes the header and
+    payload as JSON, and returns ``{header, payload, signature}``. The signature
+    is returned as its raw base64url string — this is an inspection tool, it does
+    NOT validate authenticity. Never trust a decoded payload for authorization
+    without verifying the signature out of band.
+    """
+    _check_size(token, "token")
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("not a JWT: expected three dot-separated segments")
+    try:
+        header = json.loads(_b64url_segment(parts[0]).decode("utf-8"))
+        payload = json.loads(_b64url_segment(parts[1]).decode("utf-8"))
+    except (binascii.Error, ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(f"invalid JWT segment: {exc}") from exc
+    return {"header": header, "payload": payload, "signature": parts[2]}
+
+
+_HEX_ALPHABET = set("0123456789abcdefABCDEF")
+_B64_ALPHABET = set(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=-_"
+)
+
+
+async def _detect_encoding(data: str) -> str:
+    """Best-effort guess of how a string is encoded.
+
+    Returns one of: ``hex``, ``base64``, ``url`` (percent-encoded), or ``plain``.
+    Heuristic, not authoritative — a string can be valid under several schemes;
+    the most specific plausible match is reported.
+    """
+    _check_size(data, "data")
+    s = data.strip()
+    if not s:
+        return "plain"
+    # Percent-encoding: contains %XX escapes.
+    if re.search(r"%[0-9A-Fa-f]{2}", s):
+        return "url"
+    # Hex: even length, all hex digits.
+    if len(s) % 2 == 0 and all(c in _HEX_ALPHABET for c in s):
+        return "hex"
+    # Base64: length multiple of 4, base64 alphabet, decodes cleanly.
+    if len(s) >= 4 and len(s) % 4 == 0 and all(c in _B64_ALPHABET for c in s):
+        try:
+            base64.b64decode(s, validate=True)
+            return "base64"
+        except (binascii.Error, ValueError):
+            try:
+                base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+                return "base64"
+            except (binascii.Error, ValueError):
+                pass
+    return "plain"
 
 
 # ── Compound skill functions (exported for standalone use) ────────────────────
@@ -323,6 +388,29 @@ def encoding_terr() -> Terr:
                     ToolParameter("data", "string", "The URL-safe base64-encoded JSON."),
                 ],
             ),
+            Tool(
+                name="jwt_decode",
+                description=(
+                    "Decode a JWT's header and payload as JSON WITHOUT verifying the "
+                    "signature. Returns {header, payload, signature}. Inspection only — "
+                    "does NOT validate authenticity."
+                ),
+                fn=_jwt_decode,
+                parameters=[
+                    ToolParameter("token", "string", "The JWT (three dot-separated segments)."),
+                ],
+            ),
+            Tool(
+                name="detect_encoding",
+                description=(
+                    "Best-effort guess of how a string is encoded: "
+                    "hex, base64, url (percent-encoded), or plain."
+                ),
+                fn=_detect_encoding,
+                parameters=[
+                    ToolParameter("data", "string", "The string to classify."),
+                ],
+            ),
         ],
         skills=[
             Skill(
@@ -353,6 +441,7 @@ __all__ = [
     "_base64_encode", "_base64_decode", "_hash_text", "_hex_encode", "_hex_decode",
     "_url_encode", "_url_decode", "_uuid_generate",
     "_hmac_sign", "_random_token", "_json_to_base64", "_base64_to_json",
+    "_jwt_decode", "_detect_encoding",
     # compound skill fns
     "_fingerprint",
 ]
