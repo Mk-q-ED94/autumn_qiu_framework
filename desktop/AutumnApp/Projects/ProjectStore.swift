@@ -15,9 +15,9 @@ final class ProjectStore: ObservableObject {
         didSet { persistExpansion() }
     }
 
-    private static let storageKey = "AutumnDesktop.projects.v1"
-    private static let expansionKey = "AutumnDesktop.projects.expanded"
-    private static let unfiledExpansionKey = "AutumnDesktop.projects.unfiledExpanded"
+    private static let storageKey = "QcoworkDesktop.projects.v1"
+    private static let expansionKey = "QcoworkDesktop.projects.expanded"
+    private static let unfiledExpansionKey = "QcoworkDesktop.projects.unfiledExpanded"
 
     init() {
         load()

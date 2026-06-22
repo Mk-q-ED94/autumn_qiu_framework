@@ -13,7 +13,7 @@ struct MessageContentView: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
             ForEach(Array(MessageContentParser.parse(text).enumerated()), id: \.offset) { _, segment in
                 segmentView(for: segment)
             }
@@ -27,7 +27,7 @@ struct MessageContentView: View {
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 Text(.init(content))
-                    .font(Autumn.typography.body)
+                    .font(Qcowork.typography.body)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -90,19 +90,19 @@ private struct CodeBlockView: View {
                 Text(code)
                     .font(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)
-                    .padding(Autumn.spacing.md)
+                    .padding(Qcowork.spacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(
-                RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
                     .fill(Color.primary.opacity(0.05))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.12), lineWidth: Autumn.stroke.hairline)
+                RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.12), lineWidth: Qcowork.stroke.hairline)
             )
 
-            HStack(spacing: Autumn.spacing.xs) {
+            HStack(spacing: Qcowork.spacing.xs) {
                 if let language, !language.isEmpty {
                     Text(language)
                         .font(.system(.caption2, design: .monospaced).weight(.semibold))
@@ -110,7 +110,7 @@ private struct CodeBlockView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(
-                            RoundedRectangle(cornerRadius: Autumn.radius.xs, style: .continuous)
+                            RoundedRectangle(cornerRadius: Qcowork.radius.xs, style: .continuous)
                                 .fill(Color.secondary.opacity(0.15))
                         )
                         .opacity(isHovering || copied ? 1 : 0.6)
@@ -127,16 +127,16 @@ private struct CodeBlockView: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(.regularMaterial)
-                        .foregroundStyle(copied ? Autumn.colors.success : .primary)
+                        .foregroundStyle(copied ? Qcowork.colors.success : .primary)
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
                 }
             }
-            .padding(Autumn.spacing.xs)
-            .animation(Autumn.motion.snappy, value: isHovering)
-            .animation(Autumn.motion.snappy, value: copied)
+            .padding(Qcowork.spacing.xs)
+            .animation(Qcowork.motion.snappy, value: isHovering)
+            .animation(Qcowork.motion.snappy, value: copied)
         }
         .onHover { hovering in
             isHovering = hovering

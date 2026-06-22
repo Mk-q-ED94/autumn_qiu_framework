@@ -7,14 +7,14 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            AutumnPageBackground()
+            QcoworkPageBackground()
 
-            VStack(spacing: Autumn.spacing.xl) {
+            VStack(spacing: Qcowork.spacing.xl) {
                 hero
                 features
                 actions
             }
-            .padding(Autumn.spacing.xxl)
+            .padding(Qcowork.spacing.xxl)
             .frame(maxWidth: 720)
         }
     }
@@ -22,28 +22,28 @@ struct OnboardingView: View {
     // ── pieces ──
 
     private var hero: some View {
-        VStack(spacing: Autumn.spacing.md) {
+        VStack(spacing: Qcowork.spacing.md) {
             ZStack {
                 Circle()
-                    .fill(Autumn.colors.gold.opacity(0.18))
+                    .fill(Qcowork.colors.gold.opacity(0.18))
                     .frame(width: 96, height: 96)
                 Image(systemName: "leaf.fill")
                     .font(.system(size: 42, weight: .medium))
-                    .foregroundStyle(Autumn.colors.brandGradient)
+                    .foregroundStyle(Qcowork.colors.brandGradient)
             }
 
-            VStack(spacing: Autumn.spacing.xs) {
-                Text("欢迎使用 秋 Autumn")
-                    .font(Autumn.typography.display)
+            VStack(spacing: Qcowork.spacing.xs) {
+                Text("欢迎使用 Qcowork")
+                    .font(Qcowork.typography.display)
                 Text("三模型协作的工作流框架")
-                    .font(Autumn.typography.callout)
+                    .font(Qcowork.typography.callout)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
     private var features: some View {
-        HStack(alignment: .top, spacing: Autumn.spacing.md) {
+        HStack(alignment: .top, spacing: Qcowork.spacing.md) {
             FeatureCard(
                 icon: "wand.and.stars",
                 title: "A1 总控",
@@ -63,18 +63,18 @@ struct OnboardingView: View {
     }
 
     private var actions: some View {
-        VStack(spacing: Autumn.spacing.sm) {
-            AutumnPrimaryButton(
+        VStack(spacing: Qcowork.spacing.sm) {
+            QcoworkPrimaryButton(
                 size: .large,
                 action: onOpenSettings
             ) {
-                HStack(spacing: Autumn.spacing.sm) {
+                HStack(spacing: Qcowork.spacing.sm) {
                     Image(systemName: "key.fill")
                     Text("配置 A1 / A2 / A3 模型")
                 }
             }
 
-            AutumnGhostButton(action: onDismiss) {
+            QcoworkGhostButton(action: onDismiss) {
                 Text("稍后再说")
             }
         }
@@ -87,15 +87,15 @@ private struct FeatureCard: View {
     let detail: String
 
     var body: some View {
-        AutumnCard(emphasis: .standard) {
-            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        QcoworkCard(emphasis: .standard) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(.tint)
                 Text(title)
-                    .font(Autumn.typography.headline)
+                    .font(Qcowork.typography.headline)
                 Text(detail)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
             }
         }

@@ -5,7 +5,7 @@ final class LocalOllamaClient {
 
     init(baseURL rawValue: String) throws {
         guard let baseURL = Self.normalizedBaseURL(from: rawValue) else {
-            throw AutumnClientError.invalidURL
+            throw QcoworkClientError.invalidURL
         }
         self.baseURL = baseURL
     }
@@ -79,7 +79,7 @@ final class LocalOllamaClient {
                         }
                         let event = try JSONDecoder().decode(OllamaPullEvent.self, from: data)
                         if let error = event.error {
-                            throw AutumnClientError.serverError(error)
+                            throw QcoworkClientError.serverError(error)
                         }
                         continuation.yield(event)
                     }
@@ -130,11 +130,11 @@ final class LocalOllamaClient {
 
     private static func requireOK(_ response: URLResponse, data: Data? = nil) throws {
         guard let http = response as? HTTPURLResponse else {
-            throw AutumnClientError.serverError("无效响应")
+            throw QcoworkClientError.serverError("无效响应")
         }
         guard (200..<300).contains(http.statusCode) else {
             let detail = data.map(Self.responseText) ?? ""
-            throw AutumnClientError.serverError("Ollama HTTP \(http.statusCode)\(detail)")
+            throw QcoworkClientError.serverError("Ollama HTTP \(http.statusCode)\(detail)")
         }
     }
 

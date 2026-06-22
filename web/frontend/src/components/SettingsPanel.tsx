@@ -482,7 +482,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
             <div className="settings-section">
               <div className="settings-section__title">关于</div>
               <div className="about-card">
-                <div className="about-card__title">秋 / Autumn 0.3.4</div>
+                <div className="about-card__title">Qcowork 0.3.4</div>
                 <div className="about-card__body">
                   多模型协作工作流框架。A1 组长分类、规划并监督，A2 执行任务，A3 处理 Mission，A4 管理 4D 记忆（Mom1/2/3 + shared）。
                   <br />

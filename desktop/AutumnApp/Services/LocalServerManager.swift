@@ -153,7 +153,7 @@ final class LocalServerManager: ObservableObject {
         }
         let logHandle = try FileHandle(forWritingTo: logURL)
         _ = try? logHandle.seekToEnd()
-        if let header = "\n--- Autumn server launch \(Date()) ---\n".data(using: .utf8) {
+        if let header = "\n--- Qcowork server launch \(Date()) ---\n".data(using: .utf8) {
             logHandle.write(header)
         }
 
@@ -270,7 +270,7 @@ final class LocalServerManager: ObservableObject {
     }
 
     private static func repositoryRoot() -> URL? {
-        if let rawValue = Bundle.main.object(forInfoDictionaryKey: "AutumnRepositoryRoot") as? String {
+        if let rawValue = Bundle.main.object(forInfoDictionaryKey: "QcoworkRepositoryRoot") as? String {
             let expanded = (rawValue as NSString).expandingTildeInPath
             let candidate = URL(fileURLWithPath: expanded).standardizedFileURL
             if isRepositoryRoot(candidate) {

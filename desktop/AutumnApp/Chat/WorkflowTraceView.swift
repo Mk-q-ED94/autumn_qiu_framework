@@ -12,7 +12,7 @@ struct WorkflowTraceView: View {
             content
         }
         .buttonStyle(.plain)
-        .padding(Autumn.spacing.sm)
+        .padding(Qcowork.spacing.sm)
         .background(cardSurface)
         .overlay(cardBorder)
         .help("在检视面板中查看运行详情")
@@ -21,7 +21,7 @@ struct WorkflowTraceView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
             header
             PipelineStripView(trace: trace)
         }
@@ -29,29 +29,29 @@ struct WorkflowTraceView: View {
     }
 
     private var cardSurface: some View {
-        RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
-            .fill(isSelected ? Autumn.colors.clay.opacity(0.055) : Autumn.colors.surfaceElevated)
+        RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous)
+            .fill(isSelected ? Qcowork.colors.clay.opacity(0.055) : Qcowork.colors.surfaceElevated)
     }
 
     private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+        RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous)
             .strokeBorder(
-                isSelected ? Autumn.colors.clay.opacity(0.38) : Color.secondary.opacity(0.16),
-                lineWidth: Autumn.stroke.hairline
+                isSelected ? Qcowork.colors.clay.opacity(0.38) : Color.secondary.opacity(0.16),
+                lineWidth: Qcowork.stroke.hairline
             )
     }
 
     private var header: some View {
-        HStack(spacing: Autumn.spacing.sm) {
-            AutumnChip(routeText, icon: routeIcon, color: routeColor)
-            Spacer(minLength: Autumn.spacing.sm)
+        HStack(spacing: Qcowork.spacing.sm) {
+            QcoworkChip(routeText, icon: routeIcon, color: routeColor)
+            Spacer(minLength: Qcowork.spacing.sm)
             Text(summary)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Image(systemName: isSelected ? "sidebar.right" : "chevron.right")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(isSelected ? Autumn.colors.clay : Color.secondary)
+                .foregroundStyle(isSelected ? Qcowork.colors.clay : Color.secondary)
         }
     }
 
@@ -77,9 +77,9 @@ struct WorkflowTraceView: View {
     }
 
     private var routeColor: Color {
-        if trace.hasFailedStage { return Autumn.colors.danger }
-        if trace.isLive { return Autumn.colors.info }
-        return trace.inputKind == .task ? Autumn.colors.warning : Autumn.colors.info
+        if trace.hasFailedStage { return Qcowork.colors.danger }
+        if trace.isLive { return Qcowork.colors.info }
+        return trace.inputKind == .task ? Qcowork.colors.warning : Qcowork.colors.info
     }
 
     private var summary: String {
@@ -97,13 +97,13 @@ struct WorkflowTraceView: View {
             parts.append("Terr · \(trace.sourceTerrNames.count)")
         }
         if let prompt = trace.totalPromptTokens, let completion = trace.totalCompletionTokens {
-            parts.append("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
+            parts.append("↑\(Qcowork.format.tokens(prompt)) ↓\(Qcowork.format.tokens(completion))")
         }
         if let duration = trace.totalDurationMS {
-            parts.append(Autumn.format.duration(duration))
+            parts.append(Qcowork.format.duration(duration))
         }
         if let cost = trace.totalCostUsd, cost > 0 {
-            parts.append(Autumn.format.cost(cost))
+            parts.append(Qcowork.format.cost(cost))
         }
         if parts.isEmpty {
             parts.append("\(trace.completedStageCount)/\(trace.stages.count) 阶段")

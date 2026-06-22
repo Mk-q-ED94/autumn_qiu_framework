@@ -22,12 +22,12 @@ final class TerrsViewModel: ObservableObject {
         self.settings = settings
     }
 
-    private func makeClient() -> AutumnClient? {
+    private func makeClient() -> QcoworkClient? {
         guard let url = URL(string: settings.serverURL) else {
             errorMessage = "服务器 URL 无效"
             return nil
         }
-        return AutumnClient(baseURL: url)
+        return QcoworkClient(baseURL: url)
     }
 
     func load() async {
@@ -53,7 +53,7 @@ final class TerrsViewModel: ObservableObject {
 
     /// Pull live connection state for the whole catalog (best-effort; an older
     /// server without /mcps/status simply leaves everything "not connected").
-    func refreshMCPStatus(client: AutumnClient? = nil) async {
+    func refreshMCPStatus(client: QcoworkClient? = nil) async {
         guard let client = client ?? makeClient() else { return }
         if let statuses = try? await client.mcpStatus() {
             mcpStatuses = Dictionary(statuses.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
@@ -119,7 +119,7 @@ final class TerrsViewModel: ObservableObject {
 
     /// Refresh just the registered-Terr list (after a connect/disconnect adds or
     /// removes an `integration:<id>` Terr), leaving catalog/status intact.
-    private func reloadTerrs(client: AutumnClient) async {
+    private func reloadTerrs(client: QcoworkClient) async {
         if let updated = try? await client.fetchTerrs() {
             terrs = updated
         }

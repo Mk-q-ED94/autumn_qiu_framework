@@ -36,7 +36,7 @@ struct WorkspaceInspectorView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .padding(Autumn.spacing.md)
+            .padding(Qcowork.spacing.md)
 
             Divider()
 
@@ -57,7 +57,7 @@ private struct EnvironmentInspectorView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
                 StatusPanel(settings: settings, localServer: localServer)
                 RoutePanel(
                     routeMode: settings.routeMode,
@@ -66,7 +66,7 @@ private struct EnvironmentInspectorView: View {
                 ModelStack(settings: settings)
                 CapabilityLocationPanel()
             }
-            .padding(Autumn.spacing.md)
+            .padding(Qcowork.spacing.md)
         }
         .background(.regularMaterial)
     }
@@ -77,10 +77,10 @@ private struct StatusPanel: View {
     let localServer: LocalServerManager
 
     var body: some View {
-        AutumnCard {
-            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        QcoworkCard {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
                 Text("状态")
-                    .font(Autumn.typography.headline)
+                    .font(Qcowork.typography.headline)
                 Divider()
                 LabeledRow(label: "本地服务", value: localServer.statusText, tone: statusTone)
                 LabeledRow(label: "服务器", value: settings.serverURL)
@@ -88,7 +88,7 @@ private struct StatusPanel: View {
         }
     }
 
-    private var statusTone: AutumnBadge.Tone {
+    private var statusTone: QcoworkBadge.Tone {
         let status = localServer.statusText
         if status.contains("已") { return .success }
         if status.contains("失败") { return .danger }
@@ -104,29 +104,29 @@ private struct RoutePanel: View {
     let routeOverride: String?
 
     var body: some View {
-        AutumnCard {
-            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        QcoworkCard {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
                 HStack {
                     Text("默认路由")
-                        .font(Autumn.typography.headline)
+                        .font(Qcowork.typography.headline)
                     Spacer()
-                    AutumnBadge(route.title, icon: route.icon, tone: .accent)
+                    QcoworkBadge(route.title, icon: route.icon, tone: .accent)
                 }
 
                 if let routeOverride,
                    let override = MissionRouteMode(rawValue: routeOverride) {
                     HStack {
                         Text("本次覆盖")
-                            .font(Autumn.typography.caption)
+                            .font(Qcowork.typography.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        AutumnBadge(override.title, icon: override.icon, tone: .warning)
+                        QcoworkBadge(override.title, icon: override.icon, tone: .warning)
                     }
                 }
 
                 Divider()
                 Text(route.detail)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -142,12 +142,12 @@ private struct ModelStack: View {
     let settings: AppSettings
 
     var body: some View {
-        AutumnCard {
-            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        QcoworkCard {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
                 Text("模型 A1 / A2 / A3")
-                    .font(Autumn.typography.headline)
+                    .font(Qcowork.typography.headline)
                 Divider()
-                VStack(spacing: Autumn.spacing.sm) {
+                VStack(spacing: Qcowork.spacing.sm) {
                     ForEach(ModelSlot.allCases) { slot in
                         ModelStatusRow(
                             slot: slot,
@@ -168,22 +168,22 @@ private struct ModelStatusRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: Autumn.spacing.xs) {
+            HStack(spacing: Qcowork.spacing.xs) {
                 Text(slot.title)
-                    .font(Autumn.typography.captionStrong)
-                AutumnBadge(state.title, tone: state.tone)
+                    .font(Qcowork.typography.captionStrong)
+                QcoworkBadge(state.title, tone: state.tone)
             }
             Text(modelName)
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Autumn.spacing.sm)
+        .padding(Qcowork.spacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                .fill(Autumn.colors.surfaceElevated)
+            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                .fill(Qcowork.colors.surfaceElevated)
         )
     }
 
@@ -195,16 +195,16 @@ private struct ModelStatusRow: View {
 
 private struct CapabilityLocationPanel: View {
     var body: some View {
-        AutumnCard {
-            HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+        QcoworkCard {
+            HStack(alignment: .top, spacing: Qcowork.spacing.sm) {
                 Image(systemName: "puzzlepiece.extension")
-                    .foregroundStyle(Autumn.colors.sage)
+                    .foregroundStyle(Qcowork.colors.sage)
                     .frame(width: 18)
-                VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                     Text("能力域")
-                        .font(Autumn.typography.captionStrong)
+                        .font(Qcowork.typography.captionStrong)
                     Text("Terr 启停、工具清单与 MCP 连接统一在侧栏的“能力域”页面管理。")
-                        .font(Autumn.typography.caption)
+                        .font(Qcowork.typography.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -216,19 +216,19 @@ private struct CapabilityLocationPanel: View {
 private struct LabeledRow: View {
     let label: String
     let value: String
-    var tone: AutumnBadge.Tone?
+    var tone: QcoworkBadge.Tone?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label)
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.secondary)
             Spacer()
             if let tone {
-                AutumnBadge(value, tone: tone)
+                QcoworkBadge(value, tone: tone)
             } else {
                 Text(value)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

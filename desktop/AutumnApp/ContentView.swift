@@ -5,9 +5,9 @@ struct ContentView: View {
     @EnvironmentObject private var store: ConversationStore
     @Environment(\.openSettings) private var openSettings
 
-    @SceneStorage("AutumnDesktop.selectedSection") private var selectedSectionRaw = AppSection.workspace.rawValue
-    @SceneStorage("AutumnDesktop.selectedConversation") private var selectedConversationRaw: String?
-    @AppStorage("AutumnDesktop.onboardingDismissed") private var onboardingDismissed: Bool = false
+    @SceneStorage("QcoworkDesktop.selectedSection") private var selectedSectionRaw = AppSection.workspace.rawValue
+    @SceneStorage("QcoworkDesktop.selectedConversation") private var selectedConversationRaw: String?
+    @AppStorage("QcoworkDesktop.onboardingDismissed") private var onboardingDismissed: Bool = false
 
     var body: some View {
         Group {
@@ -44,15 +44,15 @@ struct ContentView: View {
                 selection: $selectedSectionRaw,
                 selectedConversationID: conversationSelection
             )
-            .frame(width: Autumn.sizing.sidebarWidth)
+            .frame(width: Qcowork.sizing.sidebarWidth)
 
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
-                .frame(width: Autumn.stroke.hairline)
+                .frame(width: Qcowork.stroke.hairline)
 
             detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AutumnPageBackground())
+                .background(QcoworkPageBackground())
         }
     }
 

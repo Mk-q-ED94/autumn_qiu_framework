@@ -215,11 +215,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 }
 .sidebar__logo {
   width: 20px; height: 20px;
-  background: var(--accent);
   border-radius: var(--r-sm);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700; color: var(--on-accent);
+  object-fit: cover;
   flex-shrink: 0;
+  display: block;
 }
 .sidebar__title { font-weight: 600; font-size: 13px; color: var(--text); }
 .sidebar__health { margin-left: auto; }
@@ -836,11 +835,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
   width: 52px; height: 52px;
   display: flex; align-items: center; justify-content: center;
   border-radius: var(--r-lg);
-  background: var(--surface-raised);
+  overflow: hidden;
   border: 1px solid var(--border);
-  color: var(--text-2);
-  font-size: 26px;
 }
+.empty-state__icon img { width: 100%; height: 100%; object-fit: cover; }
 .empty-state__title { font-size: 15px; font-weight: 600; color: var(--text-2); }
 .empty-state__sub { font-size: 13px; max-width: 320px; line-height: 1.6; }
 
@@ -1196,11 +1194,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
     height: 24px;
     margin-left: auto;
     border-radius: var(--r-sm);
-    background: var(--accent);
-    color: var(--on-accent);
-    font-size: 11px;
-    font-weight: 700;
+    overflow: hidden;
   }
+  .mobile-topbar__mark img { width: 100%; height: 100%; object-fit: cover; }
 
   .main { width: 100%; }
   .chat-header, .panel__header { height: 42px; padding-inline: var(--lg); }

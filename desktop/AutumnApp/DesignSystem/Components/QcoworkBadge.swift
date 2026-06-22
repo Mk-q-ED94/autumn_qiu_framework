@@ -1,19 +1,19 @@
 import SwiftUI
 
 /// Compact pill used for tags, status, route labels.
-struct AutumnBadge: View {
+struct QcoworkBadge: View {
     enum Tone {
         case neutral, accent, success, warning, danger, info, memory
 
         var foreground: Color {
             switch self {
             case .neutral: return .secondary
-            case .accent: return Autumn.colors.accent
-            case .success: return Autumn.colors.success
-            case .warning: return Autumn.colors.warning
-            case .danger: return Autumn.colors.danger
-            case .info: return Autumn.colors.info
-            case .memory: return Autumn.colors.memory
+            case .accent: return Qcowork.colors.accent
+            case .success: return Qcowork.colors.success
+            case .warning: return Qcowork.colors.warning
+            case .danger: return Qcowork.colors.danger
+            case .info: return Qcowork.colors.info
+            case .memory: return Qcowork.colors.memory
             }
         }
 
@@ -33,16 +33,16 @@ struct AutumnBadge: View {
     }
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.xs) {
+        HStack(spacing: Qcowork.spacing.xs) {
             if let icon {
                 Image(systemName: icon)
                     .font(.caption2.weight(.semibold))
             }
             Text(text)
-                .font(Autumn.typography.captionStrong)
+                .font(Qcowork.typography.captionStrong)
                 .lineLimit(1)
         }
-        .padding(.horizontal, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.sm)
         .padding(.vertical, 3)
         .foregroundStyle(tone.foreground)
         .background(tone.background, in: Capsule(style: .continuous))

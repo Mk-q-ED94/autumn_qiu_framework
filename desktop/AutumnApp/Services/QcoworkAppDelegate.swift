@@ -5,7 +5,7 @@ import AppKit
 import OSLog
 
 @MainActor
-final class AutumnAppDelegate: NSObject, NSApplicationDelegate {
+final class QcoworkAppDelegate: NSObject, NSApplicationDelegate {
     static var settings: AppSettings?
     static var localServer: LocalServerManager?
     static var ollamaManager: OllamaManager?

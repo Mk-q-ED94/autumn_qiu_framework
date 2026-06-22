@@ -107,7 +107,7 @@ final class MemoryViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let client = AutumnClient(baseURL: url)
+            let client = QcoworkClient(baseURL: url)
             async let history = client.memoryHistory(area: selectedArea)
             async let areaStats = client.memoryStats(area: selectedArea)
             async let allStats = client.memoryStatsOverview()
@@ -127,7 +127,7 @@ final class MemoryViewModel: ObservableObject {
         guard let url = URL(string: settings.serverURL) else { return }
         // 4D status is best-effort: an older server without the endpoint simply
         // leaves the memory list usable rather than failing the whole load.
-        fourdStatus = try? await AutumnClient(baseURL: url).fetch4DStatus()
+        fourdStatus = try? await QcoworkClient(baseURL: url).fetch4DStatus()
     }
 
     // ── producer actions: annotate + auto-annotate ──────────────────────────────
@@ -141,7 +141,7 @@ final class MemoryViewModel: ObservableObject {
         actionMessage = nil
         defer { isAutoAnnotating = false }
         do {
-            let result = try await AutumnClient(baseURL: url).autoAnnotate(area: selectedArea)
+            let result = try await QcoworkClient(baseURL: url).autoAnnotate(area: selectedArea)
             actionMessage = "已标注 \(result.annotated)/\(result.scanned) 条"
             await load()
         } catch {
@@ -163,7 +163,7 @@ final class MemoryViewModel: ObservableObject {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         do {
-            _ = try await AutumnClient(baseURL: url).annotateMemory(
+            _ = try await QcoworkClient(baseURL: url).annotateMemory(
                 area: selectedArea, entryID: entryID,
                 mode: mode.rawValue, intent: nil,
                 cues: cueList.isEmpty ? nil : cueList
@@ -186,7 +186,7 @@ final class MemoryViewModel: ObservableObject {
         pushError = nil
         defer { isLoadingPush = false }
         do {
-            let response = try await AutumnClient(baseURL: url)
+            let response = try await QcoworkClient(baseURL: url)
                 .pushPreview(area: selectedArea, query: pushQuery)
             pushFired = response.fired
             pushFragment = response.fragment
@@ -210,7 +210,7 @@ final class MemoryViewModel: ObservableObject {
         actionMessage = nil
         defer { isConsolidating = false }
         do {
-            let response = try await AutumnClient(baseURL: url).consolidateMemory(area: selectedArea)
+            let response = try await QcoworkClient(baseURL: url).consolidateMemory(area: selectedArea)
             actionMessage = response.status == "noop" ? "无需归并" : "已归并"
             await load()
         } catch {
@@ -227,7 +227,7 @@ final class MemoryViewModel: ObservableObject {
         actionMessage = nil
         defer { isExtractingFacts = false }
         do {
-            let response = try await AutumnClient(baseURL: url).extractFacts(area: selectedArea)
+            let response = try await QcoworkClient(baseURL: url).extractFacts(area: selectedArea)
             actionMessage = response.facts.isEmpty ? "未抽取到新事实" : "已抽取 \(response.facts.count) 条事实"
             selectedKind = .atomicFact
             await load()
@@ -245,7 +245,7 @@ final class MemoryViewModel: ObservableObject {
         actionMessage = nil
         defer { isEvolving = false }
         do {
-            let response = try await AutumnClient(baseURL: url).evolveMemory(area: selectedArea)
+            let response = try await QcoworkClient(baseURL: url).evolveMemory(area: selectedArea)
             actionMessage = response.skills.isEmpty ? "未生成新案例" : "已演化 \(response.skills.count) 条案例"
             selectedKind = .caseMemory
             await load()
@@ -263,7 +263,7 @@ final class MemoryViewModel: ObservableObject {
         profileError = nil
         defer { isLoadingProfile = false }
         do {
-            let response = try await AutumnClient(baseURL: url).fetchMemoryProfile(
+            let response = try await QcoworkClient(baseURL: url).fetchMemoryProfile(
                 area: selectedArea,
                 scope: normalizedProfileScope
             )
@@ -285,7 +285,7 @@ final class MemoryViewModel: ObservableObject {
         actionMessage = nil
         defer { isLoadingProfile = false }
         do {
-            let response = try await AutumnClient(baseURL: url).synthesizeMemoryProfile(
+            let response = try await QcoworkClient(baseURL: url).synthesizeMemoryProfile(
                 area: selectedArea,
                 scope: normalizedProfileScope
             )
@@ -327,7 +327,7 @@ final class MemoryViewModel: ObservableObject {
         accessLogError = nil
         defer { isLoadingAccessLog = false }
         do {
-            let response = try await AutumnClient(baseURL: url).fetchAccessLog()
+            let response = try await QcoworkClient(baseURL: url).fetchAccessLog()
             accessLogEntries = response.entries
             accessLogTotal = response.total
         } catch {

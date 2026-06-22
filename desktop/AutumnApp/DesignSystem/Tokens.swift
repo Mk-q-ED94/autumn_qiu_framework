@@ -3,10 +3,10 @@ import SwiftUI
 import AppKit
 #endif
 
-/// Centralised design tokens for AutumnDesktop.
+/// Centralised design tokens for QcoworkDesktop.
 ///
-/// Updating a token here propagates to every view that uses `Autumn.colors`,
-/// `Autumn.typography`, etc. Views should never hard-code colors, sizes, or
+/// Updating a token here propagates to every view that uses `Qcowork.colors`,
+/// `Qcowork.typography`, etc. Views should never hard-code colors, sizes, or
 /// durations — go through this module.
 ///
 /// Design language — "Paper & Clay". A calm, neutral canvas (the way ChatGPT
@@ -14,7 +14,7 @@ import AppKit
 /// accent (the way Claude carries its identity through one warm tone rather than
 /// a rainbow). Hairline borders do the structural work; shadows stay almost
 /// invisible. Typography is clean system sans, not rounded.
-enum Autumn {
+enum Qcowork {
     enum colors {
         // ── brand spine ──────────────────────────────────────────────────────
         // One warm accent — clay/terracotta — carries the whole identity. The
@@ -220,33 +220,30 @@ struct ShadowStyle: Equatable {
 }
 
 extension View {
-    func autumnShadow(_ style: ShadowStyle) -> some View {
+    func qcoworkShadow(_ style: ShadowStyle) -> some View {
         shadow(color: style.color, radius: style.radius, x: style.x, y: style.y)
     }
 }
 
-struct AutumnPageBackground: View {
+struct QcoworkPageBackground: View {
     var body: some View {
         Rectangle()
             .fill(.regularMaterial)
-            .overlay(Autumn.colors.pageFoundation)
-            .overlay(Autumn.colors.pageWarmth)
+            .overlay(Qcowork.colors.pageFoundation)
+            .overlay(Qcowork.colors.pageWarmth)
             .ignoresSafeArea()
     }
 }
 
-struct AutumnLogoMark: View {
+struct QcoworkLogoMark: View {
     var size: CGFloat = 28
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.30, style: .continuous)
-                .fill(Autumn.colors.brandGradient)
-                .autumnShadow(Autumn.shadow.subtle)
-            Image(systemName: "leaf.fill")
-                .font(.system(size: size * 0.44, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-        .frame(width: size, height: size)
+        Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
     }
 }

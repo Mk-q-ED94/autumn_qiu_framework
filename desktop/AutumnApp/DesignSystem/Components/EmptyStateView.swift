@@ -23,34 +23,34 @@ struct EmptyStateView: View {
     }
 
     var body: some View {
-        VStack(spacing: Autumn.spacing.md) {
+        VStack(spacing: Qcowork.spacing.md) {
             ZStack {
                 Circle()
-                    .fill(Autumn.colors.brandGradient)
+                    .fill(Qcowork.colors.brandGradient)
                     .frame(width: 72, height: 72)
                     .opacity(0.92)
                 Image(systemName: icon)
                     .font(.system(size: 30, weight: .medium))
                     .foregroundStyle(.white)
             }
-            VStack(spacing: Autumn.spacing.xs) {
+            VStack(spacing: Qcowork.spacing.xs) {
                 Text(title)
-                    .font(Autumn.typography.title)
+                    .font(Qcowork.typography.title)
                 Text(message)
-                    .font(Autumn.typography.callout)
+                    .font(Qcowork.typography.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 380)
             }
             if let actionTitle, let action {
-                AutumnPrimaryButton(action: action) {
+                QcoworkPrimaryButton(action: action) {
                     Text(actionTitle)
                 }
-                .padding(.top, Autumn.spacing.xs)
+                .padding(.top, Qcowork.spacing.xs)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(Autumn.spacing.xl)
+        .padding(Qcowork.spacing.xl)
     }
 }

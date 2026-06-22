@@ -9,12 +9,12 @@ struct MessageInspectorView: View {
         Group {
             if let trace {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Autumn.spacing.lg) {
+                    VStack(alignment: .leading, spacing: Qcowork.spacing.lg) {
                         RunHeaderView(trace: trace)
                         WorkspaceBreakdownView(trace: trace)
                         CollaborationFlowView(groups: trace.stageGroups)
                     }
-                    .padding(Autumn.spacing.lg)
+                    .padding(Qcowork.spacing.lg)
                 }
             } else {
                 emptyState
@@ -24,21 +24,21 @@ struct MessageInspectorView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: Autumn.spacing.sm) {
+        VStack(spacing: Qcowork.spacing.sm) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
                 .font(.system(size: 28))
                 .foregroundStyle(.tertiary)
             Text("选择一轮运行")
-                .font(Autumn.typography.captionMedium)
+                .font(Qcowork.typography.captionMedium)
                 .foregroundStyle(.secondary)
             Text("发送消息，或点击历史回复下方的运行摘要，在这里查看 A1–A4 的协作过程。")
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, Autumn.spacing.md)
+                .padding(.horizontal, Qcowork.spacing.md)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(Autumn.spacing.lg)
+        .padding(Qcowork.spacing.lg)
     }
 }
 
@@ -46,18 +46,18 @@ private struct RunHeaderView: View {
     let trace: WorkflowTrace
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
             Text("协作运行")
-                .font(Autumn.typography.captionStrong)
+                .font(Qcowork.typography.captionStrong)
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
 
-            HStack(spacing: Autumn.spacing.sm) {
-                AutumnChip(routeText, icon: trace.inputKind.icon, color: routeColor)
+            HStack(spacing: Qcowork.spacing.sm) {
+                QcoworkChip(routeText, icon: trace.inputKind.icon, color: routeColor)
                 Spacer()
                 if let duration = trace.totalDurationMS {
-                    Text(Autumn.format.duration(duration))
+                    Text(Qcowork.format.duration(duration))
                         .font(.system(.caption, design: .monospaced).weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -65,34 +65,34 @@ private struct RunHeaderView: View {
 
             if let prompt = trace.totalPromptTokens,
                let completion = trace.totalCompletionTokens {
-                HStack(spacing: Autumn.spacing.md) {
+                HStack(spacing: Qcowork.spacing.md) {
                     TokenStat(label: "输入", value: prompt, icon: "arrow.up")
                     TokenStat(label: "输出", value: completion, icon: "arrow.down")
                     TokenStat(label: "合计", value: prompt + completion, icon: "sum")
                 }
             }
 
-            FlowLayout(spacing: Autumn.spacing.xs) {
-                AutumnBadge("\(trace.stages.count) 阶段", icon: "list.number", tone: .neutral)
+            FlowLayout(spacing: Qcowork.spacing.xs) {
+                QcoworkBadge("\(trace.stages.count) 阶段", icon: "list.number", tone: .neutral)
                 if trace.agentStageCount > 0 {
-                    AutumnBadge("Agent", icon: "cpu", tone: .warning)
+                    QcoworkBadge("Agent", icon: "cpu", tone: .warning)
                 }
                 if trace.toolStageCount > 0 {
-                    AutumnBadge("\(trace.toolStageCount) 工具", icon: "wrench.and.screwdriver.fill", tone: .info)
+                    QcoworkBadge("\(trace.toolStageCount) 工具", icon: "wrench.and.screwdriver.fill", tone: .info)
                 }
                 if trace.pushStage != nil {
-                    AutumnBadge("4D 推入", icon: "brain", tone: .memory)
+                    QcoworkBadge("4D 推入", icon: "brain", tone: .memory)
                 }
                 if trace.archiveStage != nil {
-                    AutumnBadge("A4 已归档", icon: "archivebox.fill", tone: .memory)
+                    QcoworkBadge("A4 已归档", icon: "archivebox.fill", tone: .memory)
                 }
                 if !trace.sourceTerrNames.isEmpty {
-                    AutumnBadge("\(trace.sourceTerrNames.count) Terr", icon: "square.stack.3d.up.fill", tone: .info)
+                    QcoworkBadge("\(trace.sourceTerrNames.count) Terr", icon: "square.stack.3d.up.fill", tone: .info)
                 }
             }
 
             if let cost = trace.totalCostUsd, cost > 0 {
-                Text(Autumn.format.cost(cost))
+                Text(Qcowork.format.cost(cost))
                     .font(.system(.caption2, design: .monospaced).weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -112,7 +112,7 @@ private struct RunHeaderView: View {
     }
 
     private var routeColor: Color {
-        trace.inputKind == .task ? Autumn.colors.warning : Autumn.colors.info
+        trace.inputKind == .task ? Qcowork.colors.warning : Qcowork.colors.info
     }
 }
 
@@ -122,15 +122,15 @@ private struct TokenStat: View {
     let icon: String
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.xs) {
+        HStack(spacing: Qcowork.spacing.xs) {
             Image(systemName: icon)
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.tertiary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.tertiary)
-                Text(Autumn.format.tokens(value))
+                Text(Qcowork.format.tokens(value))
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
             }
         }
@@ -143,9 +143,9 @@ private struct WorkspaceBreakdownView: View {
     var body: some View {
         let buckets = workspaceBuckets
         if !buckets.isEmpty {
-            VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
                 SectionLabel(title: "工作区用量", icon: "chart.bar.xaxis")
-                VStack(spacing: Autumn.spacing.xs) {
+                VStack(spacing: Qcowork.spacing.xs) {
                     ForEach(buckets) { bucket in
                         WorkspaceTokenRow(bucket: bucket)
                     }
@@ -186,36 +186,36 @@ private struct WorkspaceTokenRow: View {
     let bucket: WorkspaceBucket
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             Text(bucket.workspace)
-                .font(Autumn.typography.captionStrong)
+                .font(Qcowork.typography.captionStrong)
                 .foregroundStyle(workspaceColor)
                 .frame(width: 36, alignment: .leading)
             Text("\(bucket.stageCount) 阶段")
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.tertiary)
             Spacer()
             if bucket.promptTokens > 0 || bucket.completionTokens > 0 {
-                Text("↑\(Autumn.format.tokens(bucket.promptTokens)) ↓\(Autumn.format.tokens(bucket.completionTokens))")
+                Text("↑\(Qcowork.format.tokens(bucket.promptTokens)) ↓\(Qcowork.format.tokens(bucket.completionTokens))")
                     .font(.system(.caption2, design: .monospaced).weight(.medium))
                     .foregroundStyle(.secondary)
             }
             if bucket.durationMS > 0 {
-                Text(Autumn.format.duration(bucket.durationMS))
+                Text(Qcowork.format.duration(bucket.durationMS))
                     .font(.system(.caption2, design: .monospaced).weight(.medium))
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, Autumn.spacing.sm)
-        .padding(.vertical, Autumn.spacing.xs)
+        .padding(.horizontal, Qcowork.spacing.sm)
+        .padding(.vertical, Qcowork.spacing.xs)
         .background(
-            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
                 .fill(workspaceColor.opacity(0.06))
         )
     }
 
     private var workspaceColor: Color {
-        Autumn.colors.workspace(bucket.workspace)
+        Qcowork.colors.workspace(bucket.workspace)
     }
 }
 
@@ -223,7 +223,7 @@ private struct CollaborationFlowView: View {
     let groups: [WorkflowStageGroup]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
             SectionLabel(title: "协作过程", icon: "point.3.connected.trianglepath.dotted")
             ForEach(groups) { group in
                 CollaborationGroupView(group: group)
@@ -236,14 +236,14 @@ private struct CollaborationGroupView: View {
     let group: WorkflowStageGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
-            HStack(spacing: Autumn.spacing.xs) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.xs) {
                 Image(systemName: group.role.icon)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(roleColor)
                     .frame(width: 18)
                 Text(group.role.title)
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 Spacer()
                 Text("\(group.stages.count)")
                     .font(.system(.caption2, design: .monospaced).weight(.semibold))
@@ -260,23 +260,23 @@ private struct CollaborationGroupView: View {
                 }
             }
         }
-        .padding(Autumn.spacing.sm)
+        .padding(Qcowork.spacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous)
                 .fill(roleColor.opacity(0.045))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
-                .strokeBorder(roleColor.opacity(0.14), lineWidth: Autumn.stroke.hairline)
+            RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous)
+                .strokeBorder(roleColor.opacity(0.14), lineWidth: Qcowork.stroke.hairline)
         )
     }
 
     private var roleColor: Color {
         switch group.role {
-        case .memory: return Autumn.colors.memory
-        case .orientation, .quality: return Autumn.colors.clay
-        case .routing: return Autumn.colors.slate
-        case .execution: return Autumn.colors.warning
+        case .memory: return Qcowork.colors.memory
+        case .orientation, .quality: return Qcowork.colors.clay
+        case .routing: return Qcowork.colors.slate
+        case .execution: return Qcowork.colors.warning
         }
     }
 }
@@ -287,44 +287,44 @@ private struct InspectorStageRow: View {
     let isLast: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+        HStack(alignment: .top, spacing: Qcowork.spacing.sm) {
             indicator
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
-                HStack(spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
+                HStack(spacing: Qcowork.spacing.xs) {
                     Text(stage.title)
                         .font(stage.kind == "tool" || stage.kind == "agent"
                               ? .system(.caption, design: .monospaced).weight(.semibold)
-                              : Autumn.typography.captionMedium)
-                    Spacer(minLength: Autumn.spacing.xs)
-                    AutumnBadge(stage.statusTitle, tone: statusTone)
+                              : Qcowork.typography.captionMedium)
+                    Spacer(minLength: Qcowork.spacing.xs)
+                    QcoworkBadge(stage.statusTitle, tone: statusTone)
                 }
 
-                HStack(spacing: Autumn.spacing.xs) {
+                HStack(spacing: Qcowork.spacing.xs) {
                     Text(stage.workspace)
                         .font(.system(.caption2, design: .monospaced).weight(.bold))
-                        .foregroundStyle(Autumn.colors.workspace(stage.workspace))
+                        .foregroundStyle(Qcowork.colors.workspace(stage.workspace))
                     if let sourceTerr = stage.sourceTerr {
-                        AutumnBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
+                        QcoworkBadge("Terr · \(sourceTerr)", icon: "square.stack.3d.up.fill", tone: .info)
                     }
                 }
 
                 Text(stage.detail)
                     .font(stage.kind == "tool"
                           ? .system(.caption2, design: .monospaced)
-                          : Autumn.typography.caption)
+                          : Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if !stage.items.isEmpty {
-                    VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                    VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                         ForEach(Array(stage.items.enumerated()), id: \.offset) { index, item in
-                            HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.xs) {
+                            HStack(alignment: .firstTextBaseline, spacing: Qcowork.spacing.xs) {
                                 Text("\(index + 1)")
                                     .font(.system(.caption2, design: .monospaced).weight(.bold))
                                     .foregroundStyle(roleColor)
                                     .frame(width: 16, alignment: .trailing)
                                 Text(item)
-                                    .font(Autumn.typography.caption)
+                                    .font(Qcowork.typography.caption)
                                     .foregroundStyle(.primary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -335,24 +335,24 @@ private struct InspectorStageRow: View {
 
                 metrics
             }
-            .padding(.bottom, isLast ? 0 : Autumn.spacing.sm)
+            .padding(.bottom, isLast ? 0 : Qcowork.spacing.sm)
         }
     }
 
     private var indicator: some View {
-        VStack(spacing: Autumn.spacing.xs) {
+        VStack(spacing: Qcowork.spacing.xs) {
             ZStack {
                 Circle()
                     .fill(roleColor.opacity(0.14))
                     .frame(width: 18, height: 18)
                 Image(systemName: stage.semanticIcon)
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(stage.status == "failed" ? Autumn.colors.danger : roleColor)
+                    .foregroundStyle(stage.status == "failed" ? Qcowork.colors.danger : roleColor)
             }
             if !isLast {
                 Rectangle()
                     .fill(roleColor.opacity(0.18))
-                    .frame(width: Autumn.stroke.hairline)
+                    .frame(width: Qcowork.stroke.hairline)
                     .frame(maxHeight: .infinity)
             }
         }
@@ -362,15 +362,15 @@ private struct InspectorStageRow: View {
     @ViewBuilder
     private var metrics: some View {
         if stage.durationMS != nil || stage.promptTokens != nil || stage.costUsd != nil {
-            HStack(spacing: Autumn.spacing.xs) {
+            HStack(spacing: Qcowork.spacing.xs) {
                 if let duration = stage.durationMS {
-                    Text(Autumn.format.duration(duration))
+                    Text(Qcowork.format.duration(duration))
                 }
                 if let prompt = stage.promptTokens, let completion = stage.completionTokens {
-                    Text("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
+                    Text("↑\(Qcowork.format.tokens(prompt)) ↓\(Qcowork.format.tokens(completion))")
                 }
                 if let cost = stage.costUsd, cost > 0 {
-                    Text(Autumn.format.cost(cost))
+                    Text(Qcowork.format.cost(cost))
                 }
             }
             .font(.system(.caption2, design: .monospaced))
@@ -378,7 +378,7 @@ private struct InspectorStageRow: View {
         }
     }
 
-    private var statusTone: AutumnBadge.Tone {
+    private var statusTone: QcoworkBadge.Tone {
         switch stage.status {
         case "completed": return .success
         case "active": return .info
@@ -394,7 +394,7 @@ private struct SectionLabel: View {
 
     var body: some View {
         Label(title, systemImage: icon)
-            .font(Autumn.typography.captionStrong)
+            .font(Qcowork.typography.captionStrong)
             .foregroundStyle(.secondary)
             .textCase(.uppercase)
             .tracking(0.5)

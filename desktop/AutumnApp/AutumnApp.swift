@@ -4,9 +4,9 @@ import AppKit
 #endif
 
 @main
-struct AutumnApp: App {
+struct QcoworkApp: App {
     #if os(macOS)
-    @NSApplicationDelegateAdaptor(AutumnAppDelegate.self) private var appDelegate
+    @NSApplicationDelegateAdaptor(QcoworkAppDelegate.self) private var appDelegate
     #endif
 
     @StateObject private var settings: AppSettings
@@ -29,21 +29,21 @@ struct AutumnApp: App {
         _projects = StateObject(wrappedValue: projects)
 
         #if os(macOS)
-        AutumnAppDelegate.settings = settings
-        AutumnAppDelegate.localServer = localServer
-        AutumnAppDelegate.ollamaManager = ollamaManager
+        QcoworkAppDelegate.settings = settings
+        QcoworkAppDelegate.localServer = localServer
+        QcoworkAppDelegate.ollamaManager = ollamaManager
         #endif
     }
 
     var body: some Scene {
-        WindowGroup("Autumn", id: "workspace") {
+        WindowGroup("Qcowork", id: "workspace") {
             ContentView()
                 .environmentObject(settings)
                 .environmentObject(localServer)
                 .environmentObject(ollamaManager)
                 .environmentObject(conversations)
                 .environmentObject(projects)
-                .tint(Autumn.colors.flame)
+                .tint(Qcowork.colors.flame)
         }
         #if os(macOS)
         .windowResizability(.contentSize)
@@ -58,7 +58,7 @@ struct AutumnApp: App {
                 .environmentObject(settings)
                 .environmentObject(localServer)
                 .environmentObject(ollamaManager)
-                .tint(Autumn.colors.flame)
+                .tint(Qcowork.colors.flame)
                 .frame(minWidth: 760, minHeight: 620)
         }
         #endif

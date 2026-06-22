@@ -5,7 +5,7 @@ import SwiftUI
 /// Sizes:
 /// - `.regular` — icon at 9 pt + captionStrong text; route pills and status labels
 /// - `.compact` — icon at 7 pt + monospaced 9 pt text; inline strip chips (ToolCount, Agent)
-struct AutumnChip: View {
+struct QcoworkChip: View {
     let label: String
     let icon: String?
     let color: Color
@@ -13,7 +13,7 @@ struct AutumnChip: View {
 
     enum ChipSize { case compact, regular }
 
-    init(_ label: String, icon: String? = nil, color: Color = Autumn.colors.muted, size: ChipSize = .regular) {
+    init(_ label: String, icon: String? = nil, color: Color = Qcowork.colors.muted, size: ChipSize = .regular) {
         self.label = label
         self.icon = icon
         self.color = color
@@ -31,7 +31,7 @@ struct AutumnChip: View {
             Text(label)
                 .font(size == .compact
                     ? .system(size: 9, weight: .semibold, design: .monospaced)
-                    : Autumn.typography.captionStrong)
+                    : Qcowork.typography.captionStrong)
         }
         .foregroundStyle(color)
         .padding(.horizontal, size == .compact ? 5 : 7)

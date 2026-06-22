@@ -1,17 +1,17 @@
 import SwiftUI
 
-/// ButtonStyle that adds a subtle 0.97× scale on press, used by all Autumn
+/// ButtonStyle that adds a subtle 0.97× scale on press, used by all Qcowork
 /// custom buttons so keyboard and pointer interactions feel the same.
-struct AutumnPressButtonStyle: ButtonStyle {
+struct QcoworkPressButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0, anchor: .center)
-            .animation(Autumn.motion.snappy, value: configuration.isPressed)
+            .animation(Qcowork.motion.snappy, value: configuration.isPressed)
     }
 }
 
 /// Primary action button with gradient fill, hover brightness, and press scale.
-struct AutumnPrimaryButton<Label: View>: View {
+struct QcoworkPrimaryButton<Label: View>: View {
     enum Size {
         case small, regular, large
 
@@ -33,9 +33,9 @@ struct AutumnPrimaryButton<Label: View>: View {
 
         var font: Font {
             switch self {
-            case .small: return Autumn.typography.captionStrong
-            case .regular: return Autumn.typography.bodyMedium
-            case .large: return Autumn.typography.headline
+            case .small: return Qcowork.typography.captionStrong
+            case .regular: return Qcowork.typography.bodyMedium
+            case .large: return Qcowork.typography.headline
             }
         }
     }
@@ -61,7 +61,7 @@ struct AutumnPrimaryButton<Label: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Autumn.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.sm) {
                 if isLoading {
                     ProgressView().controlSize(.small)
                 } else {
@@ -73,20 +73,20 @@ struct AutumnPrimaryButton<Label: View>: View {
             .padding(.horizontal, size.horizontalPadding)
             .padding(.vertical, size.verticalPadding)
             .background(
-                Autumn.colors.brandGradient,
-                in: RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                Qcowork.colors.brandGradient,
+                in: RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
             )
-            .autumnShadow(Autumn.shadow.subtle)
+            .qcoworkShadow(Qcowork.shadow.subtle)
             .brightness(isHovering && !isLoading ? 0.05 : 0)
         }
-        .buttonStyle(AutumnPressButtonStyle())
+        .buttonStyle(QcoworkPressButtonStyle())
         .disabled(isLoading)
-        .onHover { h in withAnimation(Autumn.motion.soft) { isHovering = h } }
+        .onHover { h in withAnimation(Qcowork.motion.soft) { isHovering = h } }
     }
 }
 
 /// Subtle ghost button for secondary actions.
-struct AutumnGhostButton<Label: View>: View {
+struct QcoworkGhostButton<Label: View>: View {
     let action: () -> Void
     @ViewBuilder var label: () -> Label
 
@@ -95,18 +95,18 @@ struct AutumnGhostButton<Label: View>: View {
     var body: some View {
         Button(action: action) {
             label()
-                .font(Autumn.typography.captionStrong)
+                .font(Qcowork.typography.captionStrong)
                 .foregroundStyle(.primary)
-                .padding(.horizontal, Autumn.spacing.sm)
+                .padding(.horizontal, Qcowork.spacing.sm)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                        .fill(isHovering ? Autumn.colors.surfaceHover : Autumn.colors.surfaceElevated)
+                    RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                        .fill(isHovering ? Qcowork.colors.surfaceHover : Qcowork.colors.surfaceElevated)
                 )
         }
-        .buttonStyle(AutumnPressButtonStyle())
+        .buttonStyle(QcoworkPressButtonStyle())
         .onHover { hovering in
-            withAnimation(Autumn.motion.soft) { isHovering = hovering }
+            withAnimation(Qcowork.motion.soft) { isHovering = hovering }
         }
     }
 }

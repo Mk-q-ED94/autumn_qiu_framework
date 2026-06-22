@@ -14,10 +14,10 @@ struct OllamaPanel: View {
     let pullModel: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
             HStack {
                 Label("本地模型 · Ollama", systemImage: "externaldrive.connected.to.line.below")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 Spacer()
                 statusBadge
                 Button(action: refresh) {
@@ -32,13 +32,13 @@ struct OllamaPanel: View {
             }
 
             if let status {
-                HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: Qcowork.spacing.xs) {
                     Image(systemName: status.running ? "network" : "exclamationmark.triangle")
-                        .foregroundStyle(status.running ? Autumn.colors.success : Autumn.colors.warning)
+                        .foregroundStyle(status.running ? Qcowork.colors.success : Qcowork.colors.warning)
                     Text(status.running
                          ? "管理端点：\(status.baseURL)"
                          : "未连接到 \(status.baseURL)")
-                        .font(Autumn.typography.caption)
+                        .font(Qcowork.typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .truncationMode(.middle)
@@ -46,21 +46,21 @@ struct OllamaPanel: View {
             }
 
             if !installedModels.isEmpty {
-                VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                     Text("已安装")
-                        .font(Autumn.typography.captionStrong)
+                        .font(Qcowork.typography.captionStrong)
                     ForEach(installedModels) { model in
-                        HStack(spacing: Autumn.spacing.sm) {
+                        HStack(spacing: Qcowork.spacing.sm) {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(model.name)
                                     .font(.system(.caption, design: .monospaced).weight(.semibold))
                                 Text(modelDetail(model))
-                                    .font(Autumn.typography.caption)
+                                    .font(Qcowork.typography.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
                             if model.name == selectedModel {
-                                AutumnBadge("A4", icon: "checkmark.circle.fill", tone: .success)
+                                QcoworkBadge("A4", icon: "checkmark.circle.fill", tone: .success)
                             } else {
                                 Button("用于 A4") { useModel(model.name) }
                                     .controlSize(.small)
@@ -72,21 +72,21 @@ struct OllamaPanel: View {
             }
 
             if !recommendedModels.isEmpty {
-                VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+                VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                     Text("推荐")
-                        .font(Autumn.typography.captionStrong)
+                        .font(Qcowork.typography.captionStrong)
                     ForEach(recommendedModels) { model in
-                        HStack(spacing: Autumn.spacing.sm) {
+                        HStack(spacing: Qcowork.spacing.sm) {
                             VStack(alignment: .leading, spacing: 1) {
-                                HStack(spacing: Autumn.spacing.xs) {
+                                HStack(spacing: Qcowork.spacing.xs) {
                                     Text(model.label)
-                                        .font(Autumn.typography.captionMedium)
+                                        .font(Qcowork.typography.captionMedium)
                                     if model.recommended {
-                                        AutumnBadge("推荐", tone: .accent)
+                                        QcoworkBadge("推荐", tone: .accent)
                                     }
                                 }
                                 Text("\(model.name) · \(model.size) · \(model.note)")
-                                    .font(Autumn.typography.caption)
+                                    .font(Qcowork.typography.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -108,36 +108,36 @@ struct OllamaPanel: View {
             }
 
             if let errorMessage, !errorMessage.isEmpty {
-                HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+                HStack(alignment: .top, spacing: Qcowork.spacing.sm) {
                     Image(systemName: "lightbulb.max")
-                        .foregroundStyle(Autumn.colors.gold)
+                        .foregroundStyle(Qcowork.colors.gold)
                     Text(errorMessage)
-                        .font(Autumn.typography.caption)
-                        .foregroundStyle(Autumn.colors.danger)
+                        .font(Qcowork.typography.caption)
+                        .foregroundStyle(Qcowork.colors.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(Autumn.spacing.sm)
+                .padding(Qcowork.spacing.sm)
                 .background(
-                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                        .fill(Autumn.colors.warning.opacity(0.10))
+                    RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                        .fill(Qcowork.colors.warning.opacity(0.10))
                 )
             }
         }
-        .padding(.vertical, Autumn.spacing.xs)
+        .padding(.vertical, Qcowork.spacing.xs)
     }
 
     @ViewBuilder
     private var statusBadge: some View {
         if let status {
             if status.running {
-                AutumnBadge(status.version.map { "运行中 · \($0)" } ?? "运行中",
+                QcoworkBadge(status.version.map { "运行中 · \($0)" } ?? "运行中",
                             icon: "checkmark.circle.fill",
                             tone: .success)
             } else {
-                AutumnBadge("未运行", icon: "xmark.circle", tone: .warning)
+                QcoworkBadge("未运行", icon: "xmark.circle", tone: .warning)
             }
         } else {
-            AutumnBadge("未检测", tone: .neutral)
+            QcoworkBadge("未检测", tone: .neutral)
         }
     }
 

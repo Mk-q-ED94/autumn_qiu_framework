@@ -57,7 +57,7 @@ struct PipelineStripView: View {
                 return
             }
             guard !reduceMotion else { return }
-            withAnimation(Autumn.motion.pulse) {
+            withAnimation(Qcowork.motion.pulse) {
                 pulse.toggle()
             }
         }
@@ -78,10 +78,10 @@ struct PipelineStripView: View {
     private func tooltipText(for stage: WorkflowStage) -> String {
         var parts = ["\(stage.workspace) · \(stage.title)"]
         if let ms = stage.durationMS {
-            parts.append(Autumn.format.duration(ms))
+            parts.append(Qcowork.format.duration(ms))
         }
         if let prompt = stage.promptTokens, let completion = stage.completionTokens {
-            parts.append("↑\(Autumn.format.tokens(prompt)) ↓\(Autumn.format.tokens(completion))")
+            parts.append("↑\(Qcowork.format.tokens(prompt)) ↓\(Qcowork.format.tokens(completion))")
         }
         if let sourceTerr = stage.sourceTerr {
             parts.append("Terr: \(sourceTerr)")
@@ -106,7 +106,7 @@ private struct StageCapsule: View {
         }
         .frame(width: width, height: 6)
         .scaleEffect(isHovered ? 1.18 : 1.0, anchor: .center)
-        .animation(Autumn.motion.snappy, value: isHovered)
+        .animation(Qcowork.motion.snappy, value: isHovered)
     }
 
     @ViewBuilder
@@ -118,7 +118,7 @@ private struct StageCapsule: View {
         case "active":
             shape.fill(workspaceColor.opacity(isPulsing ? 0.55 : 1.0))
         case "failed":
-            shape.fill(Autumn.colors.danger)
+            shape.fill(Qcowork.colors.danger)
         default:
             shape
                 .strokeBorder(workspaceColor.opacity(0.5), lineWidth: 1)
@@ -134,31 +134,31 @@ private struct StageCapsule: View {
         return 16
     }
 
-    private var workspaceColor: Color { Autumn.colors.workspace(stage.workspace) }
+    private var workspaceColor: Color { Qcowork.colors.workspace(stage.workspace) }
 }
 
 private struct ToolCountChip: View {
     let count: Int
 
     var body: some View {
-        AutumnChip("\(count)", icon: "wrench.and.screwdriver.fill", color: Autumn.colors.accent, size: .compact)
+        QcoworkChip("\(count)", icon: "wrench.and.screwdriver.fill", color: Qcowork.colors.accent, size: .compact)
     }
 }
 
 private struct AgentStatusChip: View {
     var body: some View {
-        AutumnChip("Agent", icon: "cpu", color: Autumn.colors.warning, size: .compact)
+        QcoworkChip("Agent", icon: "cpu", color: Qcowork.colors.warning, size: .compact)
     }
 }
 
 private struct PushStatusChip: View {
     var body: some View {
-        AutumnChip("4D", icon: "brain", color: Autumn.colors.memory, size: .compact)
+        QcoworkChip("4D", icon: "brain", color: Qcowork.colors.memory, size: .compact)
     }
 }
 
 private struct ArchiveStatusChip: View {
     var body: some View {
-        AutumnChip("归档", icon: "archivebox.fill", color: Autumn.colors.memory, size: .compact)
+        QcoworkChip("归档", icon: "archivebox.fill", color: Qcowork.colors.memory, size: .compact)
     }
 }

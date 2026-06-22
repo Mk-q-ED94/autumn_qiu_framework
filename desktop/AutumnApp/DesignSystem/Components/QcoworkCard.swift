@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Soft card container used across panels.
-struct AutumnCard<Content: View>: View {
+struct QcoworkCard<Content: View>: View {
     enum Emphasis {
         case standard, subtle, elevated
     }
@@ -12,7 +12,7 @@ struct AutumnCard<Content: View>: View {
 
     init(
         emphasis: Emphasis = .standard,
-        padding: CGFloat = Autumn.spacing.md,
+        padding: CGFloat = Qcowork.spacing.md,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.emphasis = emphasis
@@ -26,26 +26,26 @@ struct AutumnCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(background)
             .overlay(stroke)
-            .clipShape(RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous))
     }
 
     @ViewBuilder
     private var background: some View {
         switch emphasis {
         case .standard:
-            Autumn.colors.surfaceElevated
+            Qcowork.colors.surfaceElevated
         case .subtle:
             Color.clear
         case .elevated:
-            RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous)
                 .fill(.background)
-                .autumnShadow(Autumn.shadow.elevated)
+                .qcoworkShadow(Qcowork.shadow.elevated)
         }
     }
 
     private var stroke: some View {
-        RoundedRectangle(cornerRadius: Autumn.radius.md, style: .continuous)
+        RoundedRectangle(cornerRadius: Qcowork.radius.md, style: .continuous)
             .strokeBorder(Color.secondary.opacity(emphasis == .subtle ? 0.08 : 0.14),
-                          lineWidth: Autumn.stroke.hairline)
+                          lineWidth: Qcowork.stroke.hairline)
     }
 }

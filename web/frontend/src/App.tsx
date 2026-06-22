@@ -10,8 +10,8 @@ import { DEFAULT_SETTINGS } from "./types";
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
 
-const SETTINGS_KEY = "autumn.settings";
-const CONVOS_KEY = "autumn.conversations";
+const SETTINGS_KEY = "qcowork.settings";
+const CONVOS_KEY = "qcowork.conversations";
 
 function loadSettings(): Settings {
   try {
@@ -163,7 +163,7 @@ export function App() {
             <span />
           </button>
           <span className="mobile-topbar__title">{viewLabel[view]}</span>
-          <span className="mobile-topbar__mark">秋</span>
+          <span className="mobile-topbar__mark"><img src="/icon.png" alt="Qcowork" /></span>
         </header>
 
         {error && (

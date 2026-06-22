@@ -8,21 +8,21 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             sidebarHeader
 
-            VStack(spacing: Autumn.spacing.xs) {
+            VStack(spacing: Qcowork.spacing.xs) {
                 ForEach(AppSection.allCases) { section in
-                    AutumnNavItem(
+                    QcoworkNavItem(
                         section: section,
                         isSelected: selection == section.rawValue,
                         action: { selection = section.rawValue }
                     )
                 }
             }
-            .padding(.horizontal, Autumn.spacing.sm)
-            .padding(.bottom, Autumn.spacing.sm)
+            .padding(.horizontal, Qcowork.spacing.sm)
+            .padding(.bottom, Qcowork.spacing.sm)
 
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
-                .frame(height: Autumn.stroke.hairline)
+                .frame(height: Qcowork.stroke.hairline)
 
             if selection == AppSection.workspace.rawValue {
                 ProjectSidebarView(selectedConversationID: $selectedConversationID)
@@ -32,24 +32,24 @@ struct SidebarView: View {
 
             AgentStatusFooter()
         }
-        .background(Autumn.colors.sidebar)
+        .background(Qcowork.colors.sidebar)
     }
 
     private var sidebarHeader: some View {
-        HStack(spacing: Autumn.spacing.sm) {
-            AutumnLogoMark(size: 24)
+        HStack(spacing: Qcowork.spacing.sm) {
+            QcoworkLogoMark(size: 24)
             VStack(alignment: .leading, spacing: 1) {
-                Text("秋 · Autumn")
-                    .font(Autumn.typography.headline)
+                Text("Qcowork")
+                    .font(Qcowork.typography.headline)
                 Text("多模型协作工作台")
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, Autumn.spacing.md)
-        .padding(.top, Autumn.spacing.md)
-        .padding(.bottom, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.md)
+        .padding(.top, Qcowork.spacing.md)
+        .padding(.bottom, Qcowork.spacing.sm)
     }
 }
 
@@ -68,7 +68,7 @@ private struct AgentStatusFooter: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.xs) {
+        HStack(spacing: Qcowork.spacing.xs) {
             ForEach(AgentSlotID.allCases) { slot in
                 AgentDot(
                     label: slot.label,
@@ -86,13 +86,13 @@ private struct AgentStatusFooter: View {
             .buttonStyle(.plain)
             .help("打开设置")
         }
-        .padding(.horizontal, Autumn.spacing.md)
-        .padding(.vertical, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.md)
+        .padding(.vertical, Qcowork.spacing.sm)
         .background(Color.primary.opacity(0.04))
         .overlay(
             Rectangle()
                 .fill(Color.primary.opacity(0.1))
-                .frame(height: Autumn.stroke.hairline),
+                .frame(height: Qcowork.stroke.hairline),
             alignment: .top
         )
     }
@@ -162,7 +162,7 @@ private struct AgentDot: View {
         .task(id: state) {
             guard state == .connecting else { pulse = false; return }
             guard !reduceMotion else { return }
-            withAnimation(Autumn.motion.pulse) {
+            withAnimation(Qcowork.motion.pulse) {
                 pulse.toggle()
             }
         }
@@ -170,10 +170,10 @@ private struct AgentDot: View {
 
     private var dotColor: Color {
         switch state {
-        case .ready:        return Autumn.colors.success
-        case .connecting:   return Autumn.colors.warning
-        case .failed:       return Autumn.colors.danger
-        case .unconfigured: return Autumn.colors.muted
+        case .ready:        return Qcowork.colors.success
+        case .connecting:   return Qcowork.colors.warning
+        case .failed:       return Qcowork.colors.danger
+        case .unconfigured: return Qcowork.colors.muted
         }
     }
 }

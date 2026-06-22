@@ -67,27 +67,27 @@ struct ChatView: View {
     @ViewBuilder
     private var projectBanner: some View {
         if let project = activeProject {
-            HStack(spacing: Autumn.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.sm) {
                 Image(systemName: ProjectPalette.icon(for: project.colorTag))
                     .foregroundStyle(ProjectPalette.color(for: project.colorTag))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(project.name)
-                        .font(Autumn.typography.captionStrong)
+                        .font(Qcowork.typography.captionStrong)
                     if !project.trimmedInstructions.isEmpty {
                         Text(project.trimmedInstructions)
-                            .font(Autumn.typography.caption)
+                            .font(Qcowork.typography.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     } else {
                         Text("项目无附加指令")
-                            .font(Autumn.typography.caption)
+                            .font(Qcowork.typography.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
                 Spacer()
             }
-            .padding(.horizontal, Autumn.spacing.lg)
-            .padding(.vertical, Autumn.spacing.sm)
+            .padding(.horizontal, Qcowork.spacing.lg)
+            .padding(.vertical, Qcowork.spacing.sm)
             .background(ProjectPalette.color(for: project.colorTag).opacity(0.08))
             .overlay(
                 Rectangle()
@@ -110,7 +110,7 @@ struct ChatView: View {
     private var messagesList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Autumn.spacing.md) {
+                LazyVStack(alignment: .leading, spacing: Qcowork.spacing.md) {
                     if vm.messages.isEmpty {
                         EmptyStateView(
                             icon: "leaf.fill",
@@ -133,11 +133,11 @@ struct ChatView: View {
                         }
                     }
                 }
-                .padding(Autumn.spacing.lg)
+                .padding(Qcowork.spacing.lg)
             }
             .onChange(of: vm.messages.last?.id) { _, newID in
                 guard let newID else { return }
-                withAnimation(Autumn.motion.smooth) {
+                withAnimation(Qcowork.motion.smooth) {
                     proxy.scrollTo(newID, anchor: .bottom)
                 }
             }
@@ -183,13 +183,13 @@ struct ChatView: View {
     @ViewBuilder
     private var errorBanner: some View {
         if !vm.errors.isEmpty {
-            VStack(spacing: Autumn.spacing.xs) {
+            VStack(spacing: Qcowork.spacing.xs) {
                 ForEach(vm.errors) { error in
-                    HStack(spacing: Autumn.spacing.sm) {
+                    HStack(spacing: Qcowork.spacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Autumn.colors.danger)
+                            .foregroundStyle(Qcowork.colors.danger)
                         Text(error.message)
-                            .font(Autumn.typography.caption)
+                            .font(Qcowork.typography.caption)
                             .foregroundStyle(.primary)
                         Spacer()
                         Button {
@@ -201,13 +201,13 @@ struct ChatView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, Autumn.spacing.md)
-                    .padding(.vertical, Autumn.spacing.sm)
-                    .background(Autumn.colors.danger.opacity(0.10))
+                    .padding(.horizontal, Qcowork.spacing.md)
+                    .padding(.vertical, Qcowork.spacing.sm)
+                    .background(Qcowork.colors.danger.opacity(0.10))
                     .overlay(
                         Rectangle()
-                            .fill(Autumn.colors.danger.opacity(0.4))
-                            .frame(height: Autumn.stroke.hairline),
+                            .fill(Qcowork.colors.danger.opacity(0.4))
+                            .frame(height: Qcowork.stroke.hairline),
                         alignment: .top
                     )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -219,32 +219,32 @@ struct ChatView: View {
     @ViewBuilder
     private var runStatusBar: some View {
         if vm.isRunning {
-            HStack(spacing: Autumn.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.sm) {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.74)
-                AutumnBadge("流式运行", icon: "waveform.path", tone: .info)
+                QcoworkBadge("流式运行", icon: "waveform.path", tone: .info)
                 if let kind = vm.effectiveInputKind {
-                    AutumnBadge(kind.badgeTitle, icon: kind.icon, tone: .accent)
+                    QcoworkBadge(kind.badgeTitle, icon: kind.icon, tone: .accent)
                 }
                 if let task = vm.effectiveTaskKind {
-                    AutumnBadge(task.badgeTitle, tone: .neutral)
+                    QcoworkBadge(task.badgeTitle, tone: .neutral)
                 } else if vm.effectiveInputKind == .mission {
-                    AutumnBadge(vm.effectiveRoute.title, icon: vm.effectiveRoute.icon, tone: .neutral)
+                    QcoworkBadge(vm.effectiveRoute.title, icon: vm.effectiveRoute.icon, tone: .neutral)
                 }
                 if vm.shouldShowAgentRunHint {
-                    AutumnBadge("Agent 接管", icon: "cpu", tone: .warning)
+                    QcoworkBadge("Agent 接管", icon: "cpu", tone: .warning)
                 }
                 Spacer()
-                AutumnBadge("Trace 同步", icon: "point.3.connected.trianglepath.dotted", tone: .info)
+                QcoworkBadge("Trace 同步", icon: "point.3.connected.trianglepath.dotted", tone: .info)
             }
-            .padding(.horizontal, Autumn.spacing.md)
-            .padding(.vertical, Autumn.spacing.sm)
-            .background(Autumn.colors.info.opacity(0.08))
+            .padding(.horizontal, Qcowork.spacing.md)
+            .padding(.vertical, Qcowork.spacing.sm)
+            .background(Qcowork.colors.info.opacity(0.08))
             .overlay(
                 Rectangle()
-                    .fill(Autumn.colors.info.opacity(0.18))
-                    .frame(height: Autumn.stroke.hairline),
+                    .fill(Qcowork.colors.info.opacity(0.18))
+                    .frame(height: Qcowork.stroke.hairline),
                 alignment: .top
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -270,11 +270,11 @@ struct ChatView: View {
     }
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: Autumn.spacing.sm) {
+        HStack(alignment: .bottom, spacing: Qcowork.spacing.sm) {
             TextField("输入消息…", text: $vm.input, axis: .vertical)
                 .lineLimit(1...8)
                 .textFieldStyle(.plain)
-                .font(Autumn.typography.body)
+                .font(Qcowork.typography.body)
                 .padding(.trailing, vm.input.isEmpty ? 0 : 108)
                 .padding(.bottom, vm.input.isEmpty ? 0 : 12)
                 .autumnInputSurface(isFocused: composerFocused)
@@ -293,8 +293,8 @@ struct ChatView: View {
 
             runButton
         }
-        .padding(.horizontal, Autumn.spacing.md)
-        .padding(.vertical, Autumn.spacing.md)
+        .padding(.horizontal, Qcowork.spacing.md)
+        .padding(.vertical, Qcowork.spacing.md)
         .background(.bar)
     }
 
@@ -302,7 +302,7 @@ struct ChatView: View {
         let tokens = ContextLimit.estimateTokens(vm.input)
         let limit = ContextLimit.limit(for: settings.a2Model)
         let ratio = Double(tokens) / Double(limit)
-        let color: Color = ratio > 0.8 ? Autumn.colors.danger : (ratio > 0.6 ? Autumn.colors.warning : Autumn.colors.muted)
+        let color: Color = ratio > 0.8 ? Qcowork.colors.danger : (ratio > 0.6 ? Qcowork.colors.warning : Qcowork.colors.muted)
         return Text("\(ContextLimit.format(tokens)) / \(ContextLimit.format(limit))")
             .font(.system(size: 10, weight: .regular, design: .monospaced))
             .foregroundStyle(color)
@@ -315,15 +315,15 @@ struct ChatView: View {
                 .foregroundStyle(.white)
                 .frame(width: 38, height: 34)
                 .background(
-                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                    RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
                         .fill(vm.isRunning
-                              ? AnyShapeStyle(Autumn.colors.danger)
-                              : AnyShapeStyle(Autumn.colors.brandGradient))
+                              ? AnyShapeStyle(Qcowork.colors.danger)
+                              : AnyShapeStyle(Qcowork.colors.brandGradient))
                 )
                 .brightness(isRunButtonHovered ? 0.07 : 0)
         }
-        .buttonStyle(AutumnPressButtonStyle())
-        .onHover { h in withAnimation(Autumn.motion.soft) { isRunButtonHovered = h } }
+        .buttonStyle(QcoworkPressButtonStyle())
+        .onHover { h in withAnimation(Qcowork.motion.soft) { isRunButtonHovered = h } }
         .disabled(!vm.isRunning && vm.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .help(vm.isRunning ? "停止生成" : "发送")
     }
@@ -340,9 +340,9 @@ private struct MessageRow: View {
     let onSelectTrace: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+        HStack(alignment: .top, spacing: Qcowork.spacing.sm) {
             if message.role == .user {
-                Spacer(minLength: Autumn.spacing.xxl)
+                Spacer(minLength: Qcowork.spacing.xxl)
                 bubble
             } else {
                 Image(systemName: "leaf.fill")
@@ -350,13 +350,13 @@ private struct MessageRow: View {
                     .foregroundStyle(.tint)
                     .padding(.top, 6)
                 bubble
-                Spacer(minLength: Autumn.spacing.xxl)
+                Spacer(minLength: Qcowork.spacing.xxl)
             }
         }
     }
 
     private var bubble: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
             if message.text.isEmpty {
                 TypingIndicator()
             } else {
@@ -371,22 +371,22 @@ private struct MessageRow: View {
                 )
             }
         }
-        .padding(.horizontal, Autumn.spacing.md)
-        .padding(.vertical, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.md)
+        .padding(.vertical, Qcowork.spacing.sm)
         .background(
-            RoundedRectangle(cornerRadius: Autumn.radius.lg, style: .continuous)
+            RoundedRectangle(cornerRadius: Qcowork.radius.lg, style: .continuous)
                 .fill(message.role == .user
-                      ? Autumn.colors.userBubble
-                      : Autumn.colors.assistantBubble)
+                      ? Qcowork.colors.userBubble
+                      : Qcowork.colors.assistantBubble)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: Autumn.radius.lg, style: .continuous)
+            RoundedRectangle(cornerRadius: Qcowork.radius.lg, style: .continuous)
                 .strokeBorder(message.role == .user
-                              ? Autumn.colors.userBubbleStroke
-                              : Autumn.colors.assistantBubbleStroke,
-                              lineWidth: Autumn.stroke.hairline)
+                              ? Qcowork.colors.userBubbleStroke
+                              : Qcowork.colors.assistantBubbleStroke,
+                              lineWidth: Qcowork.stroke.hairline)
         )
-        .frame(maxWidth: Autumn.sizing.bubbleMaxWidth,
+        .frame(maxWidth: Qcowork.sizing.bubbleMaxWidth,
                alignment: message.role == .user ? .trailing : .leading)
     }
 }
@@ -397,7 +397,7 @@ private struct TypingIndicator: View {
     private let dots = 3
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.xs) {
+        HStack(spacing: Qcowork.spacing.xs) {
             ForEach(0..<dots, id: \.self) { i in
                 Circle()
                     .fill(Color.secondary)
