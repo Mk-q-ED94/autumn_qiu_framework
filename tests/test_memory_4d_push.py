@@ -3,7 +3,8 @@
 ``WP4.activate_push`` scans a zone (query-less) and fires CONSTRAIN/REMIND
 memories whose trigger/aim gates open against a turn context; ``render_push_context``
 renders them into a prompt fragment; ``Autumn.active_context`` is the public,
-flag-gated seam. Nothing is wired into the live workflow yet.
+flag-gated seam. The live wiring (``Autumn._compute_push`` → the four entry
+points → WP1/WP2/WP3) is exercised end-to-end in ``test_push_end_to_end.py``.
 """
 from autumn import Autumn
 from autumn.core.config import AutumnConfig, BehaviorConfig, ModelConfig

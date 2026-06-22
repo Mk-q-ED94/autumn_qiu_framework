@@ -69,10 +69,21 @@
 
 ## P2 — 功能完善（深化已有子系统）
 
-### ⬜ 6. WP4 / 4D push 引擎查缺补漏
+### ✅ 6. WP4 / 4D push 引擎查缺补漏
 - **动作**：核对 `autumn/core/workspace/wp4.py` 里 `fourd_push_on_turn`、Mom1 access broker、
   project intelligence、audit log 是真实现还是占位；补齐 push 激活路径的测试。
 - **判据**：push 路径有端到端用例，不只是 config flag。
+- **审计结论（2026-06-22）**：WP4 全表面均为**真实现，无占位**——push 引擎
+  （`activate_push` + `render_push_context`，gating/ranking/audit 齐全）、Mom1 access broker
+  （`Mom1AccessBroker.request`，有 `test_memory_access*`）、project intelligence（0.3.3 已迁
+  A1 转发器）、audit log（`activate_push` 落审计）、archive（`record_execution_summary`）。
+- **落地**：`tests/test_push_end_to_end.py`（8 条端到端用例）——经 `Autumn.process()` 真实
+  WP1→WP3/WP2 链路验证 CONSTRAIN/REMIND 记忆的文本确实进入模型 system prompt；覆盖
+  direct/task 双路由、push-off 负例、CONTEXT 不推、以及 `stream`/`stream_with_trace` 两个
+  流式入口同样喂 push。同时修正 `test_memory_4d_push.py` 顶部「尚未接入工作流」的过期注释。
+  测试计数 1074 → 1082。
+- **关联**：满足 `docs/api-stability.md` §6 中「4D push 端到端用例」前置条件，为 `fourd_*` /
+  `/memory/4d/*` 在 1.0 升 🟢 解锁。
 
 ### ⬜ 7. MCP stdio 客户端的重连/退避
 - **现状**：0.3.3 已修 `connect()` 的子进程泄漏与幂等守卫，但断连后无重连。
