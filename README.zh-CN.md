@@ -443,7 +443,27 @@ python -m pytest
 
 ## 开发历程
 
-当前版本：**0.3.3**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+当前版本：**0.3.4**。Autumn 遵循语义化版本；在 `0.x` 阶段，次版本号的提升代表新增功能，且可能调整 API。
+
+### 0.3.4 — 2026-06-22 · 工程质量收口：API 契约、可观测性与韧性，铺向 1.0
+
+0.3.3 之后的路线图收口——不加面向用户的新功能，全是 1.0 冻结前框架需要的加固与
+instrumentation。**1106 通过**（+67），ruff 干净，CI 覆盖率门槛已就位守线。
+
+- **API 契约：钉死并自我守护。** HTTP/SSE 表面现在是一份带版本、成文的契约
+  （`docs/http-sse-contract.md`）并配套测试；漂移守卫（`tests/test_contract_doc_sync.py`）
+  在文档与 FastAPI 实际路由任一方向出现偏离时让 CI 失败。`docs/api-stability.md`
+  记录稳定性分层，以及 1.0 冻结将承诺与不承诺什么。
+- **可观测性。** 新增 `GET /metrics` 端点，暴露进程级计数——运行数、错误数、
+  prompt/completion token 与运行时长——并由每条推理路径统一喂入（`/process` 现在
+  也走 `process_with_trace`）。服务端仅剩的 `print` 换成结构化 `logging`，CI 通过
+  `pytest-cov` 强制 85% 覆盖率下限。
+- **韧性与生命周期。** `StdioMCPClient` 新增可选的断线重连与退避；Terr 可在运行时
+  移除并重载，插件目录支持热重载；新增端到端测试覆盖经 `Autumn.process()` 的 4D
+  推送路径。
+- **性能可见性。** 新增检索基准（`script/bench_recall.py`，结论见 `docs/bench-recall.md`），
+  随存储增长测量全部五种记忆后端，证实向量层的暴力扫描是 O(N·dim)——在当下每 zone
+  规模下尚可，但这正是大存储语义检索在脱离实验阶段前需要 ANN 索引的成文理由。
 
 ### 0.3.3 — 2026-06-20 · 全项目正确性、安全与资源泄漏加固
 

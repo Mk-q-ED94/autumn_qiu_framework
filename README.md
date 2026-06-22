@@ -509,8 +509,35 @@ python -m pytest
 
 ## Development history
 
-Current version: **0.3.3**. Autumn follows semantic versioning; while `0.x`,
+Current version: **0.3.4**. Autumn follows semantic versioning; while `0.x`,
 minor versions add features and may adjust APIs.
+
+### 0.3.4 — 2026-06-22 · Engineering-quality pass: API contract, observability & resilience toward 1.0
+
+The post-0.3.3 roadmap pass — no user-facing features, all the hardening and
+instrumentation the framework wants before a 1.0 freeze. **1106 passing** (+67),
+ruff clean, with a CI coverage gate now holding the line.
+
+- **API contract, pinned and self-guarding.** The HTTP/SSE surface is now a
+  versioned, documented contract (`docs/http-sse-contract.md`) with a matching
+  test suite, and a drift guard (`tests/test_contract_doc_sync.py`) fails CI if
+  the doc and the live FastAPI routes diverge in either direction.
+  `docs/api-stability.md` records the stability tiers and what the 1.0 freeze
+  will and won't promise.
+- **Observability.** A new `GET /metrics` endpoint exposes per-process
+  counters — runs, errors, prompt/completion tokens and uptime — fed uniformly
+  from every inference path (`/process` now routes through `process_with_trace`).
+  The server's lone `print` becomes structured `logging`, and CI enforces an
+  85% coverage floor via `pytest-cov`.
+- **Resilience & lifecycle.** `StdioMCPClient` gained opt-in reconnect with
+  backoff after a dropped transport; Terrs can be removed and reloaded at
+  runtime and the plugin directory hot-reloads; an end-to-end test now covers
+  the 4D-push path through `Autumn.process()`.
+- **Performance visibility.** A new recall benchmark (`script/bench_recall.py`,
+  findings in `docs/bench-recall.md`) times all five memory backends as the
+  store grows, confirming the vector layer's brute-force scan is O(N·dim) — fine
+  at today's per-zone sizes, but the documented reason large-store semantic
+  recall needs an ANN index before it leaves experimental.
 
 ### 0.3.3 — 2026-06-20 · Project-wide correctness, security & resource-leak hardening
 

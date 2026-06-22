@@ -91,7 +91,7 @@ Authorization: Bearer <secret>
   "configured": true,
   "last_error": null,
   "api_revision": 1,
-  "version": "0.3.3"
+  "version": "0.3.4"
 }
 ```
 
