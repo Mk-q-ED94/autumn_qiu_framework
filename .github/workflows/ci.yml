@@ -24,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,server]"
       - name: Run test suite
-        run: pytest -q
+        run: pytest -q --cov=autumn --cov-report=term-missing --cov-fail-under=85
 
   lint:
     name: ruff

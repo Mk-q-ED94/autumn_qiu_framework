@@ -127,8 +127,12 @@
 ### ⬜ 9. 性能基准
 给 4D recall（dict/lexical/vector/hybrid/markdown 五后端）建 benchmark，盯住向量召回在大库下的延迟。
 
-### ⬜ 10. CI 增强
+### 🟡 10. CI 增强
 现有 ruff + pytest 3.11/3.12 之上加覆盖率门槛 + e2e job。
+- **进展（2026-06-22）**：`pytest-cov>=5` 进 dev 依赖；`[tool.coverage.run]` 配置 source + omit
+  `__main__.py`；CI `pytest` 步骤加 `--cov=autumn --cov-fail-under=85`（基线 87.7%，门槛 85%
+  留 ~3% 弹性）；两个 Python 版本矩阵均执行覆盖率检查。
+- **待收口**：e2e job（需浏览器环境 / 独立 runner）。
 
 ### ⬜ 11. 可观测性
 server 加结构化日志 + 基础 metrics（每轮 token、各 WP 耗时），为后续多用户做铺垫。
