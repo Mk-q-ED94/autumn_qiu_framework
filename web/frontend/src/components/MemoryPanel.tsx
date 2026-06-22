@@ -50,7 +50,7 @@ export function MemoryPanel({ settings }: Props) {
     <div className="panel">
       <div className="panel__header">
         <h2>记忆</h2>
-        <button className="btn btn--secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={load}>
+        <button className="btn btn--secondary btn--compact" onClick={load}>
           刷新
         </button>
       </div>
@@ -68,20 +68,20 @@ export function MemoryPanel({ settings }: Props) {
       </div>
 
       <div className="panel__body">
-        <div style={{ fontSize: 11, color: "var(--text-3)" }}>{current.desc}</div>
+        <div className="panel__description">{current.desc}</div>
 
         {error && (
-          <div className="error-banner" style={{ borderRadius: "var(--r-md)", border: "1px solid rgba(248 113 113 / 0.2)" }}>
+          <div className="error-banner error-banner--panel">
             {error}
           </div>
         )}
 
         {loading ? (
-          <div style={{ display: "flex", justifyContent: "center" }}>
+          <div className="panel__loading">
             <span className="spinner" />
           </div>
         ) : entries.length === 0 ? (
-          <div className="empty-state" style={{ flex: "none" }}>
+          <div className="empty-state empty-state--compact">
             <div className="empty-state__icon">◈</div>
             <div className="empty-state__title">暂无记忆条目</div>
             <div className="empty-state__sub">

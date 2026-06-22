@@ -87,7 +87,7 @@ function StageCapsule({ stage }: { stage: WorkflowStage }) {
       {stageGlyph(stage)}{" "}
       {stage.title}
       {stage.source_terr && (
-        <span className="badge badge--info" style={{ marginLeft: 3, fontSize: 8 }}>
+        <span className="badge badge--info pipeline-source-badge">
           {stage.source_terr}
         </span>
       )}
@@ -96,7 +96,7 @@ function StageCapsule({ stage }: { stage: WorkflowStage }) {
 }
 
 function ToolCountChip({ count }: { count: number }) {
-  return <div className="tool-chip">🔧 {count}</div>;
+  return <div className="tool-chip">Tool · {count}</div>;
 }
 
 function AgentChip() {
@@ -113,9 +113,9 @@ function TraceRow({ stage, isLast }: { stage: WorkflowStage; isLast: boolean }) 
       </div>
       <div className="trace-stage-body">
         <div className="trace-stage-title">
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{stage.title}</span>
+          <span className="trace-stage-name">{stage.title}</span>
           {stage.source_terr && (
-            <span className="badge badge--info" style={{ fontSize: 9 }}>
+            <span className="badge badge--info trace-source-badge">
               Terr · {stage.source_terr}
             </span>
           )}
@@ -125,7 +125,7 @@ function TraceRow({ stage, isLast }: { stage: WorkflowStage; isLast: boolean }) 
         </div>
         <div className="trace-stage-detail">{stage.detail}</div>
         {(stage.prompt_tokens !== undefined || stage.completion_tokens !== undefined) && (
-          <div style={{ fontSize: 10, color: "var(--text-3)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+          <div className="trace-stage-metrics">
             {stage.prompt_tokens !== undefined && `↑${fmtTok(stage.prompt_tokens)}`}
             {" "}
             {stage.completion_tokens !== undefined && `↓${fmtTok(stage.completion_tokens)}`}
@@ -160,11 +160,11 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
       : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+    <div className="pipeline-stack">
       {/* Strip row */}
       <div className="pipeline-strip">
         {mainStages.map((stage, i) => (
-          <div key={stage.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div key={stage.id} className="pipeline-stage-wrap">
             {i > 0 && <div className="stage-connector" />}
             <StageCapsule stage={stage} />
           </div>
@@ -178,23 +178,22 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
         {toolCount > 0 && <ToolCountChip count={toolCount} />}
 
         {/* Summary + expand toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+        <div className="pipeline-summary">
           {tokenSummary && (
-            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>
+            <span className="pipeline-metric">
               {tokenSummary}
             </span>
           )}
           {costSummary && (
             <span
-              className="trace-cost"
               title="本轮预估费用（按已配置的模型单价）"
-              style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--success)" }}
+              className="pipeline-metric pipeline-metric--cost"
             >
               {costSummary}
             </span>
           )}
           {totalMs > 0 && (
-            <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>
+            <span className="pipeline-metric">
               {fmtMs(totalMs)}
             </span>
           )}
@@ -203,9 +202,7 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
             onClick={() => setExpanded((e) => !e)}
             title={expanded ? "收起 trace" : "展开 trace"}
           >
-            <span
-              style={{ display: "inline-block", transition: "transform 0.15s", transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
-            >
+            <span className={`pipeline-chevron${expanded ? " expanded" : ""}`}>
               ▾
             </span>
           </button>
@@ -216,17 +213,17 @@ export function PipelineStrip({ trace }: { trace: WorkflowTrace }) {
       {expanded && (
         <div className="trace-detail">
           <div className="trace-header">
-            <span className="badge badge--neutral" style={{ fontSize: 10 }}>
+            <span className="badge badge--neutral trace-route-badge">
               {routeLabel(trace)}
             </span>
             {tokenSummary && <span className="trace-tokens">{tokenSummary}</span>}
             {costSummary && (
-              <span className="trace-cost" style={{ marginLeft: 4, color: "var(--success)" }}>
+              <span className="trace-cost trace-header-cost">
                 {costSummary}
               </span>
             )}
             {totalMs > 0 && (
-              <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-3)", marginLeft: 4 }}>
+              <span className="trace-header-duration">
                 {fmtMs(totalMs)}
               </span>
             )}

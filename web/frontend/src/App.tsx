@@ -54,6 +54,7 @@ type View = "chat" | "workspace" | "memory" | "settings";
 
 export function App() {
   const [view, setView] = useState<View>("chat");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [conversations, setConversations] = useState<Conversation[]>(() => {
     const cs = loadConversations();
@@ -117,25 +118,58 @@ export function App() {
 
   const handleError = useCallback((err: string) => setError(err), []);
 
+  function showView(next: View) {
+    setView(next);
+    setSidebarOpen(false);
+  }
+
+  const viewLabel: Record<View, string> = {
+    chat: "协作",
+    workspace: "能力域",
+    memory: "记忆",
+    settings: "设置",
+  };
+
   return (
-    <div className="app">
+    <div className={`app${sidebarOpen ? " sidebar-open" : ""}`}>
       <Sidebar
         view={view}
-        onView={setView}
+        onView={showView}
         conversations={[...conversations].sort((a, b) => b.createdAt - a.createdAt)}
         activeId={activeId}
-        onSelect={(id) => { setActiveId(id); setView("chat"); }}
-        onNew={createConversation}
+        onSelect={(id) => { setActiveId(id); showView("chat"); }}
+        onNew={() => { createConversation(); setSidebarOpen(false); }}
         onDelete={deleteConversation}
         health={health}
-        onAgentClick={() => setView("settings")}
+        onAgentClick={() => showView("settings")}
+        onClose={() => setSidebarOpen(false)}
+      />
+
+      <button
+        className="sidebar-scrim"
+        aria-label="关闭导航"
+        onClick={() => setSidebarOpen(false)}
       />
 
       <main className="main">
+        <header className="mobile-topbar">
+          <button
+            className="mobile-topbar__menu"
+            aria-label="打开导航"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen(true)}
+          >
+            <span />
+            <span />
+          </button>
+          <span className="mobile-topbar__title">{viewLabel[view]}</span>
+          <span className="mobile-topbar__mark">秋</span>
+        </header>
+
         {error && (
           <div className="error-banner">
-            <span>⚠ {error}</span>
-            <button className="error-banner__close btn" onClick={() => setError("")}>✕</button>
+            <span>错误 · {error}</span>
+            <button className="error-banner__close btn" onClick={() => setError("")} aria-label="关闭错误提示">×</button>
           </div>
         )}
 

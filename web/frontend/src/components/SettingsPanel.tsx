@@ -57,7 +57,7 @@ function FourDSettings({ settings }: { settings: Settings }) {
     <div className="settings-section">
       <div className="settings-section__title">4D 记忆引擎</div>
       {!status && !err && <div className="field__hint">加载中…</div>}
-      {err && <div className="field__hint" style={{ color: "var(--danger)" }}>{err}</div>}
+      {err && <div className="field__hint field__hint--error">{err}</div>}
       {status &&
         FOURD_ROWS.map((r) => (
           <div key={r.key} className="fourd-row">
@@ -118,24 +118,11 @@ function SlotCard({
     onChange({ ...slot, ...patch });
   }
 
-  const slotColor: Record<string, string> = {
-    A1: "var(--wp1)", A2: "var(--wp2)", A3: "var(--wp3)", A4: "var(--muted)",
-  };
-
   return (
-    <div className="slot-card" style={{ opacity: optional && !enabled ? 0.55 : 1 }}>
+    <div className={`slot-card${optional && !enabled ? " disabled" : ""}`}>
       <div className="slot-card__header">
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sm)" }}>
-          <span
-            style={{
-              width: 22, height: 22,
-              borderRadius: "var(--r-sm)",
-              background: slotColor[label] ?? "var(--surface-elevated)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 10, fontWeight: 700, color: "#fff",
-              flexShrink: 0,
-            }}
-          >
+        <div className="slot-card__identity">
+          <span className={`slot-card__badge ${label.toLowerCase()}`}>
             {label}
           </span>
           <span className="slot-card__label">{label}</span>
@@ -184,10 +171,10 @@ function SlotCard({
           </div>
           <div className="field span-2">
             <label>模型</label>
-            <div style={{ display: "flex", gap: "var(--sm)" }}>
+            <div className="field-inline">
               {models.length > 0 ? (
                 <select
-                  style={{ flex: 1 }}
+                  className="field-grow"
                   value={slot.model}
                   onChange={(e) => update({ model: e.target.value })}
                 >
@@ -199,15 +186,14 @@ function SlotCard({
               ) : (
                 <input
                   type="text"
-                  style={{ flex: 1 }}
+                  className="field-grow"
                   value={slot.model}
                   onChange={(e) => update({ model: e.target.value })}
                   placeholder="gpt-4o-mini"
                 />
               )}
               <button
-                className="btn btn--secondary"
-                style={{ padding: "6px 10px", fontSize: 11 }}
+                className="btn btn--secondary btn--compact"
                 onClick={fetchModels}
                 disabled={fetching}
                 title="拉取模型列表"
@@ -218,14 +204,14 @@ function SlotCard({
           </div>
           <div className="field span-2">
             <label>
-              定价（可选，USD / 1M tokens）<span className="field__hint" style={{ marginLeft: 6 }}>填写后 trace 显示每轮费用</span>
+              定价（可选，USD / 1M tokens）<span className="field__hint field__hint--inline">填写后 trace 显示每轮费用</span>
             </label>
-            <div style={{ display: "flex", gap: "var(--sm)" }}>
+            <div className="field-inline">
               <input
                 type="number"
                 min={0}
                 step="0.01"
-                style={{ flex: 1 }}
+                className="field-grow"
                 value={slot.input_price_per_1m ?? ""}
                 onChange={(e) =>
                   update({ input_price_per_1m: e.target.value === "" ? undefined : Number(e.target.value) })
@@ -236,7 +222,7 @@ function SlotCard({
                 type="number"
                 min={0}
                 step="0.01"
-                style={{ flex: 1 }}
+                className="field-grow"
                 value={slot.output_price_per_1m ?? ""}
                 onChange={(e) =>
                   update({ output_price_per_1m: e.target.value === "" ? undefined : Number(e.target.value) })
@@ -333,8 +319,7 @@ export function SettingsPanel({ settings, onChange }: Props) {
                 <div className={`health-dot ${health.ok ? "ok" : "error"}`} />
                 <span>{health.msg || "未检查"}</span>
                 <button
-                  className="btn btn--secondary"
-                  style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 11 }}
+                  className="btn btn--secondary btn--compact btn--right"
                   onClick={checkHealth}
                   disabled={checking}
                 >
@@ -419,12 +404,12 @@ export function SettingsPanel({ settings, onChange }: Props) {
               />
             )}
 
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--md)" }}>
+            <div className="settings-actions">
               <button className="btn btn--primary" onClick={applyConfig} disabled={applying}>
-                {applying ? <span className="spinner spinner--sm" style={{ borderTopColor: "#fff" }} /> : "应用配置"}
+                {applying ? <span className="spinner spinner--sm spinner--inverse" /> : "应用配置"}
               </button>
               {applyMsg && (
-                <span style={{ fontSize: 12, color: applyMsg.startsWith("✓") ? "var(--success)" : "var(--danger)" }}>
+                <span className={`settings-actions__message ${applyMsg.startsWith("✓") ? "success" : "danger"}`}>
                   {applyMsg}
                 </span>
               )}
@@ -438,9 +423,9 @@ export function SettingsPanel({ settings, onChange }: Props) {
             <FourDSettings settings={settings} />
             <div className="settings-section">
               <div className="settings-section__title">关于</div>
-              <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "var(--lg)" }}>
-                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: "var(--sm)" }}>秋 / Autumn 0.3.0</div>
-                <div style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6 }}>
+              <div className="about-card">
+                <div className="about-card__title">秋 / Autumn 0.3.0</div>
+                <div className="about-card__body">
                   多模型协作工作流框架。A1 组长分类、规划并监督，A2 执行任务，A3 处理 Mission，A4 管理 4D 记忆（Mom1/2/3 + shared）。
                   <br />
                   <br />
