@@ -101,7 +101,30 @@ Authorization: Bearer <secret>
 
 ---
 
-### 4.2 `POST /process`
+### 4.2 `GET /metrics`
+
+进程生命周期内的累计运行指标；需要认证（与其他端点一致）。
+
+**响应 200**
+
+```json
+{
+  "runs": 42,
+  "errors": 1,
+  "prompt_tokens": 185320,
+  "completion_tokens": 34210,
+  "uptime_seconds": 3601.5
+}
+```
+
+- `runs`：`/process`、`/trace`、`/stream` 成功完成的推理总次数
+- `errors`：`_record_failure` 记录的 502 错误次数（不含客户端 4xx）
+- `prompt_tokens` / `completion_tokens`：所有 WorkflowStage 的 token 累计
+- `uptime_seconds`：服务进程启动以来的秒数
+
+---
+
+### 4.3 `POST /process`
 
 同步单次推理，等待完整输出后返回。
 
@@ -135,7 +158,7 @@ Authorization: Bearer <secret>
 
 ---
 
-### 4.3 `POST /trace`
+### 4.4 `POST /trace`
 
 同步推理，返回完整 WorkflowRun trace。字段与 `/process` 相同。
 
@@ -175,7 +198,7 @@ Authorization: Bearer <secret>
 
 ---
 
-### 4.4 `POST /intent`
+### 4.5 `POST /intent`
 
 仅分类意图，不执行推理。字段与 `/process` 相同。
 
@@ -193,7 +216,7 @@ Authorization: Bearer <secret>
 
 ---
 
-### 4.5 `GET /stream` （SSE）
+### 4.6 `GET /stream` （SSE）
 
 流式推理。见 [§5](#5-sse-流格式) 了解事件格式。
 

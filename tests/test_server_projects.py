@@ -121,7 +121,8 @@ def test_process_threads_project_instructions(configured_client):
     )
     assert r.status_code == 200
     autumn = configured_client.app.state.autumn
-    sent = autumn.process_calls[-1]
+    # /process calls process_with_trace internally; check trace_calls
+    sent = autumn.trace_calls[-1]
     assert "Use haiku format." in sent
     assert "write a poem" in sent
     assert "[项目指令" in sent
@@ -130,7 +131,7 @@ def test_process_threads_project_instructions(configured_client):
 def test_process_without_project_unchanged(configured_client):
     r = configured_client.post("/process", json={"input": "write a poem"})
     assert r.status_code == 200
-    sent = configured_client.app.state.autumn.process_calls[-1]
+    sent = configured_client.app.state.autumn.trace_calls[-1]
     assert sent == "write a poem"
     assert "[项目指令" not in sent
 
@@ -141,7 +142,7 @@ def test_process_blank_project_instructions_unchanged(configured_client):
         json={"input": "hi", "project_instructions": "   "},
     )
     assert r.status_code == 200
-    sent = configured_client.app.state.autumn.process_calls[-1]
+    sent = configured_client.app.state.autumn.trace_calls[-1]
     assert sent == "hi"
 
 
@@ -242,7 +243,7 @@ def test_process_request_schema_accepts_legacy_payload(configured_client):
         json={"input": "hi", "route": "direct", "input_type": "mission"},
     )
     assert r.status_code == 200
-    sent = configured_client.app.state.autumn.process_calls[-1]
+    sent = configured_client.app.state.autumn.trace_calls[-1]
     assert sent == "hi"
 
 

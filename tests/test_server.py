@@ -509,7 +509,7 @@ def test_process_pipeline_failure_returns_502(configured_client):
     async def boom(*args, **kwargs):
         raise RuntimeError("model API exploded")
 
-    configured_client.app.state.autumn.process = boom
+    configured_client.app.state.autumn.process_with_trace = boom
     r = configured_client.post("/process", json={"input": "hi"})
     assert r.status_code == 502
     assert "model API exploded" in r.json()["detail"]

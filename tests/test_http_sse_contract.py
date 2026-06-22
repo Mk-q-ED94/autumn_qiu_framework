@@ -91,6 +91,8 @@ class _FakeAutumn:
         return f"output:{text}"
 
     async def process_with_trace(self, text, mission_route=None, input_type=None, task_type=None):
+        if self._process_raises:
+            raise self._process_raises
         run = WorkflowRun(
             output=f"output:{text}",
             input_type=input_type or InputType.MISSION,
@@ -190,6 +192,43 @@ def test_health_configured_false_when_unconfigured(unconfigured_client):
     r = unconfigured_client.get("/health")
     assert r.status_code == 200
     assert r.json()["configured"] is False
+
+
+# ── §4.2 GET /metrics ─────────────────────────────────────────────────────────
+
+def test_metrics_returns_required_fields(client):
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    body = r.json()
+    for key in ("runs", "errors", "prompt_tokens", "completion_tokens", "uptime_seconds"):
+        assert key in body, f"missing field: {key}"
+    assert isinstance(body["runs"], int)
+    assert isinstance(body["uptime_seconds"], float)
+
+
+def test_metrics_runs_increment_on_process(client):
+    before = client.get("/metrics").json()["runs"]
+    client.post("/process", json={"input": "hi"})
+    after = client.get("/metrics").json()["runs"]
+    assert after == before + 1
+
+
+def test_metrics_token_counts_accumulate(client):
+    before = client.get("/metrics").json()
+    client.post("/process", json={"input": "hi"})
+    after = client.get("/metrics").json()
+    # _FakeAutumn.process_with_trace returns one stage with prompt=100, completion=12
+    assert after["prompt_tokens"] == before["prompt_tokens"] + 100
+    assert after["completion_tokens"] == before["completion_tokens"] + 12
+
+
+def test_metrics_errors_increment_on_failure(client):
+    before = client.get("/metrics").json()["errors"]
+    client.app.state.autumn._process_raises = RuntimeError("boom")
+    client.post("/process", json={"input": "hi"})
+    client.app.state.autumn._process_raises = None
+    after = client.get("/metrics").json()["errors"]
+    assert after == before + 1
 
 
 # ── §2 Authentication ─────────────────────────────────────────────────────────
