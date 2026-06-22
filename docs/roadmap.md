@@ -99,10 +99,23 @@
   `max_reconnect_attempts=3`。测试 `tests/test_mcp.py` +5（崩溃恢复 / 预算耗尽降级 /
   默认关闭向后兼容 / 关闭后不复活 / 幂等守卫保持）。计数 1082 → 1087。
 
-### ⬜ 8. 插件 / Terr 热重载
+### ✅ 8. 插件 / Terr 热重载
 - **动作**：评估 `PluginLoader` 支持运行时重载 `.py`（无需重启 server），至少做到
   add/remove Terr 不重启。
 - **判据**：改一个 builtin Terr → 走 `/config/apply` 或专用端点生效。
+- **落地**：
+  - `Autumn.remove_terr(name)`（异步，注销 tools/skills + 断开该域 MCP + 丢弃记录，幂等）
+    与 `Autumn.reload_terr(terr)`（热替换同名域，保留 enabled/disabled 状态）。
+  - `PluginLoader` 加 per-Terr 归属追踪（`register_terr(..., extra_callables=)` 含 MCP-bridged
+    工具名）+ `remove_terr` 精确注销；`reload_from_directory` 重新执行插件 `.py` 并按增量
+    增删 Terr。`load_from_directory` 改为每次从源码 `compile`，绕开 `.pyc` 的
+    (mtime,size) 缓存，使**同长度小改动**（如改一字符）也能生效。
+  - `_collect_plugins` 每轮新解析，故移除的能力在下一轮即从模型视野消失。
+- **测试**：`tests/test_terr.py` +8（add→remove 注销 / 未知域 no-op / remove 断开 MCP /
+  reload 换定义 / reload 保留禁用态 / reload 换 MCP / 目录重载拾取编辑 / 目录重载删除消失的域）。
+  计数 1087 → 1095。
+- **备注**：服务端默认不挂插件目录，故 HTTP「专用端点」留作薄封装的后续；框架/loader 层
+  的运行时增删改能力已完整且经测试。
 
 ---
 

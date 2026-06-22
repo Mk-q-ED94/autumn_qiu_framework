@@ -105,6 +105,9 @@ class Autumn:
         self.config = config
         self.plugins = PluginLoader()
         self._mcp_clients: list[MCPClient] = []
+        # MCP clients owned by each added Terr, so remove_terr/reload_terr can
+        # disconnect exactly the servers that domain brought online.
+        self._terr_clients: dict[str, list[MCPClient]] = {}
         self._build(config, interaction)
 
         for d in (plugin_dirs or []):
@@ -773,6 +776,7 @@ class Autumn:
         """
         connected_clients: list[MCPClient] = []
         registered_names: list[str] = []
+        bridged_names: list[str] = []
         try:
             for client in terr.mcps:
                 await client.connect()
@@ -782,6 +786,7 @@ class Autumn:
                     _mark_terr_source(tool, terr)
                     self.register_tool(tool)
                     registered_names.append(tool.name)
+                    bridged_names.append(tool.name)
             for tool in terr.tools:
                 _mark_terr_source(tool, terr)
                 self.register_tool(tool)
@@ -790,7 +795,10 @@ class Autumn:
                 _mark_terr_source(skill, terr)
                 self.register_skill(skill)
                 registered_names.append(skill.name)
-            self.plugins.register_terr(terr)
+            # Pass the MCP-bridged tool names too so a later remove_terr can
+            # unregister them (they aren't on terr.tools/terr.skills).
+            self.plugins.register_terr(terr, extra_callables=tuple(bridged_names))
+            self._terr_clients[terr.name] = connected_clients
         except Exception:
             for name in registered_names:
                 self.plugins.unregister(name)
@@ -804,6 +812,46 @@ class Autumn:
                 except Exception:  # noqa: BLE001 — rollback is best-effort
                     pass
             raise
+
+    async def remove_terr(self, name: str) -> bool:
+        """Tear down a registered Terr at runtime, no restart required.
+
+        Unregisters every tool/skill the domain owns (including MCP-bridged
+        tools), disconnects and drops any MCP servers it brought online, and
+        forgets the domain. Idempotent: returns ``False`` for an unknown Terr,
+        ``True`` when something was removed. ``_collect_plugins`` resolves fresh
+        each turn, so the removed capabilities vanish from the model on the very
+        next turn.
+        """
+        known = name in self.plugins.all_terrs()
+        self.plugins.remove_terr(name)
+        for client in self._terr_clients.pop(name, []):
+            try:
+                self._mcp_clients.remove(client)
+            except ValueError:
+                pass
+            try:
+                await client.disconnect()
+            except Exception:  # noqa: BLE001 — teardown is best-effort
+                pass
+        return known
+
+    async def reload_terr(self, terr: Terr) -> None:
+        """Hot-swap a capability domain: remove the existing Terr of the same
+        name (if any) and register the new definition in its place.
+
+        Lets an edited/rebuilt Terr take effect without a restart, while
+        preserving the prior enabled/disabled state so a domain a user had
+        switched off stays off across the swap.
+        """
+        was_disabled = (
+            terr.name in self.plugins.all_terrs()
+            and not self.plugins.is_terr_enabled(terr.name)
+        )
+        await self.remove_terr(terr.name)
+        await self.add_terr(terr)
+        if was_disabled:
+            self.plugins.set_terr_enabled(terr.name, False)
 
     # ── codebase-memory token-saving layer ──────────────────────────────────────
 
