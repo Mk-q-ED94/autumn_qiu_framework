@@ -354,3 +354,134 @@ for line in sys.stdin:
         assert "crash" in msg or "dying" in msg
     finally:
         await client.disconnect()
+
+
+# ── P2 #7: opt-in reconnect / backoff ─────────────────────────────────────────
+
+
+# A server whose first generation dies on its first tool call; later generations
+# (after a respawn) serve normally. A per-launch counter file distinguishes them.
+_CRASH_ONCE_SERVER = """
+import json, sys, os
+marker = os.environ["AUTUMN_MARKER"]
+gen = 0
+if os.path.exists(marker):
+    gen = int(open(marker).read() or "0")
+gen += 1
+open(marker, "w").write(str(gen))
+def emit(obj): sys.stdout.write(json.dumps(obj) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    if not line.strip(): continue
+    msg = json.loads(line)
+    if "id" not in msg: continue
+    if msg.get("method") == "initialize":
+        emit({"jsonrpc":"2.0","id":msg["id"],"result":{"protocolVersion":"2024-11-05"}})
+    elif msg.get("method") == "tools/call":
+        if gen == 1:
+            sys.exit(1)  # first generation dies mid-request → EOF on stdout
+        emit({"jsonrpc":"2.0","id":msg["id"],"result":{"content":[{"type":"text","text":"gen%d" % gen}]}})
+"""
+
+# A server that dies on every tool call, in every generation — reconnect can
+# never make progress, so the budget must be exhausted and the error propagate.
+_ALWAYS_CRASH_SERVER = """
+import json, sys
+def emit(obj): sys.stdout.write(json.dumps(obj) + "\\n"); sys.stdout.flush()
+for line in sys.stdin:
+    if not line.strip(): continue
+    msg = json.loads(line)
+    if "id" not in msg: continue
+    if msg.get("method") == "initialize":
+        emit({"jsonrpc":"2.0","id":msg["id"],"result":{"protocolVersion":"2024-11-05"}})
+    elif msg.get("method") == "tools/call":
+        sys.exit(1)
+"""
+
+
+async def test_reconnect_off_by_default_propagates_crash():
+    """Default client (no reconnect) keeps the original behaviour: a crash
+    raises MCPConnectionLost and the client stays dead."""
+    from autumn.core.components.mcp_stdio import MCPConnectionLost
+
+    client = StdioMCPClient(_python_script(_ALWAYS_CRASH_SERVER), timeout=2.0)
+    await client.connect()
+    try:
+        with pytest.raises(MCPConnectionLost):
+            await client.call_tool("echo", {})
+        assert client._generation == 1  # no respawn happened
+    finally:
+        await client.disconnect()
+
+
+async def test_reconnect_recovers_from_a_crash(tmp_path):
+    """With reconnect enabled, a crashed server is transparently respawned and
+    the request retried on the fresh process — the caller sees a result."""
+    marker = tmp_path / "gen"
+    client = StdioMCPClient(
+        _python_script(_CRASH_ONCE_SERVER),
+        env={"AUTUMN_MARKER": str(marker)},
+        timeout=2.0,
+        max_reconnect_attempts=3,
+        reconnect_backoff_base=0.01,  # keep the test fast
+    )
+    await client.connect()
+    try:
+        result = await client.call_tool("echo", {})
+        assert result == [{"type": "text", "text": "gen2"}]  # served by the respawn
+        assert client._generation == 2  # exactly one reconnect
+    finally:
+        await client.disconnect()
+
+
+async def test_reconnect_exhausts_budget_then_raises():
+    """A server that dies on every call can never recover — after the configured
+    number of attempts the transport error propagates so the caller can degrade."""
+    from autumn.core.components.mcp_stdio import MCPConnectionLost
+
+    client = StdioMCPClient(
+        _python_script(_ALWAYS_CRASH_SERVER),
+        timeout=2.0,
+        max_reconnect_attempts=2,
+        reconnect_backoff_base=0.01,
+    )
+    await client.connect()
+    try:
+        with pytest.raises(MCPConnectionLost):
+            await client.call_tool("echo", {})
+        # connect (gen 1) + two reconnect respawns = gen 3, then it gives up.
+        assert client._generation == 3
+    finally:
+        await client.disconnect()
+
+
+async def test_reconnect_suppressed_after_intentional_disconnect():
+    """Once disconnect() latches _closed, a later request must not resurrect the
+    subprocess — it fails fast instead of silently reconnecting."""
+    from autumn.core.components.mcp_stdio import MCPConnectionLost
+
+    client = StdioMCPClient(
+        _python_script(_server_script()),
+        max_reconnect_attempts=5,
+        reconnect_backoff_base=0.01,
+    )
+    await client.connect()
+    await client.disconnect()
+    with pytest.raises(MCPConnectionLost):
+        await client.call_tool("echo", {})
+    assert client._proc is None  # no respawn after an intentional close
+
+
+async def test_reconnect_preserves_double_connect_guard(tmp_path):
+    """Reconnect config doesn't loosen the idempotency guard."""
+    marker = tmp_path / "gen"
+    client = StdioMCPClient(
+        _python_script(_CRASH_ONCE_SERVER),
+        env={"AUTUMN_MARKER": str(marker)},
+        max_reconnect_attempts=2,
+    )
+    await client.connect()
+    try:
+        with pytest.raises(RuntimeError):
+            await client.connect()
+    finally:
+        await client.disconnect()
