@@ -24,6 +24,7 @@ struct SettingsView: View {
     @State private var pullingOllamaModel: String?
     @State private var ollamaPullProgress: String?
     @State private var ollamaError: String?
+    @State private var serverMetrics: MetricsResponse? = nil
 
     // 4D memory runtime switches (read from / written to the server live).
     @State private var fourdMemoryEnabled = false
@@ -96,6 +97,7 @@ struct SettingsView: View {
             Task { await loadFourD() }
             Task { await loadCodebaseMemory() }
             Task { await loadIntegrations() }
+            Task { await loadMetrics() }
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
@@ -510,6 +512,14 @@ struct SettingsView: View {
                 Text("A1 负责工作流协调与项目元数据讨论；A4/WP4 专注记忆管理和归并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let m = serverMetrics {
+                    Divider()
+                    LabeledContent("累计运行", value: "\(m.runs) 次")
+                    LabeledContent("错误数", value: "\(m.errors) 次")
+                    LabeledContent("输入 Token", value: fmtMetricTokens(m.promptTokens))
+                    LabeledContent("输出 Token", value: fmtMetricTokens(m.completionTokens))
+                    LabeledContent("运行时长", value: fmtMetricUptime(m.uptimeSeconds))
+                }
             }
         }
     }
@@ -557,6 +567,20 @@ struct SettingsView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 
+    private func fmtMetricTokens(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000) }
+        if n >= 1_000 { return "\(n / 1_000) K" }
+        return "\(n)"
+    }
+
+    private func fmtMetricUptime(_ s: Double) -> String {
+        let total = Int(s)
+        let d = total / 86400; let h = (total % 86400) / 3600; let m = (total % 3600) / 60
+        if d > 0 { return "\(d)d \(h)h" }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+
     private var fourdMemoryBinding: Binding<Bool> {
         Binding(
             get: { fourdMemoryEnabled },
@@ -576,6 +600,11 @@ struct SettingsView: View {
             get: { mom1AccessEnabled },
             set: { mom1AccessEnabled = $0; Task { await applyFourD() } }
         )
+    }
+
+    private func loadMetrics() async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        serverMetrics = await AutumnClient(baseURL: url).fetchMetrics()
     }
 
     private func checkConnection() async {
