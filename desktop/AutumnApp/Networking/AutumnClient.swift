@@ -62,6 +62,14 @@ final class AutumnClient {
         return try? JSONDecoder().decode(HealthResponse.self, from: data)
     }
 
+    func fetchMetrics() async -> MetricsResponse? {
+        guard let request = try? URLRequest(url: baseURL.appendingPathComponent("metrics")) else { return nil }
+        guard let (data, response) = try? await Self.session.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200
+        else { return nil }
+        return try? JSONDecoder().decode(MetricsResponse.self, from: data)
+    }
+
     func fetchModels(apiKey: String, baseURL: String, apiProtocol: String) async throws -> [String] {
         var request = URLRequest(url: self.baseURL.appendingPathComponent("models"))
         request.httpMethod = "POST"

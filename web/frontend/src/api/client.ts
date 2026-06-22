@@ -16,6 +16,7 @@ import type {
   OllamaRecommended,
   OllamaStatus,
   Protocol,
+  ServerMetrics,
   Settings,
   SlotConfig,
   StreamEvent,
@@ -106,6 +107,12 @@ export async function getHealth(settings: Settings): Promise<{
   last_error?: string;
 }> {
   return json(settings, "/health");
+}
+
+// ── /metrics ──────────────────────────────────────────────────────────────────
+
+export async function getMetrics(settings: Settings): Promise<ServerMetrics> {
+  return json(settings, "/metrics");
 }
 
 // ── /models ───────────────────────────────────────────────────────────────────

@@ -1098,6 +1098,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offs
 .about-card { padding: var(--lg); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-raised); }
 .about-card__title { margin-bottom: var(--sm); font-size: 13px; font-weight: 600; }
 .about-card__body { color: var(--text-2); font-size: 12px; line-height: 1.6; }
+.about-card__metrics { margin-top: var(--md); padding-top: var(--md); border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: var(--sm) var(--md); }
+.about-metrics-cell { display: flex; flex-direction: column; gap: 2px; }
+.about-metrics-cell__label { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.about-metrics-cell__value { font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.about-metrics-cell__value--error { color: var(--danger-text); }
 
 .panel__description { color: var(--text-3); font-size: 11px; }
 .panel__loading { display: flex; justify-content: center; }

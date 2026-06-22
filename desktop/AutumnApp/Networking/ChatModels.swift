@@ -442,6 +442,21 @@ struct HealthResponse: Decodable {
     }
 }
 
+struct MetricsResponse: Decodable {
+    let runs: Int
+    let errors: Int
+    let promptTokens: Int
+    let completionTokens: Int
+    let uptimeSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case runs, errors
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
+        case uptimeSeconds = "uptime_seconds"
+    }
+}
+
 struct ProviderConfigRequest: Codable {
     let apiKey: String
     let baseURL: String
