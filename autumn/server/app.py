@@ -939,7 +939,7 @@ def _max_body_bytes() -> int:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Autumn HTTP API", version="0.3.3", lifespan=lifespan)
+    app = FastAPI(title="Autumn HTTP API", version="0.3.4", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),

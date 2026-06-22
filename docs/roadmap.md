@@ -124,8 +124,16 @@
 
 ## P3 — 工程化与可观测
 
-### ⬜ 9. 性能基准
+### ✅ 9. 性能基准
 给 4D recall（dict/lexical/vector/hybrid/markdown 五后端）建 benchmark，盯住向量召回在大库下的延迟。
+- **落地**：`script/bench_recall.py`（独立 dev 工具，离线确定性 mock 嵌入，CLI 可调 sizes/queries/dim/
+  backends）+ `tests/test_bench_recall.py`（5 条冒烟，微规模跑全五后端、防腐化，不进计时回归）+
+  `docs/bench-recall.md`（方法 + 代表性数据 + 结论）。
+- **核心发现（dim=1536）**：向量召回**线性退化且是瓶颈**——库 500→2000（4×）延迟 59→247ms 均值
+  （≈4.2×），印证 `SQLiteVectorStore.search` 的 O(N·dim) 暴力扫描；lexical（FTS5 索引）几乎持平
+  （~1.8ms@2000）；hybrid 继承向量成本。**结论**：大库语义召回升 🟢 前需 ANN 索引（HNSW/IVF）或
+  库容上限，当前 0.x 非阻塞；大库优先 lexical/hybrid + 有界向量区。
+- 测试计数 1101 → 1106。
 
 ### 🟡 10. CI 增强
 现有 ruff + pytest 3.11/3.12 之上加覆盖率门槛 + e2e job。
