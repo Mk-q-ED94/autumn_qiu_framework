@@ -42,11 +42,14 @@
 - **动作**：对 HTTP/SSE 契约写一套契约测试（启服务 → 跑一轮 direct + convert + recall/remember
   → 断言 SSE 帧序）；至少 Web 端加 Playwright 冒烟。
 - **判据**：CI 多一个 e2e job，能抓到「前后端契约漂移」。
-- **进展（2026-06-22）**：完成 HTTP/SSE 契约测试层（35 条），覆盖：健康探针、认证门控、
-  503/413 防护、/process + /trace + /intent 响应结构、SSE 帧序（chunk → trace → [DONE]）、
-  流内错误帧格式、Terr 管理、记忆端点、安全响应头、枚举值全集。测试计数 1039 → 1074。
-- **落地**：`tests/test_http_sse_contract.py`（本批次 commit）。
-- **待收口**：Web 端 Playwright 冒烟 + CI e2e job（需浏览器环境）。
+- **进展（2026-06-22）**：
+  - HTTP/SSE 契约测试层（35 条，`tests/test_http_sse_contract.py`）：健康探针、认证门控、
+    503/413 防护、/process + /trace + /intent 响应结构、SSE 帧序（chunk → trace → [DONE]）、
+    流内错误帧格式、Terr 管理、记忆端点、安全响应头、枚举值全集。
+  - 契约漂移守卫（2 条，`tests/test_contract_doc_sync.py`）：把 `docs/http-sse-contract.md`
+    钉到 FastAPI 实时路由表——新增端点漏写文档、或文档引用已删端点，都会让普通 `pytest` 失败。
+    当前 47 真实路由与文档 `METHOD /path` 引用**双向一一对应**。这条直接命中判据里的「契约漂移」。
+- **待收口**：Web 端 Playwright 冒烟 + 独立 CI e2e job（需浏览器环境）。
 
 ### ✅ 4. API 冻结边界决策（为 1.0 铺路）
 - **现状**：0.3.3 仍是 0.x，无向后兼容承诺。
