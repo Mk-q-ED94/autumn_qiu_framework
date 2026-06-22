@@ -24,7 +24,8 @@
 - **进展（2026-06-22）**：Web 的 chat / composer / memory / pipeline / settings / sidebar
   已完成 Paper & Clay 令牌化、明暗主题、窄屏抽屉与键盘可达性改造；Vite 生产构建和
   WebKit 桌面明暗 / 390px 移动端渲染验收通过，无横向溢出、框架错误层或控制台错误。
-- **待收口**：补三端并排截图，并在提交或 PR 生成后按本文约定回填「落地」引用。
+- **落地**：PR #37（merge commit `be56bf4`）。
+- **待收口**：补三端并排截图。
 
 ### ⬜ 2. Windows WinUI 客户端落地对齐（PR #20）
 - **现状**：客户端存在但挂在 `claude/windows-client`，未合并，三端尚未真正打齐。
