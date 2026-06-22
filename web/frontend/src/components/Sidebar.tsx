@@ -12,13 +12,14 @@ interface Props {
   onDelete: (id: string) => void;
   health: HealthStatus;
   onAgentClick: () => void;
+  onClose: () => void;
 }
 
 const NAV_ITEMS: Array<{ view: View; icon: string; label: string; sub: string }> = [
   { view: "chat",      icon: "◎", label: "协作",    sub: "对话与任务" },
   { view: "workspace", icon: "⬡", label: "能力域",   sub: "Terr 管理" },
   { view: "memory",    icon: "◈", label: "记忆",    sub: "Mom1/2/3" },
-  { view: "settings",  icon: "⚙", label: "设置",    sub: "模型与服务器" },
+  { view: "settings",  icon: "≡", label: "设置",    sub: "模型与服务器" },
 ];
 
 function healthColor(h: HealthStatus): string {
@@ -29,7 +30,7 @@ function healthColor(h: HealthStatus): string {
 }
 
 export function Sidebar({
-  view, onView, conversations, activeId, onSelect, onNew, onDelete, health, onAgentClick,
+  view, onView, conversations, activeId, onSelect, onNew, onDelete, health, onAgentClick, onClose,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -37,14 +38,10 @@ export function Sidebar({
       <div className="sidebar__header">
         <div className="sidebar__logo">秋</div>
         <span className="sidebar__title">Autumn</span>
+        <button className="sidebar__close" onClick={onClose} aria-label="关闭导航">×</button>
         <div
-          style={{
-            marginLeft: "auto",
-            width: 8, height: 8,
-            borderRadius: "50%",
-            background: healthColor(health),
-            flexShrink: 0,
-          }}
+          className="sidebar__health"
+          style={{ background: healthColor(health) }}
           title={health.configured ? "已配置" : "未配置"}
         />
       </div>
@@ -58,9 +55,9 @@ export function Sidebar({
             onClick={() => onView(item.view)}
           >
             <span className="icon">{item.icon}</span>
-            <div>
-              <div style={{ lineHeight: 1.3 }}>{item.label}</div>
-              <div style={{ fontSize: 10, color: "var(--text-3)", lineHeight: 1.2 }}>{item.sub}</div>
+            <div className="nav-item__copy">
+              <div className="nav-item__label">{item.label}</div>
+              <div className="nav-item__sub">{item.sub}</div>
             </div>
           </button>
         ))}
@@ -71,11 +68,11 @@ export function Sidebar({
       {/* Conversations */}
       {view === "chat" && (
         <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 var(--lg)" }}>
+          <div className="sidebar__section-head">
             <span className="sidebar__section-label">对话</span>
             <button
               onClick={onNew}
-              style={{ fontSize: 18, color: "var(--text-3)", lineHeight: 1, padding: "2px 4px", borderRadius: "var(--r-xs)" }}
+              className="sidebar__new"
               title="新建对话"
             >
               +
@@ -83,7 +80,7 @@ export function Sidebar({
           </div>
           <div className="sidebar__conversations">
             {conversations.length === 0 ? (
-              <div style={{ padding: "var(--lg)", fontSize: 12, color: "var(--text-3)", textAlign: "center" }}>
+              <div className="sidebar__empty">
                 暂无对话
               </div>
             ) : (
@@ -91,17 +88,19 @@ export function Sidebar({
                 <div
                   key={c.id}
                   className={`conv-item${c.id === activeId ? " active" : ""}`}
-                  onClick={() => onSelect(c.id)}
                 >
-                  <span className="conv-item__title">
-                    {c.title || "新对话"}
-                  </span>
+                  <button className="conv-item__open" onClick={() => onSelect(c.id)}>
+                    <span className="conv-item__title">
+                      {c.title || "新对话"}
+                    </span>
+                  </button>
                   <button
                     className="conv-item__delete"
                     onClick={(e) => { e.stopPropagation(); onDelete(c.id); }}
                     title="删除"
+                    aria-label={`删除${c.title || "新对话"}`}
                   >
-                    ✕
+                    ×
                   </button>
                 </div>
               ))
@@ -110,10 +109,10 @@ export function Sidebar({
         </>
       )}
 
-      <div style={{ flex: 1 }} />
+      <div className="sidebar__spacer" />
 
       {/* Agent status footer */}
-      <div className="agent-footer" onClick={onAgentClick} title="点击前往设置">
+      <button className="agent-footer" onClick={onAgentClick} title="点击前往设置">
         {(["A1", "A2", "A3", "A4"] as const).map((label, i) => {
           const state = i < 3
             ? (health.configured ? "ready" : "unconfigured")
@@ -125,8 +124,8 @@ export function Sidebar({
             </div>
           );
         })}
-        <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-3)" }}>⚙</div>
-      </div>
+        <div className="agent-footer__settings">设置</div>
+      </button>
     </aside>
   );
 }

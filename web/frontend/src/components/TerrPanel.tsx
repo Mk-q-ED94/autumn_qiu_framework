@@ -59,21 +59,21 @@ export function TerrPanel({ settings }: Props) {
     <div className="panel">
       <div className="panel__header">
         <h2>能力域 (Terr)</h2>
-        <button className="btn btn--secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={load}>
+        <button className="btn btn--secondary btn--compact" onClick={load}>
           刷新
         </button>
       </div>
 
       <div className="panel__body">
         {error && (
-          <div className="error-banner" style={{ borderRadius: "var(--r-md)", border: "1px solid rgba(248 113 113 / 0.2)" }}>
+          <div className="error-banner error-banner--panel">
             {error}
-            <button className="error-banner__close" onClick={() => setError("")}>✕</button>
+            <button className="error-banner__close" onClick={() => setError("")} aria-label="关闭错误提示">×</button>
           </div>
         )}
 
         {loading ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: "var(--xl)" }}>
+          <div className="panel__loading panel__loading--padded">
             <span className="spinner" />
           </div>
         ) : terrs.length === 0 ? (
@@ -91,12 +91,21 @@ export function TerrPanel({ settings }: Props) {
               const isToggling = toggling.has(terr.name);
               return (
                 <div key={terr.name} className={`terr-card${terr.enabled ? "" : " disabled"}`}>
-                  <div className="terr-card__header" onClick={() => toggleExpand(terr.name)}>
+                  <div
+                    className="terr-card__header"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleExpand(terr.name)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleExpand(terr.name);
+                      }
+                    }}
+                  >
                     <span
-                      style={{
-                        fontSize: 10, transform: isExpanded ? "rotate(90deg)" : "none",
-                        transition: "transform 0.15s", display: "inline-block", color: "var(--text-3)",
-                      }}
+                      className={`terr-caret${isExpanded ? " expanded" : ""}`}
                     >
                       ▶
                     </span>
@@ -108,7 +117,7 @@ export function TerrPanel({ settings }: Props) {
                         {terr.enabled ? "启用" : "停用"}
                       </span>
                       {isToggling ? (
-                        <span className="spinner spinner--sm" style={{ margin: "0 4px" }} />
+                        <span className="spinner spinner--sm spinner--inline" />
                       ) : (
                         <button
                           className={`terr-toggle${terr.enabled ? " on" : ""}`}
@@ -123,11 +132,11 @@ export function TerrPanel({ settings }: Props) {
 
                   {isExpanded && (
                     <div className="terr-card__body">
-                      <div style={{ color: "var(--text-3)", fontSize: 11 }}>{terr.description}</div>
+                      <div className="terr-card__description">{terr.description}</div>
 
                       {terr.tools.length > 0 && (
                         <div>
-                          <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 4 }}>
+                          <div className="terr-group__title">
                             Tools
                           </div>
                           <div className="callable-list">
@@ -142,7 +151,7 @@ export function TerrPanel({ settings }: Props) {
 
                       {terr.skills.length > 0 && (
                         <div>
-                          <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 4 }}>
+                          <div className="terr-group__title">
                             Skills
                           </div>
                           <div className="callable-list">
@@ -157,7 +166,7 @@ export function TerrPanel({ settings }: Props) {
 
                       {terr.mcps.length > 0 && (
                         <div>
-                          <div style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", marginBottom: 4 }}>
+                          <div className="terr-group__title">
                             MCP Servers
                           </div>
                           <div className="callable-list">

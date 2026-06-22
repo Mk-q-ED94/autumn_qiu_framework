@@ -25,7 +25,7 @@
 | 3 | 执行归档 | `ARCHIVE_EXECUTIONS` | `WP4Mem.record_execution_summary` |
 | 4 | A4→A1 认知委托 | `A4_DELEGATE_TO_A1` + `A4_DELEGATION_THRESHOLD` | `WP4Mem._cognitive_api` |
 | 4 | A4 外部检索引擎 | `A4_KNOWLEDGE_TERR` | `knowledge_terr` + `WP4Mem.research` |
-| 5 | 项目讨论归 A1 | `A4_DELEGATE_TO_A1` | `draft_*`/`infer_environment` → `_cognitive_api(0)` |
+| 5 | 项目讨论归 A1 | 始终启用 | `draft_*`/`infer_environment` → `WP1Tot` / A1 |
 
 测试：`tests/test_cooperative_workflow.py`（21 例）+ 全量回归 928 passed。
 
@@ -202,13 +202,12 @@ A1 的 `process_with_trace` 升级为多阶段编排循环：
 
 ### 3.3 项目讨论归 A1
 
-`WP4.draft_description` / `draft_goals` / `infer_environment` 这三个方法：
-- A4 继续做**机械解析**（从文本提取键值）
-- **对话推理**部分移交 A1：用户澄清项目参数时，`framework.py` 的
-  `setup_project()` 系列方法调用 `wp1.api.complete()` 而非 `wp4.api.complete()`
+`WP1Tot.draft_description` / `draft_goals` / `infer_environment` 是正式入口：
+- **对话推理**始终由 A1 完成，不依赖 A4 是否配置
+- 结构化解析与写入由共享的项目元数据 helper 和 `ProjectMemory` 完成
+- WP4 的同名方法只作为旧调用兼容层，并且必须明确转交 A1，绝不回退到 A4
 
-实现方式：`ProjectMemory` 和 `AutumnConfig` 的项目参数收集入口保持不变；
-`framework.py:Autumn.setup_project()` 在组装 prompt 后使用 A1 api。
+HTTP 项目端点直接调用 `autumn.wp1`；`ProjectMemory` 的存储入口保持不变。
 
 ---
 
@@ -288,10 +287,10 @@ class WP1Tot(WorkspaceBase):
 
 ### Phase 5（项目讨论迁移）— Project to A1
 
-**文件**：`autumn/core/framework.py`, `autumn/core/workspace/wp4.py`
+**文件**：`autumn/core/workspace/wp1.py`, `autumn/server/app.py`
 
-`Autumn.setup_project()` / `draft_project_goals()` 系列方法改用 `self.wp1.api`
-（A1）而非 `self.wp4.api`（A4）做对话推理部分；A4 仍做解析和写入。
+项目描述、目标和环境端点调用 `self.wp1`（A1）完成讨论；共享 helper 负责
+解析，`ProjectMemory` 负责写入。A4 不参与这条链路。
 
 ---
 

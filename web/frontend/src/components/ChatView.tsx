@@ -17,7 +17,7 @@ function MessageBubble({ message }: { message: Message }) {
         <PipelineStrip trace={message.trace} />
       )}
       {message.isStreaming && !message.trace && (
-        <div className="pipeline-strip" style={{ opacity: 0.4 }}>
+        <div className="pipeline-strip pipeline-strip--streaming">
           <div className="stage-capsule wp1 active">● A1</div>
           <div className="stage-connector" />
           <div className="stage-capsule wp2 pending">● WP2</div>
@@ -193,7 +193,7 @@ export function ChatView({ conversation, settings, onUpdateConversation, onError
         <span className="chat-header__title">{conversation.title || "新对话"}</span>
         <div className="chat-header__actions">
           {isStreaming && (
-            <button className="btn btn--secondary" style={{ fontSize: 12, padding: "4px 10px" }} onClick={handleStop}>
+            <button className="btn btn--secondary btn--compact" onClick={handleStop}>
               停止
             </button>
           )}
@@ -243,7 +243,7 @@ export function ChatView({ conversation, settings, onUpdateConversation, onError
           title="发送"
         >
           {isStreaming ? (
-            <span className="spinner spinner--sm" style={{ borderColor: "var(--text-3)", borderTopColor: "var(--text)" }} />
+            <span className="spinner spinner--sm spinner--send" />
           ) : "↑"}
         </button>
       </div>

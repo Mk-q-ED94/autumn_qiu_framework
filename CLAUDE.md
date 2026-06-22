@@ -40,10 +40,10 @@ Four model slots drive four workspaces (`autumn/core/workspace/`):
 
 | Slot | Workspace | Role |
 |------|-----------|------|
-| **A1** | **WP1** `wp1.py` (orchestration) | Entry + router. A Selector classifies the turn and picks a mission route — `direct` (answer conversationally) or `convert` (make a structured task). Runs the quality advisory (Checker). |
+| **A1** | **WP1** `wp1.py` (orchestration) | Entry + router. A Selector classifies the turn and picks a mission route — `direct` (answer conversationally) or `convert` (make a structured task). Leads project metadata discussions and runs the quality advisory (Checker). |
 | **A2** | **WP2** `wp2.py` (task) | The executor: a ReAct loop over enabled tools/skills, with per-task-type hints (CODE / SEARCH / WRITE / DATA / GENERAL). |
 | **A3** | **WP3** `wp3.py` (mission) | `answer_directly` (natural reply) or `convert_to_task` (reformat the mission into a task for WP2). The routing decision itself lives in WP1. |
-| **A4** | **WP4** `wp4.py` (memory) | Optional. Curator of *all* memory: cognitive ops (recall synthesis, consolidation) use A4; mechanical ops (forget/stats/pin) delegate to the `MemoryArea`. Owns the 4D push engine, the Mom1 access broker, project intelligence, and its own audit log. |
+| **A4** | **WP4** `wp4.py` (memory) | Optional. Curator of *all* memory: cognitive ops (recall synthesis, consolidation) use A4; mechanical ops (forget/stats/pin) delegate to the `MemoryArea`. Owns the 4D push engine, the Mom1 access broker, and its own audit log. |
 
 WP1–WP3 each own one Mom zone (Mom1/2/3); WP2⇄WP3 share the `shared` zone. Wiring is in
 `autumn/core/framework.py`; model slots + behavior flags in `autumn/core/config.py`

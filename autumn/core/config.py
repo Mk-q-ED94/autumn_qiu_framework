@@ -139,7 +139,7 @@ class BehaviorConfig:
     a1_task_planning: bool = False  # A1 generates a step plan before dispatching to A2 (adds one A1 call per task)
     a1_supervision: bool = False  # A1 reviews each A2 ReAct step and may inject guidance (one A1 call per tool step)
     archive_executions: bool = True  # A1 hands each turn's outcome to A4 for a shared-zone execution summary
-    a4_delegate_to_a1: bool = True  # A4's heavy cognitive ops (consolidate/evolve/project) use A1 instead of A4
+    a4_delegate_to_a1: bool = True  # A4's heavy memory ops (consolidate/evolve) may use A1
     a4_delegation_threshold: int = 2000  # Min source chars before A4 delegates to A1; smaller ops stay on local A4
     a4_knowledge_terr: bool = False  # Register a web-retrieval Terr and give A4 a research() path over it
     # Codebase-memory token-saving layer (codebase-memory-mcp). When on, the

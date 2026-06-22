@@ -111,7 +111,7 @@ enum Autumn {
         // Sidebar warm paper — the one explicit named solid in the language.
         // Adaptive: warm linen in light mode, deep warm charcoal in dark mode.
         #if os(macOS)
-        static let sidebar = Color(NSColor { appearance in
+        static let sidebar = Color(NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
                 ? NSColor(srgbRed: 0.110, green: 0.094, blue: 0.078, alpha: 1)
                 : NSColor(srgbRed: 0.953, green: 0.929, blue: 0.906, alpha: 1)

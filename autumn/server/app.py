@@ -785,6 +785,22 @@ def _curator_with_model_or_400(autumn: Autumn):
     return wp4
 
 
+def _project_coordinator_or_400(autumn: Autumn):
+    """Return WP1/A1, the owner of project metadata discussions."""
+    wp1 = getattr(autumn, "wp1", None)
+    if wp1 is None:
+        raise HTTPException(
+            status_code=501,
+            detail="Project coordination workspace (WP1) is not available on this server.",
+        )
+    if getattr(wp1, "api", None) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Project discussion needs the A1 model slot; none is configured.",
+        )
+    return wp1
+
+
 def _known_secrets(request: Request) -> list[str]:
     """Collect the literal secrets (API keys) that must never appear in an error
     surfaced to a client: the server's own auth key plus every model slot's key.
@@ -1661,16 +1677,16 @@ def create_app() -> FastAPI:
         request: Request,
         body: ProjectDescribeRequest,
     ):
-        """Use A4 to synthesise a project description from free-text input.
+        """Ask A1 to synthesise a project description from free-text input.
 
         Returns the drafted text; does **not** auto-save it.  To persist, follow
         up with ``PATCH /projects/{id}/metadata`` and ``description=<result>``.
         """
         autumn = _autumn_or_503(request)
         _projects_or_501(autumn)
-        wp4 = _curator_with_model_or_400(autumn)
+        wp1 = _project_coordinator_or_400(autumn)
         try:
-            description = await wp4.draft_description(body.input, project_id)
+            description = await wp1.draft_description(body.input, project_id)
         except Exception as exc:
             raise _record_failure(request, exc) from exc
         return {"description": description}
@@ -1681,7 +1697,7 @@ def create_app() -> FastAPI:
         request: Request,
         body: ProjectGoalsRequest,
     ):
-        """Use A4 to structure a goals description into master/long_term/short_term.
+        """Ask A1 to structure goals into master/long_term/short_term.
 
         Returns the drafted goal hierarchy; does **not** auto-save it.  To
         persist, follow up with ``PATCH /projects/{id}/metadata``
@@ -1689,27 +1705,27 @@ def create_app() -> FastAPI:
         """
         autumn = _autumn_or_503(request)
         _projects_or_501(autumn)
-        wp4 = _curator_with_model_or_400(autumn)
+        wp1 = _project_coordinator_or_400(autumn)
         try:
-            goals = await wp4.draft_goals(body.input, project_id)
+            goals = await wp1.draft_goals(body.input, project_id)
         except Exception as exc:
             raise _record_failure(request, exc) from exc
         return goals.to_dict()
 
     @app.post("/projects/{project_id}/infer-environment")
     async def infer_project_environment(project_id: str, request: Request):
-        """Use A4 to infer and persist the environment config for a project.
+        """Ask A1 to infer and persist the environment config for a project.
 
-        Reads the project's type, description, and master goal, calls A4, and
+        Reads the project's type, description, and master goal, calls A1, and
         writes the resulting environment (terrs, skills, tools, MCP, agent
         channel) directly into the project's metadata. Returns the full updated
         metadata.
         """
         autumn = _autumn_or_503(request)
         _projects_or_501(autumn)
-        wp4 = _curator_with_model_or_400(autumn)
+        wp1 = _project_coordinator_or_400(autumn)
         try:
-            meta = await wp4.infer_environment(project_id)
+            meta = await wp1.infer_environment(project_id)
         except Exception as exc:
             raise _record_failure(request, exc) from exc
         return meta.to_dict()

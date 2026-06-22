@@ -507,7 +507,7 @@ struct SettingsView: View {
                 LabeledContent("版本", value: appVersion)
                 Text("秋 / Autumn — 多模型协作工作流框架。")
                     .font(.callout)
-                Text("A1/A2/A3 驱动主工作流，A4/WP4 负责记忆管理、项目元数据和归并。")
+                Text("A1 负责工作流协调与项目元数据讨论；A4/WP4 专注记忆管理和归并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

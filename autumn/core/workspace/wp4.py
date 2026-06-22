@@ -17,11 +17,8 @@ WP4 keeps its own audit log (``self.memory``) so each management action it
 performs — consolidations, forgets, remembers — is itself recorded and
 observable, the same way every other workspace logs its turns to its Mom area.
 
-WP4 also provides A4-powered project intelligence:
-
-* :meth:`draft_description` — synthesise a project description from free text
-* :meth:`draft_goals` — structure goals into master / long-term / short-term
-* :meth:`infer_environment` — suggest terrs, skills, tools, MCP, agent channel
+Legacy project-intelligence methods remain as compatibility forwarders, but
+project discussion is owned and executed by A1/WP1. A4 never supplies their model.
 """
 from __future__ import annotations
 
@@ -30,6 +27,11 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ..memory.dimensions import ActivationContext, UseMode
+from ..project_intelligence import (
+    draft_description as coordinate_project_description,
+    draft_goals as coordinate_project_goals,
+    infer_environment as coordinate_project_environment,
+)
 from .base import WorkspaceBase
 
 if TYPE_CHECKING:
@@ -138,19 +140,23 @@ class WP4Mem(WorkspaceBase):
         projects: ProjectMemory | None = None,
         delegation_api=None,
         delegation_threshold: int = 0,
+        project_api=None,
         research_provider=None,
     ):
         super().__init__(api, memory)
         self._zones: dict[str, MemoryArea] = dict(zones)
         self._projects = projects
-        # When set, heavy cognitive operations (consolidation, evolution, profile
-        # synthesis, project discussion) are delegated to this stronger model api
-        # rather than calling the weak local A4 model. Set by framework.py to A1.
+        # When set, heavy cognitive memory operations are delegated to this
+        # stronger model API. Legacy project helpers require it because project
+        # discussion belongs exclusively to A1.
         self._delegation_api = delegation_api
         # Below this many source chars an op stays on the local A4 model even when
         # delegation is configured — small jobs aren't worth the strong model. 0 =
         # always delegate when an api is set.
         self._delegation_threshold = max(0, delegation_threshold)
+        # Kept separate from memory delegation flags: project discussion always
+        # belongs to A1, including calls through the legacy WP4 helpers.
+        self._project_api = project_api or delegation_api
         # Optional callable returning the knowledge skills A4 may use in research().
         self._research_provider = research_provider
 
@@ -585,7 +591,7 @@ class WP4Mem(WorkspaceBase):
             "areas": list(zones),
         }
 
-    # ── project intelligence (A4-powered) ──────────────────────────────────────
+    # ── legacy project coordination forwarders (always A1) ─────────────────────
 
     def _require_model(self, op: str) -> None:
         if not self.has_model:
@@ -597,6 +603,13 @@ class WP4Mem(WorkspaceBase):
         if self._projects is None:
             raise ValueError("Project memory is not configured.")
         return self._projects
+
+    def _require_project_coordinator(self):
+        if self._project_api is None:
+            raise RuntimeError(
+                "Project discussion needs the A1 model slot; none is configured.",
+            )
+        return self._project_api
 
     @staticmethod
     def _extract_json(text: str) -> str:
@@ -613,114 +626,22 @@ class WP4Mem(WorkspaceBase):
         return text
 
     async def draft_description(self, user_input: str, project_id: str) -> str:
-        """Synthesise a concise project description from the user's free-text input.
-
-        The result is *not* persisted automatically — call
-        ``projects.update_metadata(project_id, description=result)`` to save it.
-        """
-        self._require_model("Description drafting")
+        """Compatibility alias that forwards project discussion to A1."""
+        api = self._require_project_coordinator()
         self._require_projects()
-        from ..types import Message, Role
-
-        messages = [
-            Message(
-                role=Role.SYSTEM,
-                content=(
-                    "You are a project assistant. The user will describe their project idea. "
-                    "Synthesise a clear, concise project description (2–4 sentences). "
-                    "Return only the description text, no preamble or commentary."
-                ),
-            ),
-            Message(role=Role.USER, content=user_input),
-        ]
-        # Project parameter discussion is a deliberate "discuss with A1" decision
-        # (0.3.0): always delegate when configured, regardless of the size threshold.
-        result = await self._cognitive_api(0).complete(messages)
-        return result.strip()
+        return await coordinate_project_description(api, user_input)
 
     async def draft_goals(self, user_input: str, project_id: str) -> ProjectGoals:
-        """Structure the user's goal description into master / long-term / short-term.
-
-        Returns a :class:`~autumn.core.memory.project.ProjectGoals` instance.
-        The result is *not* persisted automatically — call
-        ``projects.update_metadata(project_id, goals=result.to_dict())`` to save it.
-        """
-        self._require_model("Goals drafting")
+        """Compatibility alias that forwards project discussion to A1."""
+        api = self._require_project_coordinator()
         projects = self._require_projects()
-        from ..memory.project import ProjectGoals
-        from ..types import Message, Role
-
-        meta = await projects.zone(project_id).get_meta()
-        desc_context = f"Project description: {meta.description}\n\n" if meta.description else ""
-
-        messages = [
-            Message(
-                role=Role.SYSTEM,
-                content=(
-                    "You are a project planning assistant. Structure the user's goals into "
-                    "one master goal, a list of long-term goals, and a list of short-term goals. "
-                    'Respond ONLY with valid JSON: {"master": "...", "long_term": ["..."], "short_term": ["..."]}'
-                ),
-            ),
-            Message(
-                role=Role.USER,
-                content=f"{desc_context}Goals description: {user_input}",
-            ),
-        ]
-        response = await self._cognitive_api(0).complete(messages)  # project discussion → always A1
-        try:
-            data = json.loads(self._extract_json(response))
-            return ProjectGoals.from_dict(data)
-        except (json.JSONDecodeError, ValueError, AttributeError):
-            return ProjectGoals(master=response.strip()[:300])
+        return await coordinate_project_goals(api, projects, user_input, project_id)
 
     async def infer_environment(self, project_id: str) -> ProjectMeta:
-        """Infer an appropriate environment config for *project_id* using A4.
-
-        Reads the project's type, description, and master goal, calls A4 to
-        suggest terrs / skills / tools / MCP / agent channel, and **persists**
-        the result back into the project's metadata. Returns the full updated
-        :class:`~autumn.core.memory.project.ProjectMeta`.
-        """
-        self._require_model("Environment inference")
+        """Compatibility alias that forwards environment inference to A1."""
+        api = self._require_project_coordinator()
         projects = self._require_projects()
-        from ..memory.project import ProjectEnvironment
-        from ..types import Message, Role
-
-        zone = projects.zone(project_id)
-        meta = await zone.get_meta()
-
-        messages = [
-            Message(
-                role=Role.SYSTEM,
-                content=(
-                    "You are a project setup assistant. Based on the project information, "
-                    "suggest an appropriate runtime environment configuration. "
-                    "Respond ONLY with valid JSON in exactly this shape:\n"
-                    '{"terrs": [...], "skills": [...], "tools": [...], '
-                    '"mcp": [...], "agent_channel": "name_or_null"}\n'
-                    "Use short lowercase identifiers. Keep each list concise (2–5 items). "
-                    'Set "agent_channel" to null if none is needed.'
-                ),
-            ),
-            Message(
-                role=Role.USER,
-                content=(
-                    f"Project type: {meta.project_type or 'unspecified'}\n"
-                    f"Description: {meta.description or '(none)'}\n"
-                    f"Master goal: {meta.goals.master or '(none)'}"
-                ),
-            ),
-        ]
-        response = await self._cognitive_api(0).complete(messages)
-        try:
-            data = json.loads(self._extract_json(response))
-            meta.environment = ProjectEnvironment.from_dict(data)
-        except (json.JSONDecodeError, ValueError, AttributeError):
-            pass  # leave environment unchanged if output is unparseable
-        await zone.set_meta(meta)
-        await self._log("infer_environment", "project", {"project_id": project_id})
-        return meta
+        return await coordinate_project_environment(api, projects, project_id)
 
     # ── WorkspaceBase compliance ────────────────────────────────────────────────
 

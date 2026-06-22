@@ -35,10 +35,10 @@ tests/               pytest suite
 
 Four model slots → four workspaces (`autumn/core/workspace/`):
 
-- **A1 / WP1** (`wp1.py`) — entry + router: classify the turn, route `direct` vs `convert`; quality advisory (Checker).
+- **A1 / WP1** (`wp1.py`) — entry + router: classify the turn, route `direct` vs `convert`; lead project metadata discussions; quality advisory (Checker).
 - **A2 / WP2** (`wp2.py`) — executor: ReAct loop over tools/skills, per-task-type hints.
 - **A3 / WP3** (`wp3.py`) — mission: `answer_directly` or `convert_to_task` for WP2 (routing decided in WP1).
-- **A4 / WP4** (`wp4.py`) — optional memory curator: recall synthesis + consolidation (A4), 4D push engine, Mom1 access broker, audit log.
+- **A4 / WP4** (`wp4.py`) — optional memory curator: recall synthesis + consolidation (A4), 4D push engine, Mom1 access broker, audit log. It does not lead project metadata discussions.
 
 WP1–WP3 own Mom1/2/3; WP2⇄WP3 share `shared`. Wiring: `framework.py`; flags: `config.py`.
 

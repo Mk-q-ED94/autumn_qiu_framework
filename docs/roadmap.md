@@ -14,13 +14,17 @@
 
 ## P0 — 收尾欠账（挡在 1.0 门口的硬债）
 
-### ⬜ 1. Web 前端视觉对齐到 "Paper & Clay"
+### 🟡 1. Web 前端视觉对齐到 "Paper & Clay"
 - **现状**：`web/frontend/` 仍是偏离的暗色开发主题，`CLAUDE.md` 与 `autumn-design-taste` 都把它标成已知债。
 - **动作**：以 `desktop/AutumnApp/DesignSystem/Tokens.swift` 为唯一真相源，把 clay 强调色
   `#CC6645`、发丝边框、暖纸侧栏迁到 `web/frontend/src/styles.css` 的 CSS 变量；逐屏改造
   （chat / composer / memory panel / pipeline strip / settings / sidebar）。
 - **判据**：三端截图并排，Web 端读起来与 macOS 端是「同一个产品」；
   `autumn-web-design-engineer` 的 pre-flight checklist 全过。
+- **进展（2026-06-22）**：Web 的 chat / composer / memory / pipeline / settings / sidebar
+  已完成 Paper & Clay 令牌化、明暗主题、窄屏抽屉与键盘可达性改造；Vite 生产构建和
+  WebKit 桌面明暗 / 390px 移动端渲染验收通过，无横向溢出、框架错误层或控制台错误。
+- **待收口**：补三端并排截图，并在提交或 PR 生成后按本文约定回填「落地」引用。
 
 ### ⬜ 2. Windows WinUI 客户端落地对齐（PR #20）
 - **现状**：客户端存在但挂在 `claude/windows-client`，未合并，三端尚未真正打齐。

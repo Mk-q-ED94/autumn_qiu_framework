@@ -66,10 +66,10 @@ await autumn.project_zone("acme-app").get("...")   # 独立命名空间
 每个项目除了记忆，还携带一组结构化元数据，存放在该项目区内的保留键下，按项目隔离、跨重启持久化：
 
 - **项目类型** —— 类别标签（`code`、`research` 等），也可不设保持默认。
-- **项目简介** —— 自由文本；可直接填写，也可在专门对话中与 A4 讨论后由 AI 生成。
-- **项目目标** —— 一个总目标 + 多个长期目标 + 多个短期目标；可直接填写或由 A4 结构化生成。
+- **项目简介** —— 自由文本；可直接填写，也可在专门对话中与 A1 讨论后生成。
+- **项目目标** —— 一个总目标 + 多个长期目标 + 多个短期目标；可直接填写或由 A1 结构化生成。
 - **项目文件** —— 用户手动添加的文件，以及项目对话中产生的文件。
-- **项目环境** —— 由 A4 根据类型 / 简介 / 总目标推断出合适的 terr 域、skill、tool、MCP 以及项目专属 agent 通道。
+- **项目环境** —— 由 A1 根据类型 / 简介 / 总目标推断出合适的 terr 域、skill、tool、MCP 以及项目专属 agent 通道。
 
 ```python
 # 数据层
@@ -77,13 +77,13 @@ meta = await autumn.projects.get_metadata("acme-app")
 await autumn.projects.update_metadata("acme-app", project_type="code",
                                       description="一个 REST API 服务")
 
-# A4 驱动的智能（由 WP4 提供）
-desc  = await autumn.wp4.draft_description("我想做一个能快速搭建智能体的框架", "acme-app")
-goals = await autumn.wp4.draft_goals("先上线 v1，再做规模化和国际化", "acme-app")
-meta  = await autumn.wp4.infer_environment("acme-app")   # 推断并写回项目环境
+# A1 主导的项目讨论（由 WP1 提供）
+desc  = await autumn.wp1.draft_description("我想做一个能快速搭建智能体的框架", "acme-app")
+goals = await autumn.wp1.draft_goals("先上线 v1，再做规模化和国际化", "acme-app")
+meta  = await autumn.wp1.infer_environment("acme-app")   # 推断并写回项目环境
 ```
 
-通过 HTTP 在 `/projects/{id}/` 下管理：`GET/PATCH metadata`、`POST/DELETE files`、`POST describe`、`POST goals`、`POST infer-environment`（后三者需要 A4）。
+通过 HTTP 在 `/projects/{id}/` 下管理：`GET/PATCH metadata`、`POST/DELETE files`、`POST describe`、`POST goals`、`POST infer-environment`（后三者需要 A1）。
 
 **记忆生命周期**——每一块区（Mom1/2/3、共享区、项目区）都支持：
 
@@ -509,7 +509,7 @@ python -m pytest
 - **A1 监督** —— 每个 ReAct 步后 A1 复核 A2 的动作并可注入纠偏指导（与厂商无关）；以 `wp1.supervise` 阶段呈现。由 `A1_SUPERVISION` 控制。
 - **能力感知路由** —— Selector 分类时会看到已启用 Terr 域的摘要，使路由反映 agent 真正能做的事。
 - **A3 轻量工具集** —— A3 获得一个有界（≤4 步、白名单）的技能循环，可在回答前调用 recall / time 等，流式与非流式直答路径都支持。通过 `A3_LITE_SKILLS` 设置。
-- **A4 认知委派** —— WP4 的重型认知操作（consolidate / evolve / extract_facts / synthesize_profile / annotate）与项目参数讨论优先交给强模型 A1，而非弱的本地 A4，并以体量阈值把小操作留在本地。由 `A4_DELEGATE_TO_A1`（默认开）控制。
+- **A4 认知委派** —— WP4 的重型记忆操作（consolidate / evolve / extract_facts / synthesize_profile / annotate）可交给强模型 A1，并以体量阈值把小操作留在本地。项目参数讨论始终由 WP1/A1 负责，不受该开关控制。
 - **A4 知识 Terr + 研究** —— 新增 `knowledge_terr`（web_search / fetch_document / knowledge_base_query）与有界的 `WP4.research()` 循环，赋予 A4 外部检索能力。由 `A4_KNOWLEDGE_TERR` 控制。
 - **执行归档** —— 每轮的结果写入共享区（`wp4.push`），让团队积累可检索的历史。由 `ARCHIVE_EXECUTIONS` 控制。
 - **中央安全模块** —— `autumn/core/security.py` 统一了 SSRF 防护、密钥脱敏、路径沙箱与资源限制（被网络 Terr 与 HTTP 桥共用），并扩充了防护（math DoS 边界、请求体大小限制、安全响应头、可配置 CORS）。
@@ -569,7 +569,7 @@ python -m pytest
 ### 0.2.0 —— 记忆系统与项目智能
 
 - **WP4 记忆管理工作区** —— 可选的 A4 模型获得了专属工作区，唯一职责是统管*每一块*记忆区（回忆合成、归并、遗忘、置顶、统计），按名字寻址，并维护自己的审计日志。通过 `GET /memory/stats` 及 `/memory/{area}/…` 系列端点暴露。
-- **项目元数据** —— 每个项目现在携带结构化的**类型**、**简介**、**目标**（一个总目标 + 长期 + 短期）、**文件**清单，以及由 AI 推断的**环境**（terr、skill、tool、MCP、agent 通道）。WP4 通过 A4 起草简介与目标、推断环境；通过 `/projects/{id}/metadata|files|describe|goals|infer-environment` 管理。
+- **项目元数据** —— 每个项目现在携带结构化的**类型**、**简介**、**目标**（一个总目标 + 长期 + 短期）、**文件**清单，以及由 AI 推断的**环境**（terr、skill、tool、MCP、agent 通道）。WP1 通过 A1 主导简介、目标与环境讨论；通过 `/projects/{id}/metadata|files|describe|goals|infer-environment` 管理。
 - **按项目隔离的共享记忆** —— 每个项目 id 获得一块独立的区，但在该项目内部跨所有工作区与轮次*共享*。
 - **记忆生命周期** —— 重要度与置顶、TTL/过期、时间衰减、A4 驱动的归并、批量 `forget`、跨所有区的 `stats`。
 - **记忆模块重构** —— `MemoryEntry`、重要度加权淘汰、统一回忆（精确键 → 标签 → 语义）。

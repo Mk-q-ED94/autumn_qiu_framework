@@ -244,9 +244,9 @@ struct ProjectEditorView: View {
             }
 
             VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
-                Text("A4 草稿输入")
+                Text("与 A1 讨论")
                     .font(Autumn.typography.captionStrong)
-                TextField("描述你想让 A4 整理的项目想法或目标", text: $metadataInput, axis: .vertical)
+                TextField("向 A1 说明项目想法、目标或约束", text: $metadataInput, axis: .vertical)
                     .lineLimit(2...4)
                     .textFieldStyle(.roundedBorder)
                 HStack(spacing: Autumn.spacing.sm) {

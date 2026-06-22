@@ -191,6 +191,9 @@ class Autumn:
             # A4 handles mechanical memory ops; A1 handles reasoning-heavy synthesis.
             delegation_api=self.a1 if b.delegate_on else None,
             delegation_threshold=b.a4_delegation_threshold,
+            # Project discussion is always A1-owned and is independent from the
+            # optional A4 heavy-memory delegation switch above.
+            project_api=self.a1,
             # External-retrieval augmentation: A4.research() pulls these skills from
             # the knowledge Terr (registered below when a4_knowledge_terr is on).
             research_provider=self._collect_knowledge_skills,
