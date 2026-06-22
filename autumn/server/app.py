@@ -2,8 +2,11 @@
 import asyncio
 import hmac
 import json
+import logging
 import os
+import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Annotated, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -24,6 +27,33 @@ from ..core.security import (
 )
 from ..core.types import InputType, MissionRoute, Protocol, TaskType, WorkflowRun
 from . import integrations as integrations_mod
+
+logger = logging.getLogger("autumn.server")
+
+
+@dataclass
+class _Metrics:
+    """Lightweight in-process counters — one instance lives on app.state."""
+    runs: int = 0
+    errors: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    started_at: float = field(default_factory=time.time)
+
+
+def _record_run(app_state, run: WorkflowRun) -> None:
+    """Accumulate per-turn token counts and emit a structured log line."""
+    m: _Metrics = app_state.metrics
+    m.runs += 1
+    prompt = sum(s.prompt_tokens or 0 for s in run.stages)
+    completion = sum(s.completion_tokens or 0 for s in run.stages)
+    m.prompt_tokens += prompt
+    m.completion_tokens += completion
+    logger.info(
+        "turn complete  route=%s input_type=%s prompt=%d completion=%d cost_usd=%s",
+        run.route, run.input_type, prompt, completion, run.total_cost_usd,
+    )
+
 
 # How long an SSE stream can sit idle before we emit an `: ping` comment.
 # Most corporate proxies kill idle SSE connections at 30–60s; 15s is safe.
@@ -459,10 +489,11 @@ def _try_build_from_env() -> Autumn | None:
     try:
         config = AutumnConfig.from_env(env_file=env_file)
     except (KeyError, ValueError) as exc:
-        print(f"[autumn-server] startup config missing ({exc}); endpoints will return 503.")
+        logger.warning("startup config missing (%s); endpoints will return 503.", exc)
         return None
     autumn = Autumn(config)
     _register_builtin_terrs(autumn)
+    logger.info("autumn server initialized from environment config")
     return autumn
 
 
@@ -551,6 +582,7 @@ def _require_model_config(slot: str, req: ProviderConfigRequest) -> ModelConfig:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.autumn = _try_build_from_env()
+    app.state.metrics = _Metrics()
     # apply_lock serialises swap-out of state.autumn so two concurrent
     # /config/apply calls can't leak an Autumn instance whose close() never runs.
     app.state.apply_lock = asyncio.Lock()
@@ -833,6 +865,10 @@ def _record_failure(request: Request, exc: Exception) -> HTTPException:
     """
     message = _safe_error(request, exc)
     request.app.state.last_error = message
+    m: _Metrics | None = getattr(request.app.state, "metrics", None)
+    if m is not None:
+        m.errors += 1
+    logger.error("request to %s failed: %s", request.url.path, message)
     return HTTPException(status_code=502, detail=message)
 
 
@@ -961,6 +997,17 @@ def create_app() -> FastAPI:
             "version": app.version,
         }
 
+    @app.get("/metrics")
+    async def metrics():
+        m: _Metrics = app.state.metrics
+        return {
+            "runs": m.runs,
+            "errors": m.errors,
+            "prompt_tokens": m.prompt_tokens,
+            "completion_tokens": m.completion_tokens,
+            "uptime_seconds": round(time.time() - m.started_at, 1),
+        }
+
     @app.post("/models", response_model=ModelsResponse)
     async def models(req: ModelsRequest):
         if not req.api_key.strip():
@@ -1038,7 +1085,7 @@ def create_app() -> FastAPI:
         await _activate_project(autumn, req.project_id)
         try:
             with project_context(req.project_id):
-                output = await autumn.process(
+                run = await autumn.process_with_trace(
                     _apply_project_context(req.input, req.project_instructions),
                     mission_route=req.route,
                     input_type=req.input_type,
@@ -1048,7 +1095,8 @@ def create_app() -> FastAPI:
             raise
         except Exception as exc:
             raise _record_failure(request, exc) from exc
-        return ProcessResponse(output=output)
+        _record_run(request.app.state, run)
+        return ProcessResponse(output=run.output)
 
     @app.post("/trace", response_model=TraceResponse)
     async def trace(req: ProcessRequest, request: Request):
@@ -1066,6 +1114,7 @@ def create_app() -> FastAPI:
             raise
         except Exception as exc:
             raise _record_failure(request, exc) from exc
+        _record_run(request.app.state, run)
         return _trace_response(run)
 
     @app.post("/intent", response_model=IntentResponse)
@@ -1109,10 +1158,10 @@ def create_app() -> FastAPI:
         # /stream?input=<MBs> would otherwise bypass the cost/DoS guard. Enforce
         # it explicitly on the query-string inputs that feed the model pipeline.
         limit = _max_body_bytes()
-        for field, value in (("input", input), ("project_instructions", project_instructions)):
+        for param, value in (("input", input), ("project_instructions", project_instructions)):
             if value and len(value.encode("utf-8")) > limit:
                 raise HTTPException(
-                    status_code=413, detail=f"{field} exceeds {limit} bytes.",
+                    status_code=413, detail=f"{param} exceeds {limit} bytes.",
                 )
         effective_input = _apply_project_context(input, project_instructions)
 
@@ -1158,6 +1207,7 @@ def create_app() -> FastAPI:
                         yield "data: [DONE]\n\n"
                         return
                     if isinstance(event, WorkflowRun):
+                        _record_run(request.app.state, event)
                         payload = json.dumps(
                             {"trace": _trace_payload(event)}, ensure_ascii=False,
                         )

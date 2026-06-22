@@ -127,11 +127,24 @@
 ### ⬜ 9. 性能基准
 给 4D recall（dict/lexical/vector/hybrid/markdown 五后端）建 benchmark，盯住向量召回在大库下的延迟。
 
-### ⬜ 10. CI 增强
+### 🟡 10. CI 增强
 现有 ruff + pytest 3.11/3.12 之上加覆盖率门槛 + e2e job。
+- **进展（2026-06-22）**：`pytest-cov>=5` 进 dev 依赖；`[tool.coverage.run]` 配置 source + omit
+  `__main__.py`；CI `pytest` 步骤加 `--cov=autumn --cov-fail-under=85`（基线 87.7%，门槛 85%
+  留 ~3% 弹性）；两个 Python 版本矩阵均执行覆盖率检查。
+- **待收口**：e2e job（需浏览器环境 / 独立 runner）。
 
-### ⬜ 11. 可观测性
+### ✅ 11. 可观测性
 server 加结构化日志 + 基础 metrics（每轮 token、各 WP 耗时），为后续多用户做铺垫。
+- **落地**：`autumn/server/app.py` 加 `logging.getLogger("autumn.server")`，替换启动 `print()`
+  为结构化 `logger.warning/info`；`_Metrics` 数据类（runs / errors / prompt_tokens /
+  completion_tokens / started_at）挂在 `app.state.metrics`；`_record_run()` 在每轮完成后累计
+  token 并发 `logger.info`；`_record_failure()` 同步增 error 计数并 `logger.error`；
+  新增 `GET /metrics` 端点暴露快照（需认证）。
+  `/process` 内部改为调用 `process_with_trace()` 以获得 stage-level token 数据，
+  相关测试（`test_server.py` / `test_server_projects.py`）同步更新。
+  测试 +4（`test_http_sse_contract.py`），计数 1097 → 1101。
+- **契约文档**：`docs/http-sse-contract.md` 新增 §4.2 `GET /metrics`，双向守卫自动验证。
 
 ---
 

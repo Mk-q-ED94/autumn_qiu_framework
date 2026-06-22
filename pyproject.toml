@@ -22,6 +22,7 @@ server = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+    "pytest-cov>=5",
     "fastapi>=0.110",
     "pydantic>=2,<3",
 ]
@@ -36,6 +37,18 @@ exclude = ["desktop*", "examples*", "script*", "tests*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["autumn"]
+# Entry-point script; only runs under uvicorn — not reachable in unit/integration tests.
+omit = ["autumn/server/__main__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
 
 [tool.ruff]
 line-length = 110
