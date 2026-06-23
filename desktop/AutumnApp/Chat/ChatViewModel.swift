@@ -71,7 +71,6 @@ final class ChatViewModel: ObservableObject {
         intentOverride = nil
         taskOverride = nil
         routeOverride = nil
-        settings.activeRouteOverride = nil
     }
 
     private var client: QcoworkClient? {
@@ -127,7 +126,7 @@ final class ChatViewModel: ObservableObject {
 
     func setRouteOverride(_ route: MissionRouteMode?) {
         routeOverride = route
-        settings.activeRouteOverride = route?.rawValue
+        syncActiveRouteOverride()
         scheduleIntentPreview(delay: 0)
     }
 
@@ -135,8 +134,14 @@ final class ChatViewModel: ObservableObject {
         intentOverride = nil
         taskOverride = nil
         routeOverride = nil
-        settings.activeRouteOverride = nil
+        syncActiveRouteOverride()
         scheduleIntentPreview(delay: 0)
+    }
+
+    func syncActiveRouteOverride() {
+        let rawValue = routeOverride?.rawValue
+        guard settings.activeRouteOverride != rawValue else { return }
+        settings.activeRouteOverride = rawValue
     }
 
     func submitOrStop() {

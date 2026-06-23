@@ -187,6 +187,7 @@ enum Qcowork {
         static let bubbleMaxWidth: CGFloat = 580
         static let inspectorWidth: CGFloat = 296
         static let sidebarWidth: CGFloat = 236
+        static let sidebarRowMinHeight: CGFloat = 40
         static let composerMinHeight: CGFloat = 44
     }
 

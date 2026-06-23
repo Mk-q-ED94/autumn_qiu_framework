@@ -63,7 +63,7 @@ final class QcoworkClient {
     }
 
     func fetchMetrics() async -> MetricsResponse? {
-        guard let request = try? URLRequest(url: baseURL.appendingPathComponent("metrics")) else { return nil }
+        let request = URLRequest(url: baseURL.appendingPathComponent("metrics"))
         guard let (data, response) = try? await Self.session.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200
         else { return nil }
