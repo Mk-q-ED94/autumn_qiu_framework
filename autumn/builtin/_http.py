@@ -65,6 +65,7 @@ async def safe_fetch(
     *,
     method: str = "GET",
     data: dict | None = None,
+    content: bytes | str | None = None,
     headers: dict | None = None,
     timeout: float = _DEFAULT_TIMEOUT,
     max_bytes: int = _MAX_BYTES,
@@ -77,21 +78,33 @@ async def safe_fetch(
     refused. The body is streamed and aborted the moment it exceeds *max_bytes*,
     so the cap bounds memory instead of being checked only after a full buffer.
     Raises :class:`FetchError`.
+
+    ``data`` sends form-encoded key/value pairs (dict).
+    ``content`` sends a raw body (bytes or str); takes precedence over ``data``.
     """
     current = url
     req_method = method.upper()
     timeout = _clamp_timeout(timeout)
+    raw_content: bytes | None = None
+    if content is not None:
+        raw_content = content.encode("utf-8") if isinstance(content, str) else content
     async with httpx.AsyncClient(follow_redirects=False, timeout=timeout, headers=headers) as client:
         for _ in range(_MAX_REDIRECTS + 1):
             await assert_url_allowed(current)
             try:
-                async with client.stream(req_method, current, data=data) as resp:
+                stream_kwargs: dict = {}
+                if raw_content is not None:
+                    stream_kwargs["content"] = raw_content
+                elif data is not None:
+                    stream_kwargs["data"] = data
+                async with client.stream(req_method, current, **stream_kwargs) as resp:
                     if resp.is_redirect:
                         location = resp.headers.get("location")
                         if not location:
                             raise FetchError("redirect without a Location header")
                         current = str(httpx.URL(current).join(location))
-                        req_method, data = "GET", None  # never replay a POST body across a redirect
+                        # Never replay a POST body across a redirect
+                        req_method, data, raw_content = "GET", None, None
                         continue
                     resp.raise_for_status()
                     declared = resp.headers.get("content-length")

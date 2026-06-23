@@ -471,15 +471,27 @@ def _register_builtin_terrs(autumn: Autumn) -> None:
 
     - ``safe`` / ``1`` / ``true``: the always-safe domains — time, math, text,
       data, encoding, collection (no network, no filesystem).
-    - ``all``: the above plus ``web`` (outbound HTTP).
+    - ``all``: the above plus ``web`` (outbound HTTP) and ``knowledge``
+      (DuckDuckGo search + document fetch, no API key required).
+
+    Filesystem access (``fs``) is never auto-registered because it requires an
+    explicit sandbox root. Set ``AUTUMN_FS_ROOT`` to a directory path to add the
+    ``fs`` domain in any non-empty mode.
     """
     mode = os.environ.get("AUTUMN_BUILTIN_TERRS", "").strip().lower()
     if mode in ("", "0", "false", "off", "none"):
         return
-    from ..builtin import register_safe_builtins, web_terr
+    from ..builtin import fs_terr, knowledge_terr, register_safe_builtins, web_terr
     register_safe_builtins(autumn)
     if mode == "all":
         autumn.register_terr(web_terr())
+        autumn.register_terr(knowledge_terr())
+    fs_root = os.environ.get("AUTUMN_FS_ROOT", "").strip()
+    if fs_root:
+        try:
+            autumn.register_terr(fs_terr(fs_root))
+        except (ValueError, OSError) as exc:
+            logger.warning("AUTUMN_FS_ROOT %r is invalid: %s", fs_root, exc)
 
 
 def _try_build_from_env() -> Autumn | None:
