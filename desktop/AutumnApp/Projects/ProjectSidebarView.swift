@@ -109,7 +109,7 @@ struct ProjectSidebarView: View {
     private func projectSection(_ project: Project) -> some View {
         let isExpanded = Binding<Bool>(
             get: { projects.isExpanded(project.id) },
-            set: { projects.setExpanded(project.id, $0) }
+            set: { setProjectExpanded(project.id, $0) }
         )
         let projectConversations = store.conversations(in: project.id)
 
@@ -184,7 +184,7 @@ struct ProjectSidebarView: View {
         let unfiled = store.unfiledConversations
         let isExpanded = Binding<Bool>(
             get: { projects.unfiledExpanded },
-            set: { projects.unfiledExpanded = $0 }
+            set: { setUnfiledExpanded($0) }
         )
         return DisclosureGroup(isExpanded: isExpanded) {
             if unfiled.isEmpty {
@@ -229,6 +229,7 @@ struct ProjectSidebarView: View {
         ConversationRowContent(
             conversation: conversation,
             isEditing: isEditing,
+            isSelected: isSelected,
             draftTitle: $draftTitle,
             onCommitRename: {
                 store.rename(conversation.id, to: draftTitle)
@@ -236,11 +237,6 @@ struct ProjectSidebarView: View {
             },
             onCancelRename: { renamingConversationID = nil },
             onStartFirstMessage: { selectedConversationID = conversation.id }
-        )
-        .padding(.horizontal, Qcowork.spacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
-                .fill(isSelected ? Qcowork.colors.clay.opacity(0.12) : .clear)
         )
         .contentShape(Rectangle())
         .onTapGesture { selectedConversationID = conversation.id }
@@ -304,6 +300,18 @@ struct ProjectSidebarView: View {
         }
         editorMode = nil
     }
+
+    private func setProjectExpanded(_ id: UUID, _ value: Bool) {
+        DispatchQueue.main.async {
+            projects.setExpanded(id, value)
+        }
+    }
+
+    private func setUnfiledExpanded(_ value: Bool) {
+        DispatchQueue.main.async {
+            projects.unfiledExpanded = value
+        }
+    }
 }
 /// Sheet presentation wrapper so ``editorMode`` can be Identifiable.
 private struct EditorPresentation: Identifiable {
@@ -320,11 +328,13 @@ private struct EditorPresentation: Identifiable {
 private struct ConversationRowContent: View {
     let conversation: Conversation
     let isEditing: Bool
+    let isSelected: Bool
     @Binding var draftTitle: String
     let onCommitRename: () -> Void
     let onCancelRename: () -> Void
     let onStartFirstMessage: () -> Void
     @FocusState private var focused: Bool
+    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -355,12 +365,35 @@ private struct ConversationRowContent: View {
                     .foregroundStyle(.tint)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, Qcowork.spacing.sm)
+        .padding(.vertical, Qcowork.spacing.xs)
+        .frame(maxWidth: .infinity, minHeight: Qcowork.sizing.sidebarRowMinHeight, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                .fill(rowFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                .stroke(isSelected ? Qcowork.colors.clay.opacity(0.18) : .clear,
+                        lineWidth: Qcowork.stroke.hairline)
+        )
+        .onHover { isHovered = $0 }
+        .animation(Qcowork.motion.soft, value: isHovered)
+        .animation(Qcowork.motion.soft, value: isSelected)
+    }
+
+    private var rowFill: Color {
+        if isSelected { return Qcowork.colors.clay.opacity(0.12) }
+        if isHovered { return Qcowork.colors.surfaceHover }
+        return .clear
     }
 
     private var subtitle: String {
         let messageCount = conversation.messages.count
         if messageCount == 0 { return "空对话" }
+        if abs(conversation.updatedAt.timeIntervalSinceNow) < 60 {
+            return "\(messageCount) 条 · 刚刚"
+        }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let when = formatter.localizedString(for: conversation.updatedAt, relativeTo: Date())

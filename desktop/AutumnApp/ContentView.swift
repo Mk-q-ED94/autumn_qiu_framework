@@ -24,10 +24,10 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            repairConversationSelection()
+            deferConversationSelectionRepair()
         }
         .onChange(of: store.conversations.map(\.id)) { _, _ in
-            repairConversationSelection()
+            deferConversationSelectionRepair()
         }
         #if os(macOS)
         .frame(minWidth: 1020, minHeight: 680)
@@ -81,6 +81,12 @@ struct ContentView: View {
             return
         }
         conversationSelection.wrappedValue = store.conversations.first?.id
+    }
+
+    private func deferConversationSelectionRepair() {
+        DispatchQueue.main.async {
+            repairConversationSelection()
+        }
     }
 }
 

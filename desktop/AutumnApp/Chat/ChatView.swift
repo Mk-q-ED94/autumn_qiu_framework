@@ -60,7 +60,12 @@ struct ChatView: View {
             )
         )
         .onChange(of: traceSnapshots, initial: true) { oldSnapshots, newSnapshots in
-            synchronizeInspectorSelection(from: oldSnapshots, to: newSnapshots)
+            DispatchQueue.main.async {
+                synchronizeInspectorSelection(from: oldSnapshots, to: newSnapshots)
+            }
+        }
+        .task(id: conversationID) {
+            vm.syncActiveRouteOverride()
         }
     }
 

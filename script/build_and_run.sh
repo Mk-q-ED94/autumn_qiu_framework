@@ -2,14 +2,14 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="AutumnDesktop"
-SCHEME="AutumnDesktop"
-BUNDLE_ID="com.autumn.desktop"
+APP_NAME="QcoworkDesktop"
+SCHEME="QcoworkDesktop"
+BUNDLE_ID="com.qcowork.desktop"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_DIR="$ROOT_DIR/desktop"
-PROJECT_FILE="$PROJECT_DIR/AutumnDesktop.xcodeproj"
-DERIVED_DATA="/tmp/autumn_desktop_derived"
+PROJECT_FILE="$PROJECT_DIR/QcoworkDesktop.xcodeproj"
+DERIVED_DATA="/tmp/qcowork_desktop_derived"
 LOG_DIR="$ROOT_DIR/build/logs"
 LOG_FILE="$LOG_DIR/build_and_run.log"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"

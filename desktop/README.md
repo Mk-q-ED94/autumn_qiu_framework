@@ -6,7 +6,7 @@ SwiftUI macOS 客户端。通过 HTTP/SSE 与本地运行的 Autumn 服务器通
 
 ```
 ┌────────────────────┐    HTTP / SSE     ┌──────────────────────┐
-│   AutumnDesktop    │ ────────────────► │   autumn.server      │
+│   QcoworkDesktop   │ ────────────────► │   autumn.server      │
 │   (SwiftUI app)    │                   │   FastAPI · :8765    │
 └────────────────────┘                   └──────────┬───────────┘
                                                     │
@@ -66,12 +66,12 @@ bash ./script/build_and_run.sh
 ```bash
 cd desktop
 xcodegen generate
-open AutumnDesktop.xcodeproj
+open QcoworkDesktop.xcodeproj
 ```
 
 在 Xcode 中：
 
-1. 选中 **AutumnDesktop** target → **Signing & Capabilities**，设置你的 Team。
+1. 选中 **QcoworkDesktop** target → **Signing & Capabilities**，设置你的 Team。
 2. 顶部 destination 选 **My Mac**。
 3. ⌘R 运行。
 
