@@ -88,7 +88,7 @@ struct TerrsView: View {
             EmptyStateView(
                 icon: "puzzlepiece.extension",
                 title: "暂无已注册能力域",
-                message: "服务端可设 AUTUMN_BUILTIN_TERRS=safe 注册内置域（time/math/text/data/encoding/collection）。"
+                message: "AUTUMN_BUILTIN_TERRS=safe 注册 6 个安全域（time · math · text · data · encoding · collection）；=all 追加 web（HTTP）和 knowledge（DuckDuckGo）。文件系统域需同时设 AUTUMN_FS_ROOT 路径；memory 域在代码中按需注册。"
             )
         } else {
             ScrollView {

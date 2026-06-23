@@ -76,6 +76,8 @@ def fs_terr(root: str | Path) -> Terr:
         grep_files(pattern, path, recursive, file_glob, max_results) → content search
         file_tree(path, max_depth)     → directory tree as formatted string
         read_multiple(paths)           → batch read → {path: content} dict
+        replace_in_files(find, replace_with, file_glob, path, regex) → multi-file find-and-replace
+        dir_stats(path)                → directory profile JSON (counts, sizes, by-extension)
     """
     root = Path(root)
     if not root.exists():
@@ -372,7 +374,12 @@ def fs_terr(root: str | Path) -> Terr:
 
     return Terr(
         name="fs",
-        description=f"Sandboxed filesystem rooted at {root_resolved}.",
+        description=(
+            f"Sandboxed filesystem operations rooted at {root_resolved}. "
+            "Primitive tools: read, write, list, copy, move, delete, search by glob. "
+            "Compound skills: content grep, directory tree, batch read, "
+            "multi-file find-and-replace, and directory profiling."
+        ),
         tools=[
             Tool(
                 name="read_file",

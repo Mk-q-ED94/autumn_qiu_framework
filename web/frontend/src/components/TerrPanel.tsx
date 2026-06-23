@@ -81,7 +81,10 @@ export function TerrPanel({ settings }: Props) {
             <div className="empty-state__icon">⬡</div>
             <div className="empty-state__title">无已注册能力域</div>
             <div className="empty-state__sub">
-              在应用启动时通过 <code>register_terr()</code> 或 <code>register_builtins()</code> 注册。
+              设 <code>AUTUMN_BUILTIN_TERRS=safe</code> 注册 6 个安全域，
+              <code>=all</code> 追加 web + knowledge。
+              文件系统域需同时设 <code>AUTUMN_FS_ROOT</code>；
+              或在代码中调用 <code>register_terr()</code>。
             </div>
           </div>
         ) : (
