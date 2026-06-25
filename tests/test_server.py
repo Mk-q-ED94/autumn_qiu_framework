@@ -462,6 +462,32 @@ def test_apply_config_passes_pricing(configured_client, monkeypatch):
 # ── /process ──────────────────────────────────────────────────────────────────
 
 
+def test_register_core_skills_exposes_memory_tools_to_wp2(tmp_path):
+    """The default server build must give the agent recall/remember and the
+    governed Mom1-access channel — otherwise the broker and recall synthesis
+    sit unreachable on every normal turn."""
+    from autumn import Autumn
+    from autumn.core.config import AutumnConfig, ModelConfig
+    from autumn.core.types import Protocol
+
+    m = ModelConfig("k", "http://x", "m", Protocol.OPENAI)
+    cfg = AutumnConfig(a1=m, a2=m, a3=m)
+    cfg.storage.db_path = str(tmp_path / "mem.db")
+    autumn = Autumn(cfg)
+
+    # Before registration the executor has no memory tools.
+    tools, skills = autumn._collect_plugins()
+    assert {s.name for s in skills} == set()
+
+    server_app._register_core_skills(autumn)
+
+    tools, skills = autumn._collect_plugins()
+    names = {s.name for s in skills}
+    assert "recall" in names
+    assert "remember" in names
+    assert "request_mom1_access" in names
+
+
 def test_process_returns_output(configured_client):
     r = configured_client.post("/process", json={"input": "hi"})
     assert r.status_code == 200

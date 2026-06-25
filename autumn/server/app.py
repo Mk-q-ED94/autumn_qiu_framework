@@ -494,6 +494,23 @@ def _register_builtin_terrs(autumn: Autumn) -> None:
             logger.warning("AUTUMN_FS_ROOT %r is invalid: %s", fs_root, exc)
 
 
+def _register_core_skills(autumn: Autumn) -> None:
+    """Expose the core memory tools on every default deployment.
+
+    Without this the agent has no way to read/write durable memory or reach Mom1
+    on a normal turn: recall synthesis and the governed Mom1 access broker were
+    fully built but unreachable because nothing registered their skills. Binding
+    recall/remember to the shared zone and the ``request_mom1_access`` channel to
+    the task executor (Mom2) makes both live on the default turn. Best-effort:
+    a build that somehow lacks WP4/the broker must not fail to boot.
+    """
+    try:
+        autumn.add_memory_skills(area="shared")
+        autumn.add_mom1_access_skill(area="mom2")
+    except Exception as exc:  # pragma: no cover - defensive; both are always wired
+        logger.warning("core memory skills not registered: %s", exc)
+
+
 def _try_build_from_env() -> Autumn | None:
     if os.environ.get("AUTUMN_SKIP_INIT") == "1":
         return None
@@ -505,6 +522,7 @@ def _try_build_from_env() -> Autumn | None:
         return None
     autumn = Autumn(config)
     _register_builtin_terrs(autumn)
+    _register_core_skills(autumn)
     logger.info("autumn server initialized from environment config")
     return autumn
 
@@ -1076,6 +1094,7 @@ def create_app() -> FastAPI:
             old: Autumn | None = request.app.state.autumn
             new_autumn = Autumn(config)
             _register_builtin_terrs(new_autumn)
+            _register_core_skills(new_autumn)
             request.app.state.autumn = new_autumn
             request.app.state.last_error = None
             if old is not None:
