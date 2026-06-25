@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..core.config import AutumnConfig, ModelConfig
+from ..core.config import AutumnConfig, BehaviorConfig, ModelConfig
 from ..core.framework import Autumn
 from ..core.memory.project import project_context, reset_current_project, set_current_project
 from ..core.security import (
@@ -233,11 +233,30 @@ class ProviderConfigRequest(BaseModel):
     output_price_per_1m: float = 0.0
 
 
+class CooperativeBehaviorRequest(BaseModel):
+    """Optional cooperative-workflow toggles applied on /config/apply.
+
+    These are the interactive A1/A4 behaviours that previously had NO runtime
+    path — they could only be set via env var at boot, so no client could turn
+    A1 supervision or task planning on. Each field is optional; an omitted field
+    keeps the framework default. (The 4D memory flags have their own live
+    endpoint at /memory/4d/config and are not duplicated here.)
+    """
+
+    cooperative_workflow: bool | None = None
+    a1_task_planning: bool | None = None
+    a1_supervision: bool | None = None
+    archive_executions: bool | None = None
+    a4_delegate_to_a1: bool | None = None
+    a4_knowledge_terr: bool | None = None
+
+
 class ApplyConfigRequest(BaseModel):
     a1: ProviderConfigRequest
     a2: ProviderConfigRequest
     a3: ProviderConfigRequest
     a4: ProviderConfigRequest | None = None
+    behavior: CooperativeBehaviorRequest | None = None
 
 
 class ApplyConfigResponse(BaseModel):
@@ -509,6 +528,28 @@ def _register_core_skills(autumn: Autumn) -> None:
         autumn.add_mom1_access_skill(area="mom2")
     except Exception as exc:  # pragma: no cover - defensive; both are always wired
         logger.warning("core memory skills not registered: %s", exc)
+
+
+def _behavior_from_request(req_behavior) -> BehaviorConfig:
+    """Build a BehaviorConfig from env defaults with cooperative overrides applied.
+
+    The boot path (_try_build_from_env) reads behaviour from env; /config/apply
+    used to ignore it entirely, building bare BehaviorConfig() defaults — so the
+    interactive cooperative flags (a1_supervision/a1_task_planning/...) had no
+    runtime path at all. Here env is the baseline and any flag the client sends
+    overrides it, so a client can finally turn A1 supervision on without a reboot.
+    """
+    behavior = BehaviorConfig.from_env()
+    if req_behavior is None:
+        return behavior
+    for field_name in (
+        "cooperative_workflow", "a1_task_planning", "a1_supervision",
+        "archive_executions", "a4_delegate_to_a1", "a4_knowledge_terr",
+    ):
+        val = getattr(req_behavior, field_name, None)
+        if val is not None:
+            setattr(behavior, field_name, val)
+    return behavior
 
 
 def _try_build_from_env() -> Autumn | None:
@@ -1086,6 +1127,7 @@ def create_app() -> FastAPI:
                 a2=_require_model_config("A2", req.a2),
                 a3=_require_model_config("A3", req.a3),
                 a4=a4_config,
+                behavior=_behavior_from_request(req.behavior),
             )
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

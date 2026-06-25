@@ -442,6 +442,34 @@ def test_apply_config_requires_model(configured_client):
     assert r.status_code == 400
 
 
+def test_apply_config_applies_cooperative_behavior(configured_client, monkeypatch):
+    """A client can now turn A1 supervision/task-planning on at runtime — these
+    interactive flags previously had no path but env-var-at-boot."""
+    _ConfiguredAutumn.instances = []
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+    payload = _config_payload()
+    payload["behavior"] = {"a1_supervision": True, "a1_task_planning": True}
+
+    r = configured_client.post("/config/apply", json=payload)
+
+    assert r.status_code == 200
+    behavior = configured_client.app.state.autumn.config.behavior
+    assert behavior.a1_supervision is True
+    assert behavior.a1_task_planning is True
+    assert behavior.supervision_on is True  # master switch on by default → effective
+
+
+def test_apply_config_default_leaves_supervision_off(configured_client, monkeypatch):
+    """Omitting behaviour keeps the cost-bearing interactive flags off."""
+    _ConfiguredAutumn.instances = []
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+
+    r = configured_client.post("/config/apply", json=_config_payload())
+
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.config.behavior.a1_supervision is False
+
+
 def test_apply_config_passes_pricing(configured_client, monkeypatch):
     _ConfiguredAutumn.instances = []
     monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
