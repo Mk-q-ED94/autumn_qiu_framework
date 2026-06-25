@@ -102,6 +102,47 @@ async def test_checker_retries_one_runs_single_pass():
     assert len(api.calls) == 1  # only the model check; no _correct call
 
 
+async def test_checker_honours_fenced_json_verdict():
+    # A judge wrapping its verdict in a ```json fence must still be honoured —
+    # the old behaviour silently passed (fail-open) on unparseable fenced JSON.
+    api = _RecordingAPI(['```json\n{"ok": false, "issues": "too vague"}\n```'])
+    checker = Checker("wp2", api, retries=1)
+    mem = MemoryArea("m", DictBackend())
+    ok, result = await checker.validate("a long enough output string", mem)
+    assert ok is False
+    assert "too vague" in result
+
+
+async def test_checker_honours_fenced_passing_verdict():
+    api = _RecordingAPI(['```json\n{"ok": true}\n```'])
+    checker = Checker("wp2", api, retries=1)
+    mem = MemoryArea("m", DictBackend())
+    ok, result = await checker.validate("a long enough output string", mem)
+    assert ok is True
+    assert result == "a long enough output string"
+
+
+def test_wp1_check_detail_surfaces_advisory_on_failure():
+    # A failed buffered-path check must reach the user, not be silently stripped.
+    from autumn.core.workspace.wp1 import _ADVISORY_PREFIX, _check_detail
+
+    checked = "[CHECK_FAILED(wp1): missing sources]\n\nThe answer body."
+    output, detail = _check_detail(False, checked, "passed", "failed")
+    assert output.startswith("The answer body.")
+    assert _ADVISORY_PREFIX in output
+    assert output.endswith("missing sources")
+    assert "missing sources" in detail
+
+
+def test_wp1_check_detail_passes_clean_output_unchanged():
+    from autumn.core.workspace.wp1 import _ADVISORY_PREFIX, _check_detail
+
+    output, detail = _check_detail(True, "The answer body.", "passed", "failed")
+    assert output == "The answer body."
+    assert _ADVISORY_PREFIX not in output
+    assert detail == "passed"
+
+
 async def test_checker_retries_allow_correction():
     # First check fails → correct → second check passes.
     api = _RecordingAPI(['{"ok": false, "issues": "x"}', "corrected output", '{"ok": true}'])

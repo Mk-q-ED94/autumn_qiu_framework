@@ -41,7 +41,13 @@ def _strip_check_marker(checked: str) -> str:
 
 
 def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) -> tuple[str, str]:
-    """Return (clean_output, stage_detail) from a checker.validate result."""
+    """Return (user_output, stage_detail) from a checker.validate result.
+
+    On failure the (best-effort auto-corrected) output is surfaced to the user
+    with a visible ``[质量提示]`` advisory appended — otherwise a failed check is
+    invisible on the default buffered path (the marker was silently stripped),
+    so the "quality advisory" never reached the person reading the answer.
+    """
     if ok:
         return checked, passed_label
     clean = _strip_check_marker(checked)
@@ -49,7 +55,8 @@ def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) 
     start = checked.find(": ")
     end = checked.find("]")
     issues = checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
-    return clean, f"{failed_label}: {issues}"
+    advised = f"{clean}{_ADVISORY_PREFIX}{issues}"
+    return advised, f"{failed_label}: {issues}"
 
 _PLAN_TASK_SYSTEM = """\
 You are A1, the orchestrating coordinator in the Autumn framework.

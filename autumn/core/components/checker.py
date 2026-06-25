@@ -1,4 +1,5 @@
 import json
+import re
 
 from ..memory.base import MemoryArea
 from ..types import Message, Role
@@ -83,7 +84,10 @@ class Checker:
         # A non-string / empty response means we can't judge — pass through rather
         # than loop forever. (We handle this explicitly instead of catching
         # AttributeError, so a genuinely broken API object still surfaces.)
-        text = resp.strip() if isinstance(resp, str) else ""
+        # Strip a ```json fence first: judges commonly wrap their verdict in one,
+        # and without this the fenced JSON fails json.loads and silently passes —
+        # the same tolerance the Selector already applies to its own parse.
+        text = _strip_fence(resp.strip()) if isinstance(resp, str) else ""
         if not text:
             return True, ""
         try:
@@ -105,6 +109,20 @@ class Checker:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _strip_fence(text: str) -> str:
+    """Tolerate a judge that wraps its JSON verdict in a ```json fenced block.
+
+    Mirrors the Selector's parsing tolerance: without it, the common model
+    behaviour of fencing JSON makes the verdict unparseable, and ``_model_check``
+    silently passes (fail-open) on output it would otherwise have flagged.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
 
 def _rule_check(output: str) -> str:
     output = output.strip()
