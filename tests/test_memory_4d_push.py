@@ -161,6 +161,6 @@ async def test_active_context_enabled_renders_fragment(tmp_path):
 
 
 def test_behavior_config_push_flag_default_and_env(monkeypatch):
-    assert BehaviorConfig().fourd_push_on_turn is False
-    monkeypatch.setenv("FOURD_PUSH_ON_TURN", "yes")
-    assert BehaviorConfig.from_env().fourd_push_on_turn is True
+    assert BehaviorConfig().fourd_push_on_turn is True  # on by default (no-op until a CONSTRAIN/REMIND memory exists)
+    monkeypatch.setenv("FOURD_PUSH_ON_TURN", "off")
+    assert BehaviorConfig.from_env().fourd_push_on_turn is False

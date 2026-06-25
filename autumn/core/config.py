@@ -119,8 +119,13 @@ class StorageConfig:
 class BehaviorConfig:
     """Tunable runtime knobs that used to be hardcoded constants.
 
-    Defaults reproduce the framework's original behavior, so leaving this
-    untouched changes nothing.
+    The 4D memory layer (``fourd_memory_enabled`` / ``fourd_push_on_turn``) is
+    **on by default** as of 0.3.x: recall/eviction rank by 4D activation and the
+    push engine runs at turn start. Both degrade safely — an un-annotated store
+    ranks exactly as ``importance × timestamp`` did, and push is a no-op until a
+    CONSTRAIN/REMIND memory exists — so turning them on changes nothing until
+    memories carry 4D dimensions. The cooperative interactive behaviours that add
+    real model cost (``a1_supervision`` / ``a1_task_planning``) stay off by default.
     """
 
     agent_max_steps: int = 10      # WP2 Agent ReAct iteration ceiling
@@ -128,8 +133,8 @@ class BehaviorConfig:
     confirm_threshold: float = 0.75  # Selector confidence below which the user is asked
     history_limit: int = 50        # Per-area memory history entries retained
     memory_decay_half_life: float = 0.0  # Seconds; importance halves each interval. 0 = off
-    fourd_memory_enabled: bool = False  # Rank recall/evict by 4D activation score (off = today's importance×timestamp)
-    fourd_push_on_turn: bool = False  # Allow push-activation of CONSTRAIN/REMIND memories at turn start (off = no push)
+    fourd_memory_enabled: bool = True  # Rank recall/evict by 4D activation score (degrades to importance×timestamp for un-annotated entries)
+    fourd_push_on_turn: bool = True  # Push-activate CONSTRAIN/REMIND memories at turn start (a no-op until such memories exist)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
