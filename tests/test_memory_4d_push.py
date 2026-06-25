@@ -160,6 +160,33 @@ async def test_active_context_enabled_renders_fragment(tmp_path):
         assert "no direct prod writes" in frag
 
 
+async def test_compute_push_goal_gate_fires_from_active_project(tmp_path):
+    """A goal_ref-tagged constraint stays vetoed until the turn supplies a
+    matching goal — which _compute_push now derives from the active project,
+    making the RFC's flagship goal-gated activation reachable on a real turn."""
+    from autumn.core.memory.dimensions import Aim
+    from autumn.core.memory.project import project_context
+
+    cfg = _cfg(push=True)
+    cfg.storage.db_path = str(tmp_path / "mem.db")
+    async with Autumn(cfg) as autumn:
+        await autumn.mom1.append_history(
+            "freeze the schema",
+            use=Use(mode=UseMode.CONSTRAIN),
+            aim=Aim(goal_ref="ship-v2"),
+        )
+        # No goal in context → the goal-gated aim vetoes (align 0), nothing fires.
+        _frag, count_no_goal, _ = await autumn._compute_push("do work")
+        assert count_no_goal == 0
+
+        # Scope the turn to a project whose master goal matches goal_ref → fires.
+        await autumn.projects.update_metadata("proj", goals={"master": "ship-v2"})
+        with project_context("proj"):
+            frag, count, _ = await autumn._compute_push("do work")
+    assert count == 1
+    assert "freeze the schema" in frag
+
+
 def test_behavior_config_push_flag_default_and_env(monkeypatch):
     assert BehaviorConfig().fourd_push_on_turn is True  # on by default (no-op until a CONSTRAIN/REMIND memory exists)
     monkeypatch.setenv("FOURD_PUSH_ON_TURN", "off")
