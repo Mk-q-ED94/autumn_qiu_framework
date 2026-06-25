@@ -110,3 +110,27 @@ async def test_recall_reaches_wp2_prompt_and_trace_end_to_end(tmp_path):
     assert len(recall_stages) == 1
     assert recall_stages[0].workspace == "WP4"
     assert "1" in recall_stages[0].detail
+
+
+async def test_recall_and_push_both_fire_on_one_real_turn(tmp_path):
+    """The 'effect, not wiring' guarantee for the memory pipeline: a single real
+    turn surfaces BOTH halves of 4D memory — prior conversation (pull) and an
+    active constraint (push) — into the executor's prompt and the trace."""
+    from autumn.core.memory.dimensions import Use, UseMode
+
+    cfg = _cfg(tmp_path)
+    cfg.behavior.archive_executions = False
+    async with Autumn(cfg) as autumn:
+        _a1, a2, _a3 = _wire(autumn)
+        await autumn.mom1.append_history({"input": "earlier ask", "output": "earlier result"})
+        await autumn.mom1.append_history(
+            "never force-push to main", use=Use(mode=UseMode.CONSTRAIN)
+        )
+        run = await autumn.process_with_trace("next step?", input_type=InputType.TASK)
+
+    stage_ids = {s.id for s in run.stages}
+    assert "wp4.recall" in stage_ids  # pull half fired
+    assert "wp4.push" in stage_ids    # push half fired
+    sys = "\n".join(a2.system_texts())
+    assert "earlier result" in sys              # recalled context reached the executor
+    assert "never force-push to main" in sys    # active constraint reached the executor
