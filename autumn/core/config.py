@@ -135,6 +135,7 @@ class BehaviorConfig:
     memory_decay_half_life: float = 0.0  # Seconds; importance halves each interval. 0 = off
     fourd_memory_enabled: bool = True  # Rank recall/evict by 4D activation score (degrades to importance×timestamp for un-annotated entries)
     fourd_push_on_turn: bool = True  # Push-activate CONSTRAIN/REMIND memories at turn start (a no-op until such memories exist)
+    fourd_pull_on_turn: bool = True  # Pull recent Mom1 cross-turn context into the executor prompt (the read half; no-op when Mom1 is empty)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
@@ -171,6 +172,9 @@ class BehaviorConfig:
             ),
             fourd_push_on_turn=_to_bool(
                 env("FOURD_PUSH_ON_TURN"), cls.fourd_push_on_turn,
+            ),
+            fourd_pull_on_turn=_to_bool(
+                env("FOURD_PULL_ON_TURN"), cls.fourd_pull_on_turn,
             ),
             mom1_access_enabled=_to_bool(
                 env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled

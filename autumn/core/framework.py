@@ -8,7 +8,7 @@ from typing import Literal
 from ..plugins.loader import PluginLoader
 from .api.embedding import EmbeddingInterface
 from .api.interfaces import A1, A2, A3, A4
-from .components.agent import Agent
+from .components.agent import Agent, _format_memory_context
 from .components.checker import Checker
 from .components.mcp import MCPClient
 from .components.mcp_bridge import mcp_to_tools
@@ -38,6 +38,10 @@ from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
 from .workspace.wp4 import WP4Mem
+
+
+# How many recent Mom1 turns to pull into the executor prompt each turn.
+_TURN_RECALL_K = 5
 
 
 def _mark_terr_source(callable_obj, terr: Terr) -> None:
@@ -311,6 +315,46 @@ class Autumn:
         ms = round((time.perf_counter() - t) * 1000, 1)
         return fragment, len(fired), ms
 
+    async def _compute_recall(self, user_input: str) -> tuple[str, int, float]:
+        """Pull recent cross-turn context from Mom1 (the read-all zone) for this turn.
+
+        Mom1 accumulates every turn's input/output but is otherwise never read
+        back on the default path — its advertised "reads all" authority was inert.
+        This is the *pull* half of 4D memory, symmetric with ``_compute_push``:
+        the executor (WP2/WP3) gets the recent conversation it would otherwise be
+        blind to. Returns ``("", 0, 0.0)`` when disabled or Mom1 is empty, so the
+        caller can skip the recall stage entirely.
+        """
+        if not self.config.behavior.fourd_pull_on_turn:
+            return "", 0, 0.0
+        t = time.perf_counter()
+        try:
+            history = await self.mom1.get_history(n=_TURN_RECALL_K)
+        except Exception:
+            return "", 0, 0.0
+        fragment = _format_memory_context(history)
+        ms = round((time.perf_counter() - t) * 1000, 1)
+        return fragment, (len(history) if fragment else 0), ms
+
+    async def _compute_turn_context(self, user_input: str) -> dict:
+        """Assemble the turn's memory context: pull (Mom1 recall) + push (4D).
+
+        Returns the kwargs threaded into WP1's process/stream entry points. The
+        recall and push fragments are joined into a single ``push_context`` the
+        executors receive, while ``recall_count``/``push_count`` keep their trace
+        stages distinct.
+        """
+        recall_frag, recall_count, recall_ms = await self._compute_recall(user_input)
+        push_frag, push_count, push_ms = await self._compute_push(user_input)
+        turn_context = "\n\n".join(f for f in (recall_frag, push_frag) if f)
+        return {
+            "push_context": turn_context,
+            "push_count": push_count,
+            "push_ms": push_ms,
+            "recall_count": recall_count,
+            "recall_ms": recall_ms,
+        }
+
     async def process(
         self,
         user_input: str,
@@ -319,15 +363,13 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> str:
         """Run the full pipeline and return the validated final output."""
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input)
         run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         )
         return run.output
 
@@ -339,15 +381,13 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input)
         run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         )
         return _annotate_costs(run, self.config)
 
@@ -382,15 +422,13 @@ class Autumn:
         convert path remains buffered because conversion is a non-streamed
         model call.
         """
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input)
         async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         ):
             if isinstance(event, str):
                 yield event
@@ -403,15 +441,13 @@ class Autumn:
         task_type: TaskType | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the WorkflowRun produced by the same turn."""
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input)
         async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         ):
             if isinstance(event, WorkflowRun):
                 yield _annotate_costs(event, self.config)

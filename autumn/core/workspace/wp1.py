@@ -250,10 +250,22 @@ class WP1Tot(WorkspaceBase):
         push_context: str = "",
         push_count: int = 0,
         push_ms: float | None = None,
+        recall_count: int = 0,
+        recall_ms: float | None = None,
     ) -> WorkflowRun:
         stages: list[WorkflowStage] = []
 
-        if push_context:
+        if recall_count:
+            stages.append(WorkflowStage(
+                id="wp4.recall",
+                title="记忆召回",
+                detail=f"召回 {recall_count} 条历史上下文",
+                workspace="WP4",
+                kind="push",
+                duration_ms=recall_ms,
+            ))
+
+        if push_count:
             stages.append(WorkflowStage(
                 id="wp4.push",
                 title="4D 记忆推入",
@@ -593,6 +605,8 @@ class WP1Tot(WorkspaceBase):
         push_context: str = "",
         push_count: int = 0,
         push_ms: float | None = None,
+        recall_count: int = 0,
+        recall_ms: float | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the ``WorkflowRun`` for the same turn.
 
@@ -612,6 +626,8 @@ class WP1Tot(WorkspaceBase):
                 push_context=push_context,
                 push_count=push_count,
                 push_ms=push_ms,
+                recall_count=recall_count,
+                recall_ms=recall_ms,
             )
             for i in range(0, len(run.output), chunk_size):
                 yield run.output[i:i + chunk_size]
@@ -622,7 +638,17 @@ class WP1Tot(WorkspaceBase):
         stages: list[WorkflowStage] = []
         tool_stages: list[WorkflowStage] = []
 
-        if push_context:
+        if recall_count:
+            stages.append(WorkflowStage(
+                id="wp4.recall",
+                title="记忆召回",
+                detail=f"召回 {recall_count} 条历史上下文",
+                workspace="WP4",
+                kind="push",
+                duration_ms=recall_ms,
+            ))
+
+        if push_count:
             stages.append(WorkflowStage(
                 id="wp4.push",
                 title="4D 记忆推入",
