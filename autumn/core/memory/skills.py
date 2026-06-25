@@ -80,6 +80,17 @@ def _build_memory_skills(
         memory = resolve()
         entries = await memory.recall(query, k=5)
 
+        if entries:
+            # Close the 4D use-feedback loop: recalling an entry IS a use of it,
+            # so touch its utility ledger. Entries that keep proving useful gain
+            # utility and rank higher in future recall / survive eviction longer.
+            # reinforce ignores the synthetic kv:/vector ids, so the whole result
+            # set is safe to pass. Best-effort — a write hiccup must not fail recall.
+            try:
+                await memory.reinforce([e.id for e in entries])
+            except Exception:
+                pass
+
         if not entries:
             return f"[no memory found for '{query}']"
 
