@@ -8,7 +8,7 @@ from typing import Literal
 from ..plugins.loader import PluginLoader
 from .api.embedding import EmbeddingInterface
 from .api.interfaces import A1, A2, A3, A4
-from .components.agent import Agent
+from .components.agent import Agent, _format_memory_context
 from .components.checker import Checker
 from .components.mcp import MCPClient
 from .components.mcp_bridge import mcp_to_tools
@@ -30,7 +30,12 @@ from .memory.dimensions import ActivationContext
 from .memory.mom1 import Mom1
 from .memory.mom2 import Mom2
 from .memory.mom3 import Mom3
-from .memory.project import ProjectMemory, ProjectZone, project_context
+from .memory.project import (
+    ProjectMemory,
+    ProjectZone,
+    get_current_project,
+    project_context,
+)
 from .memory.access import Mom1AccessBroker
 from .memory.shared import SharedZone
 from .types import InputType, MissionRoute, TaskType, WorkflowRun
@@ -38,6 +43,10 @@ from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
 from .workspace.wp4 import WP4Mem
+
+
+# How many recent Mom1 turns to pull into the executor prompt each turn.
+_TURN_RECALL_K = 5
 
 
 def _mark_terr_source(callable_obj, terr: Terr) -> None:
@@ -292,24 +301,88 @@ class Autumn:
 
     # ── public api ────────────────────────────────────────────────────────────
 
-    async def _compute_push(self, user_input: str) -> tuple[str, int, float]:
+    async def _active_goal(self) -> str | None:
+        """Best-effort: the active project's master goal, for goal-gated push.
+
+        Lets ``aim.goal_ref``-tagged CONSTRAIN/REMIND memories fire when they
+        match the project the turn is scoped to — the RFC's flagship activation
+        path, which was dead on-path because the turn never supplied a goal.
+        Returns ``None`` when no project is in scope or the read fails; push then
+        falls back to empty-aim and cue-overlap gating exactly as before.
+        """
+        pid = get_current_project()
+        if not pid:
+            return None
+        try:
+            meta = await self.projects.get_metadata(pid)
+        except Exception:
+            return None
+        return meta.goals.master or None
+
+    async def _compute_push(self, user_input: str, goal: str | None = None) -> tuple[str, int, float]:
         """Run the 4D push engine for the current turn.
 
         Returns ``(fragment, fired_count, elapsed_ms)``. When push is disabled
         or nothing fires, returns ``("", 0, 0.0)`` — callers can test the
-        fragment truthiness to skip the push stage entirely.
+        fragment truthiness to skip the push stage entirely. ``goal`` gates
+        ``aim.goal_ref`` activation; when omitted it is derived from the active
+        project so goal-tagged memories fire without the caller wiring it.
         """
         if not self.config.behavior.fourd_push_on_turn:
             return "", 0, 0.0
         from .workspace.wp4 import render_push_context
 
+        if goal is None:
+            goal = await self._active_goal()
         t = time.perf_counter()
         turn_cues = [tok for tok in user_input.split() if tok]
-        ctx = ActivationContext(now=time.time(), query=user_input or None, cues=turn_cues)
+        ctx = ActivationContext(
+            now=time.time(), query=user_input or None, goal=goal, cues=turn_cues,
+        )
         fired = await self.wp4.activate_push(area="mom1", ctx=ctx)
         fragment = render_push_context(fired)
         ms = round((time.perf_counter() - t) * 1000, 1)
         return fragment, len(fired), ms
+
+    async def _compute_recall(self, user_input: str) -> tuple[str, int, float]:
+        """Pull recent cross-turn context from Mom1 (the read-all zone) for this turn.
+
+        Mom1 accumulates every turn's input/output but is otherwise never read
+        back on the default path — its advertised "reads all" authority was inert.
+        This is the *pull* half of 4D memory, symmetric with ``_compute_push``:
+        the executor (WP2/WP3) gets the recent conversation it would otherwise be
+        blind to. Returns ``("", 0, 0.0)`` when disabled or Mom1 is empty, so the
+        caller can skip the recall stage entirely.
+        """
+        if not self.config.behavior.fourd_pull_on_turn:
+            return "", 0, 0.0
+        t = time.perf_counter()
+        try:
+            history = await self.mom1.get_history(n=_TURN_RECALL_K)
+        except Exception:
+            return "", 0, 0.0
+        fragment = _format_memory_context(history)
+        ms = round((time.perf_counter() - t) * 1000, 1)
+        return fragment, (len(history) if fragment else 0), ms
+
+    async def _compute_turn_context(self, user_input: str, goal: str | None = None) -> dict:
+        """Assemble the turn's memory context: pull (Mom1 recall) + push (4D).
+
+        Returns the kwargs threaded into WP1's process/stream entry points. The
+        recall and push fragments are joined into a single ``push_context`` the
+        executors receive, while ``recall_count``/``push_count`` keep their trace
+        stages distinct. ``goal`` is forwarded to the push engine's aim gate.
+        """
+        recall_frag, recall_count, recall_ms = await self._compute_recall(user_input)
+        push_frag, push_count, push_ms = await self._compute_push(user_input, goal=goal)
+        turn_context = "\n\n".join(f for f in (recall_frag, push_frag) if f)
+        return {
+            "push_context": turn_context,
+            "push_count": push_count,
+            "push_ms": push_ms,
+            "recall_count": recall_count,
+            "recall_ms": recall_ms,
+        }
 
     async def process(
         self,
@@ -317,17 +390,16 @@ class Autumn:
         mission_route: MissionRoute | Literal["auto"] | None = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        goal: str | None = None,
     ) -> str:
         """Run the full pipeline and return the validated final output."""
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input, goal=goal)
         run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         )
         return run.output
 
@@ -337,17 +409,16 @@ class Autumn:
         mission_route: MissionRoute | Literal["auto"] | None = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        goal: str | None = None,
     ) -> WorkflowRun:
         """Run the full pipeline and return output plus a structured workflow trace."""
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input, goal=goal)
         run = await self.wp1.process_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         )
         return _annotate_costs(run, self.config)
 
@@ -372,6 +443,7 @@ class Autumn:
         mission_route: MissionRoute | Literal["auto"] | None = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        goal: str | None = None,
     ) -> AsyncIterator[str]:
         """Real-time streaming with post-hoc Checker advisory.
 
@@ -382,15 +454,13 @@ class Autumn:
         convert path remains buffered because conversion is a non-streamed
         model call.
         """
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input, goal=goal)
         async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         ):
             if isinstance(event, str):
                 yield event
@@ -401,17 +471,16 @@ class Autumn:
         mission_route: MissionRoute | Literal["auto"] | None = None,
         input_type: InputType | None = None,
         task_type: TaskType | None = None,
+        goal: str | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the WorkflowRun produced by the same turn."""
-        fragment, push_count, push_ms = await self._compute_push(user_input)
+        ctx = await self._compute_turn_context(user_input, goal=goal)
         async for event in self.wp1.stream_with_trace(
             user_input,
             mission_route=mission_route,
             input_type=input_type,
             task_type=task_type,
-            push_context=fragment,
-            push_count=push_count,
-            push_ms=push_ms,
+            **ctx,
         ):
             if isinstance(event, WorkflowRun):
                 yield _annotate_costs(event, self.config)

@@ -13,8 +13,10 @@ from autumn.core.memory.dimensions import Aim, Trigger, Use, UseStats
 
 # ── config flag ────────────────────────────────────────────────────────────────
 
-def test_behavior_config_fourd_flag_default_is_off():
-    assert BehaviorConfig().fourd_memory_enabled is False
+def test_behavior_config_fourd_flag_default_is_on():
+    # 0.3.x activates the 4D memory layer by default (degrades safely to
+    # importance×timestamp for un-annotated entries).
+    assert BehaviorConfig().fourd_memory_enabled is True
 
 
 def test_behavior_config_fourd_flag_from_env(monkeypatch):

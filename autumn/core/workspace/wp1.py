@@ -41,7 +41,13 @@ def _strip_check_marker(checked: str) -> str:
 
 
 def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) -> tuple[str, str]:
-    """Return (clean_output, stage_detail) from a checker.validate result."""
+    """Return (user_output, stage_detail) from a checker.validate result.
+
+    On failure the (best-effort auto-corrected) output is surfaced to the user
+    with a visible ``[质量提示]`` advisory appended — otherwise a failed check is
+    invisible on the default buffered path (the marker was silently stripped),
+    so the "quality advisory" never reached the person reading the answer.
+    """
     if ok:
         return checked, passed_label
     clean = _strip_check_marker(checked)
@@ -49,7 +55,8 @@ def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) 
     start = checked.find(": ")
     end = checked.find("]")
     issues = checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
-    return clean, f"{failed_label}: {issues}"
+    advised = f"{clean}{_ADVISORY_PREFIX}{issues}"
+    return advised, f"{failed_label}: {issues}"
 
 _PLAN_TASK_SYSTEM = """\
 You are A1, the orchestrating coordinator in the Autumn framework.
@@ -243,10 +250,22 @@ class WP1Tot(WorkspaceBase):
         push_context: str = "",
         push_count: int = 0,
         push_ms: float | None = None,
+        recall_count: int = 0,
+        recall_ms: float | None = None,
     ) -> WorkflowRun:
         stages: list[WorkflowStage] = []
 
-        if push_context:
+        if recall_count:
+            stages.append(WorkflowStage(
+                id="wp4.recall",
+                title="记忆召回",
+                detail=f"召回 {recall_count} 条历史上下文",
+                workspace="WP4",
+                kind="push",
+                duration_ms=recall_ms,
+            ))
+
+        if push_count:
             stages.append(WorkflowStage(
                 id="wp4.push",
                 title="4D 记忆推入",
@@ -586,6 +605,8 @@ class WP1Tot(WorkspaceBase):
         push_context: str = "",
         push_count: int = 0,
         push_ms: float | None = None,
+        recall_count: int = 0,
+        recall_ms: float | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the ``WorkflowRun`` for the same turn.
 
@@ -605,6 +626,8 @@ class WP1Tot(WorkspaceBase):
                 push_context=push_context,
                 push_count=push_count,
                 push_ms=push_ms,
+                recall_count=recall_count,
+                recall_ms=recall_ms,
             )
             for i in range(0, len(run.output), chunk_size):
                 yield run.output[i:i + chunk_size]
@@ -615,7 +638,17 @@ class WP1Tot(WorkspaceBase):
         stages: list[WorkflowStage] = []
         tool_stages: list[WorkflowStage] = []
 
-        if push_context:
+        if recall_count:
+            stages.append(WorkflowStage(
+                id="wp4.recall",
+                title="记忆召回",
+                detail=f"召回 {recall_count} 条历史上下文",
+                workspace="WP4",
+                kind="push",
+                duration_ms=recall_ms,
+            ))
+
+        if push_count:
             stages.append(WorkflowStage(
                 id="wp4.push",
                 title="4D 记忆推入",

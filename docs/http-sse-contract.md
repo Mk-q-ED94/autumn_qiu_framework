@@ -326,11 +326,16 @@ data: [DONE]
   "a1": { "api_key": "sk-...", "base_url": "https://api.anthropic.com", "model": "claude-opus-4-8", "protocol": "anthropic" },
   "a2": { "api_key": "sk-...", "base_url": "https://api.anthropic.com", "model": "claude-sonnet-4-6", "protocol": "anthropic" },
   "a3": { "api_key": "sk-...", "base_url": "https://api.anthropic.com", "model": "claude-haiku-4-5-20251001", "protocol": "anthropic" },
-  "a4": null
+  "a4": null,
+  "behavior": { "a1_supervision": true, "a1_task_planning": false }
 }
 ```
 
 `a4` 可为 `null`；其余三个必填。`ModelSlotConfig`：`{ api_key, base_url, model, protocol }`
+
+`behavior`（可选）用于在运行时切换协作型工作流开关，省略字段保持环境默认值。可设字段：
+`cooperative_workflow`、`a1_task_planning`、`a1_supervision`、`archive_executions`、
+`a4_delegate_to_a1`、`a4_knowledge_terr`（均为 `bool`）。4D 记忆开关另见 §8.10。
 
 **响应 200**
 
@@ -349,8 +354,11 @@ data: [DONE]
 ```json
 {
   "enabled": true,
-  "repo_path": "/srv/app",
-  "indexed": true
+  "connected": true,
+  "indexed": true,
+  "repo": "/srv/app",
+  "tool_count": 7,
+  "error": null
 }
 ```
 
@@ -363,10 +371,10 @@ data: [DONE]
 **请求体**
 
 ```json
-{ "enabled": true, "repo_path": "/srv/app" }
+{ "enabled": true, "repo": "/srv/app" }
 ```
 
-**响应 200** — 同 GET
+`repo` 可选，省略则使用服务器工作目录。**响应 200** — 同 GET（`CodebaseMemoryStatusResponse`）
 
 ---
 
@@ -422,9 +430,9 @@ data: [DONE]
 
 分页获取记忆历史。
 
-**查询参数**：`page`（默认 1）、`page_size`（默认 200，上限 2000）
+**查询参数**：`limit`（默认 200，范围 1–2000）、`offset`（默认 0）
 
-**响应 200** — 分页体
+**响应 200** — `MemoryEntry` 数组（按 `limit`/`offset` 切片）
 
 ---
 
@@ -442,9 +450,9 @@ A4 认知操作：整合记忆条目，提炼持久性见解。
 
 ### 8.4 `POST /memory/{area}/extract-facts`
 
-A4 认知操作：从自由文本中提取事实并存入记忆。
+A4 认知操作：从近期历史中提取原子事实并存入记忆。
 
-**请求体** `{ "text": "..." }`
+**请求体**（均可选）`{ "keep_recent": 0, "max_facts": 20 }`
 
 ---
 
@@ -462,37 +470,40 @@ A4 认知操作：演化/更新现有记忆条目。
 
 ### 8.7 `POST /memory/{area}/annotate`
 
-为记忆条目手动添加 4D 标注（aim / use / trigger）。
+为记忆条目手动添加 4D 标注。请求体为**扁平**结构（非嵌套 aim/use/trigger），省略字段保持原值。
 
 **请求体**
 
 ```json
 {
   "entry_id": "e123",
-  "aim": { "intent": "deploy_guardrail", "goal_ref": "goal:ship-v2", "scope": ["deploy"] },
-  "use": { "mode": "constrain", "weight": 2.0 },
-  "trigger": { "cues": ["部署"], "base_weight": 1.0 }
+  "mode": "constrain",
+  "intent": "deploy_guardrail",
+  "goal_ref": "goal:ship-v2",
+  "scope": ["deploy"],
+  "cues": ["部署"],
+  "half_life": null
 }
 ```
 
-**响应 200**
+`mode`：`constrain | remind | summarize | context`。**响应 200**
 
 ```json
-{ "entry_id": "e123", "updated": true }
+{ "status": "ok", "entry_id": "e123", "found": true }
 ```
 
 ---
 
 ### 8.8 `POST /memory/{area}/auto-annotate`
 
-A4 认知操作：自动为条目推断 4D 标注。
+A4 认知操作：自动为近期条目批量推断 4D 标注。
 
-**请求体** `{ "entry_id": "e123" }`
+**请求体**（均可选）`{ "n": 10, "only_unannotated": true }`
 
 **响应 200**
 
 ```json
-{ "entry_id": "e123", "applied": true, "aim": {...}, "use": {...}, "trigger": {...} }
+{ "status": "ok", "annotated": 4, "scanned": 10 }
 ```
 
 ---

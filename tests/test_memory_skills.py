@@ -52,6 +52,28 @@ async def test_recall_missing_returns_message():
     assert "no memory found" in result
 
 
+async def test_recall_reinforces_recalled_entries():
+    """Recalling an entry closes the 4D use-feedback loop: the skill touches the
+    utility ledger of everything recall returned (synthetic ids ignored)."""
+    from autumn.core.memory.base import MemoryEntry
+
+    calls: list[list[str]] = []
+
+    class _SpyMem:
+        has_vector = False
+
+        async def recall(self, query, k=5):
+            return [MemoryEntry(id="h7", content="useful fact", timestamp=1.0, tags=["history"])]
+
+        async def reinforce(self, ids, reward=0.0):
+            calls.append(list(ids))
+            return len(ids)
+
+    recall = make_memory_skills(_SpyMem())[0]
+    await recall.execute(query="anything")
+    assert calls and "h7" in calls[0]
+
+
 async def test_recall_after_remember():
     mem = _make_memory()
     recall, remember, _, _ = _skills(mem)

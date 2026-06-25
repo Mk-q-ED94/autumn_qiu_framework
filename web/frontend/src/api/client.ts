@@ -6,6 +6,11 @@
  */
 
 import type {
+  AccessLog,
+  AnnotateResult,
+  AutoAnnotateResult,
+  CodebaseMemoryStatus,
+  CooperativeBehavior,
   FourDStatus,
   IntentPreview,
   MemoryArea,
@@ -16,6 +21,7 @@ import type {
   OllamaRecommended,
   OllamaStatus,
   Protocol,
+  PushPreview,
   ServerMetrics,
   Settings,
   SlotConfig,
@@ -135,7 +141,8 @@ export async function getModels(
 // ── /config/apply ─────────────────────────────────────────────────────────────
 
 export async function applyConfig(
-  settings: Settings
+  settings: Settings,
+  behavior?: CooperativeBehavior
 ): Promise<{ status: string; configured: boolean }> {
   const body: Record<string, unknown> = {
     a1: settings.a1,
@@ -143,7 +150,27 @@ export async function applyConfig(
     a3: settings.a3,
   };
   if (settings.a4?.api_key) body.a4 = settings.a4;
+  if (behavior) body.behavior = behavior;
   return json(settings, "/config/apply", { method: "POST", body: JSON.stringify(body) });
+}
+
+// ── /config/codebase-memory ───────────────────────────────────────────────────
+
+export async function getCodebaseMemoryStatus(
+  settings: Settings
+): Promise<CodebaseMemoryStatus> {
+  return json(settings, "/config/codebase-memory");
+}
+
+export async function setCodebaseMemory(
+  settings: Settings,
+  enabled: boolean,
+  repo?: string
+): Promise<CodebaseMemoryStatus> {
+  return json(settings, "/config/codebase-memory", {
+    method: "POST",
+    body: JSON.stringify({ enabled, repo: repo ?? null }),
+  });
 }
 
 // ── /intent ───────────────────────────────────────────────────────────────────
@@ -283,6 +310,105 @@ export async function getMemoryHistory(
     settings,
     `/memory/${area}/history?limit=${limit}&offset=${offset}`
   );
+}
+
+// ── /memory/push/preview ──────────────────────────────────────────────────────
+
+export async function pushPreview(
+  settings: Settings,
+  area: MemoryArea = "mom1",
+  query = "",
+  cues?: string[]
+): Promise<PushPreview> {
+  return json(settings, "/memory/push/preview", {
+    method: "POST",
+    body: JSON.stringify({ area, query, cues: cues ?? null }),
+  });
+}
+
+// ── /memory/audit/access_log ──────────────────────────────────────────────────
+
+export async function getAccessLog(
+  settings: Settings,
+  limit = 200,
+  offset = 0,
+  verdict?: "granted" | "denied"
+): Promise<AccessLog> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (verdict) params.set("verdict", verdict);
+  return json(settings, `/memory/audit/access_log?${params}`);
+}
+
+// ── /memory/{area} A4 cognitive ops ───────────────────────────────────────────
+
+export async function annotateMemory(
+  settings: Settings,
+  area: MemoryArea,
+  req: {
+    entry_id: string;
+    mode?: string;
+    intent?: string;
+    goal_ref?: string;
+    scope?: string[];
+    cues?: string[];
+    half_life?: number;
+  }
+): Promise<AnnotateResult> {
+  return json(settings, `/memory/${area}/annotate`, {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+export async function autoAnnotate(
+  settings: Settings,
+  area: MemoryArea,
+  body: { n?: number; only_unannotated?: boolean } = {}
+): Promise<AutoAnnotateResult> {
+  return json(settings, `/memory/${area}/auto-annotate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function consolidateMemory(
+  settings: Settings,
+  area: MemoryArea,
+  body: { keep_recent?: number; min_candidates?: number } = {}
+): Promise<Record<string, unknown>> {
+  return json(settings, `/memory/${area}/consolidate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function extractFacts(
+  settings: Settings,
+  area: MemoryArea,
+  body: { keep_recent?: number; max_facts?: number } = {}
+): Promise<Record<string, unknown>> {
+  return json(settings, `/memory/${area}/extract-facts`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function evolveMemory(
+  settings: Settings,
+  area: MemoryArea,
+  body: { min_count?: number; min_cluster?: number; max_skills?: number } = {}
+): Promise<Record<string, unknown>> {
+  return json(settings, `/memory/${area}/evolve`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getProfile(
+  settings: Settings,
+  area: MemoryArea
+): Promise<Record<string, unknown>> {
+  return json(settings, `/memory/${area}/profile`);
 }
 
 // ── /session/end ──────────────────────────────────────────────────────────────

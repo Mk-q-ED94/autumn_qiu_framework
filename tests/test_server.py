@@ -442,6 +442,34 @@ def test_apply_config_requires_model(configured_client):
     assert r.status_code == 400
 
 
+def test_apply_config_applies_cooperative_behavior(configured_client, monkeypatch):
+    """A client can now turn A1 supervision/task-planning on at runtime — these
+    interactive flags previously had no path but env-var-at-boot."""
+    _ConfiguredAutumn.instances = []
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+    payload = _config_payload()
+    payload["behavior"] = {"a1_supervision": True, "a1_task_planning": True}
+
+    r = configured_client.post("/config/apply", json=payload)
+
+    assert r.status_code == 200
+    behavior = configured_client.app.state.autumn.config.behavior
+    assert behavior.a1_supervision is True
+    assert behavior.a1_task_planning is True
+    assert behavior.supervision_on is True  # master switch on by default → effective
+
+
+def test_apply_config_default_leaves_supervision_off(configured_client, monkeypatch):
+    """Omitting behaviour keeps the cost-bearing interactive flags off."""
+    _ConfiguredAutumn.instances = []
+    monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
+
+    r = configured_client.post("/config/apply", json=_config_payload())
+
+    assert r.status_code == 200
+    assert configured_client.app.state.autumn.config.behavior.a1_supervision is False
+
+
 def test_apply_config_passes_pricing(configured_client, monkeypatch):
     _ConfiguredAutumn.instances = []
     monkeypatch.setattr(server_app, "Autumn", _ConfiguredAutumn)
@@ -460,6 +488,32 @@ def test_apply_config_passes_pricing(configured_client, monkeypatch):
 
 
 # ── /process ──────────────────────────────────────────────────────────────────
+
+
+def test_register_core_skills_exposes_memory_tools_to_wp2(tmp_path):
+    """The default server build must give the agent recall/remember and the
+    governed Mom1-access channel — otherwise the broker and recall synthesis
+    sit unreachable on every normal turn."""
+    from autumn import Autumn
+    from autumn.core.config import AutumnConfig, ModelConfig
+    from autumn.core.types import Protocol
+
+    m = ModelConfig("k", "http://x", "m", Protocol.OPENAI)
+    cfg = AutumnConfig(a1=m, a2=m, a3=m)
+    cfg.storage.db_path = str(tmp_path / "mem.db")
+    autumn = Autumn(cfg)
+
+    # Before registration the executor has no memory tools.
+    tools, skills = autumn._collect_plugins()
+    assert {s.name for s in skills} == set()
+
+    server_app._register_core_skills(autumn)
+
+    tools, skills = autumn._collect_plugins()
+    names = {s.name for s in skills}
+    assert "recall" in names
+    assert "remember" in names
+    assert "request_mom1_access" in names
 
 
 def test_process_returns_output(configured_client):
