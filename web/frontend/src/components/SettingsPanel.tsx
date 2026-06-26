@@ -75,6 +75,8 @@ const FOURD_ROWS: Array<{ key: keyof FourDStatus; label: string; hint: string }>
   { key: "fourd_memory_enabled", label: "4D 激活排序", hint: "按目的 / 使用 / 时间维度对召回与淘汰排序" },
   { key: "fourd_push_on_turn", label: "回合开始推入", hint: "每轮开始时注入 CONSTRAIN / REMIND 记忆" },
   { key: "fourd_pull_on_turn", label: "回合开始召回", hint: "每轮把 Mom1 跨轮对话上下文拉入执行器" },
+  { key: "fourd_auto_annotate", label: "自动标注维度", hint: "每轮后由 A4 自动为新写入的 Mom1 条目标注 aim/use/trigger 维度（需要 A4）" },
+  { key: "fourd_auto_consolidate", label: "自动整合记忆", hint: "Mom1 接近上限时由 A4 自动整合为摘要条目（需要 A4）" },
   { key: "mom1_access_enabled", label: "Mom1 受控访问", hint: "允许 Mom2 / Mom3 经 A1 裁决读取 Mom1" },
 ];
 

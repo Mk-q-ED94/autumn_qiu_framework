@@ -64,12 +64,13 @@ def client_factory():
 def test_status_reports_flags(client_factory):
     client, _ = client_factory(_Behavior(mem=True, push=True, mom1=False))
     body = client.get("/memory/4d/status").json()
-    assert body == {
-        "fourd_memory_enabled": True,
-        "fourd_push_on_turn": True,
-        "fourd_pull_on_turn": True,
-        "mom1_access_enabled": False,
-    }
+    assert body["fourd_memory_enabled"] is True
+    assert body["fourd_push_on_turn"] is True
+    assert body["fourd_pull_on_turn"] is True
+    assert body["mom1_access_enabled"] is False
+    # New per-turn lifecycle flags default on.
+    assert body["fourd_auto_annotate"] is True
+    assert body["fourd_auto_consolidate"] is True
 
 
 def test_status_defaults_when_no_config(client_factory):
@@ -164,8 +165,12 @@ def _autumn_with_configure():
             self.config = _Config(behavior)
             self.calls = []
         def configure_4d(self, *, memory_enabled=None, push_on_turn=None,
-                         pull_on_turn=None, mom1_access_enabled=None):
-            self.calls.append((memory_enabled, push_on_turn, pull_on_turn, mom1_access_enabled))
+                         pull_on_turn=None, auto_annotate=None,
+                         auto_consolidate=None, mom1_access_enabled=None):
+            self.calls.append(
+                (memory_enabled, push_on_turn, pull_on_turn,
+                 auto_annotate, auto_consolidate, mom1_access_enabled)
+            )
             if memory_enabled is not None:
                 behavior.fourd_memory_enabled = memory_enabled
             if push_on_turn is not None:
@@ -178,6 +183,8 @@ def _autumn_with_configure():
                 "fourd_memory_enabled": behavior.fourd_memory_enabled,
                 "fourd_push_on_turn": behavior.fourd_push_on_turn,
                 "fourd_pull_on_turn": behavior.fourd_pull_on_turn,
+                "fourd_auto_annotate": True,
+                "fourd_auto_consolidate": True,
                 "mom1_access_enabled": behavior.mom1_access_enabled,
             }
         async def close(self): pass
@@ -198,7 +205,7 @@ def test_config_applies_and_returns_state():
         assert body["fourd_memory_enabled"] is True
         assert body["fourd_push_on_turn"] is True
         assert body["mom1_access_enabled"] is True  # untouched
-        assert autumn.calls == [(True, True, None, None)]
+        assert autumn.calls == [(True, True, None, None, None, None)]
 
 
 def test_config_partial_update():
@@ -208,7 +215,7 @@ def test_config_partial_update():
         app.state.autumn = autumn
         r = client.post("/memory/4d/config", json={"mom1_access_enabled": False})
         assert r.json()["mom1_access_enabled"] is False
-        assert autumn.calls == [(None, None, None, False)]
+        assert autumn.calls == [(None, None, None, None, None, False)]
 
 
 def test_config_not_supported_501():
