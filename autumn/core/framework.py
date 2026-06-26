@@ -362,8 +362,12 @@ class Autumn:
         except Exception:
             return "", 0, 0.0
         fragment = _format_memory_context(history)
+        # Count entries that actually rendered (each is one "\n- " bullet), not the
+        # raw history length — non-conversational entries (e.g. CONSTRAIN strings)
+        # are dropped by the renderer, so len(history) would over-report the stage.
+        count = fragment.count("\n- ") if fragment else 0
         ms = round((time.perf_counter() - t) * 1000, 1)
-        return fragment, (len(history) if fragment else 0), ms
+        return fragment, count, ms
 
     async def _compute_turn_context(self, user_input: str, goal: str | None = None) -> dict:
         """Assemble the turn's memory context: pull (Mom1 recall) + push (4D).
@@ -694,6 +698,7 @@ class Autumn:
         *,
         memory_enabled: bool | None = None,
         push_on_turn: bool | None = None,
+        pull_on_turn: bool | None = None,
         mom1_access_enabled: bool | None = None,
     ) -> dict[str, bool]:
         """Flip the 4D-memory switches at runtime; returns the resulting state.
@@ -704,8 +709,8 @@ class Autumn:
         - ``memory_enabled`` propagates to every managed zone's recall/eviction
           ranking (``MemoryArea.set_fourd_enabled``), including cached project
           zones.
-        - ``push_on_turn`` is read live each turn from ``config.behavior``, so
-          mutating it is enough.
+        - ``push_on_turn`` / ``pull_on_turn`` are read live each turn from
+          ``config.behavior``, so mutating them is enough.
         - ``mom1_access_enabled`` flips the broker's gate in place.
         """
         b = self.config.behavior
@@ -714,12 +719,15 @@ class Autumn:
             self.wp4.set_fourd_enabled(memory_enabled)
         if push_on_turn is not None:
             b.fourd_push_on_turn = push_on_turn
+        if pull_on_turn is not None:
+            b.fourd_pull_on_turn = pull_on_turn
         if mom1_access_enabled is not None:
             b.mom1_access_enabled = mom1_access_enabled
             self.mom1_access.enabled = mom1_access_enabled
         return {
             "fourd_memory_enabled": b.fourd_memory_enabled,
             "fourd_push_on_turn": b.fourd_push_on_turn,
+            "fourd_pull_on_turn": b.fourd_pull_on_turn,
             "mom1_access_enabled": b.mom1_access_enabled,
         }
 

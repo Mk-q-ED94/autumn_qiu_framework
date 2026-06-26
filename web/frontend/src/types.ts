@@ -75,6 +75,7 @@ export type MemoryEntry = unknown; // raw from backend
 export interface FourDStatus {
   fourd_memory_enabled: boolean;
   fourd_push_on_turn: boolean;
+  fourd_pull_on_turn: boolean;
   mom1_access_enabled: boolean;
 }
 

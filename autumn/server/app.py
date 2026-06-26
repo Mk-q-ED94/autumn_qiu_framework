@@ -366,6 +366,7 @@ class FourDStatusResponse(BaseModel):
 
     fourd_memory_enabled: bool
     fourd_push_on_turn: bool
+    fourd_pull_on_turn: bool = True
     mom1_access_enabled: bool
 
 
@@ -374,6 +375,7 @@ class FourDConfigRequest(BaseModel):
 
     fourd_memory_enabled: bool | None = None
     fourd_push_on_turn: bool | None = None
+    fourd_pull_on_turn: bool | None = None
     mom1_access_enabled: bool | None = None
 
 
@@ -514,15 +516,25 @@ def _register_builtin_terrs(autumn: Autumn) -> None:
 
 
 def _register_core_skills(autumn: Autumn) -> None:
-    """Expose the core memory tools on every default deployment.
+    """Expose the core memory tools on the default deployment.
 
     Without this the agent has no way to read/write durable memory or reach Mom1
     on a normal turn: recall synthesis and the governed Mom1 access broker were
     fully built but unreachable because nothing registered their skills. Binding
     recall/remember to the shared zone and the ``request_mom1_access`` channel to
-    the task executor (Mom2) makes both live on the default turn. Best-effort:
-    a build that somehow lacks WP4/the broker must not fail to boot.
+    the task executor (Mom2) makes both live on the default turn.
+
+    Registering skills means WP2 takes its tool-calling ReAct path, which needs an
+    A2 endpoint that accepts a ``tools`` request field. That is true for OpenAI /
+    Anthropic / modern Ollama, but a base-completion or tool-less OpenAI-compatible
+    endpoint would reject the call. Deployments on such an endpoint can opt out
+    with ``AUTUMN_CORE_MEMORY_SKILLS=0`` — the passive turn-start Mom1 recall
+    injection still gives conversation continuity without any tool support.
+    Best-effort: a build that somehow lacks WP4/the broker must not fail to boot.
     """
+    mode = os.environ.get("AUTUMN_CORE_MEMORY_SKILLS", "").strip().lower()
+    if mode in ("0", "false", "off", "none", "no"):
+        return
     try:
         autumn.add_memory_skills(area="shared")
         autumn.add_mom1_access_skill(area="mom2")
@@ -1582,6 +1594,7 @@ def create_app() -> FastAPI:
         return FourDStatusResponse(
             fourd_memory_enabled=bool(getattr(b, "fourd_memory_enabled", False)),
             fourd_push_on_turn=bool(getattr(b, "fourd_push_on_turn", False)),
+            fourd_pull_on_turn=bool(getattr(b, "fourd_pull_on_turn", True)),
             mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
         )
 
@@ -1601,6 +1614,7 @@ def create_app() -> FastAPI:
         result = configure(
             memory_enabled=req.fourd_memory_enabled,
             push_on_turn=req.fourd_push_on_turn,
+            pull_on_turn=req.fourd_pull_on_turn,
             mom1_access_enabled=req.mom1_access_enabled,
         )
         return FourDStatusResponse(**result)
