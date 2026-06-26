@@ -38,7 +38,7 @@ from .memory.project import (
 )
 from .memory.access import Mom1AccessBroker
 from .memory.shared import SharedZone
-from .types import InputType, MissionRoute, TaskType, WorkflowRun
+from .types import InputType, MissionRoute, TaskType, WorkflowRun, WorkflowStage
 from .workspace.wp1 import WP1Tot
 from .workspace.wp2 import WP2Tas
 from .workspace.wp3 import WP3Mis
@@ -388,6 +388,71 @@ class Autumn:
             "recall_ms": recall_ms,
         }
 
+    async def _auto_annotate_turn(self) -> "WorkflowStage | None":
+        """Best-effort: annotate the most-recent Mom1 entry via A4.
+
+        Runs after each turn write so entries accumulate 4D dimensions on the
+        default path without manual HTTP calls. Gated on A4 slot and the
+        ``fourd_auto_annotate`` flag (default: on). Returns a trace stage when
+        annotation fires, ``None`` otherwise — never raises.
+        """
+        if not self.config.behavior.fourd_auto_annotate:
+            return None
+        if not self.wp4.has_model:
+            return None
+        started = time.perf_counter()
+        try:
+            result = await self.wp4.annotate_recent(area="mom1", n=1, only_unannotated=True)
+        except Exception:
+            return None
+        annotated = result.get("annotated", 0)
+        if not annotated:
+            return None
+        return WorkflowStage(
+            id="wp4.annotate",
+            title="A4 自动标注",
+            detail=f"已为 {annotated} 条 Mom1 记忆标注 4D 维度",
+            workspace="WP4",
+            kind="stage",
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
+
+    async def _auto_consolidate_turn(self) -> "WorkflowStage | None":
+        """Best-effort: consolidate Mom1 when history nears the history_limit.
+
+        Runs after each turn write and fires when Mom1 holds ≥ 80 % of the
+        configured limit — calling ``wp4.consolidate`` so A4's curator lifecycle
+        runs automatically rather than only on manual HTTP triggers. Gated on A4
+        slot and ``fourd_auto_consolidate`` (default: on). Returns a trace stage
+        when consolidation fires, ``None`` otherwise — never raises.
+        """
+        if not self.config.behavior.fourd_auto_consolidate:
+            return None
+        if not self.wp4.has_model:
+            return None
+        limit = self.config.behavior.history_limit
+        try:
+            history = await self.mom1.get_history()
+            if len(history) < int(limit * 0.8):
+                return None
+        except Exception:
+            return None
+        started = time.perf_counter()
+        try:
+            summary = await self.wp4.consolidate(area="mom1")
+        except Exception:
+            return None
+        if summary is None:
+            return None
+        return WorkflowStage(
+            id="wp4.consolidate",
+            title="A4 自动整合",
+            detail="Mom1 历史已整合为摘要条目",
+            workspace="WP4",
+            kind="stage",
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
+
     async def process(
         self,
         user_input: str,
@@ -424,6 +489,15 @@ class Autumn:
             task_type=task_type,
             **ctx,
         )
+        # Per-turn memory lifecycle: annotate the newly-written Mom1 entry, then
+        # consolidate if approaching the history limit. Both are best-effort (A4-gated)
+        # and never interfere with the turn output — they only enrich future turns.
+        for stage in (
+            await self._auto_annotate_turn(),
+            await self._auto_consolidate_turn(),
+        ):
+            if stage is not None:
+                run.stages.append(stage)
         return _annotate_costs(run, self.config)
 
     async def classify_intent(
@@ -487,6 +561,13 @@ class Autumn:
             **ctx,
         ):
             if isinstance(event, WorkflowRun):
+                # Per-turn memory lifecycle hooks (same as process_with_trace).
+                for stage in (
+                    await self._auto_annotate_turn(),
+                    await self._auto_consolidate_turn(),
+                ):
+                    if stage is not None:
+                        event.stages.append(stage)
                 yield _annotate_costs(event, self.config)
             else:
                 yield event
@@ -699,6 +780,8 @@ class Autumn:
         memory_enabled: bool | None = None,
         push_on_turn: bool | None = None,
         pull_on_turn: bool | None = None,
+        auto_annotate: bool | None = None,
+        auto_consolidate: bool | None = None,
         mom1_access_enabled: bool | None = None,
     ) -> dict[str, bool]:
         """Flip the 4D-memory switches at runtime; returns the resulting state.
@@ -709,8 +792,9 @@ class Autumn:
         - ``memory_enabled`` propagates to every managed zone's recall/eviction
           ranking (``MemoryArea.set_fourd_enabled``), including cached project
           zones.
-        - ``push_on_turn`` / ``pull_on_turn`` are read live each turn from
-          ``config.behavior``, so mutating them is enough.
+        - ``push_on_turn`` / ``pull_on_turn`` / ``auto_annotate`` /
+          ``auto_consolidate`` are read live each turn from ``config.behavior``,
+          so mutating them is enough.
         - ``mom1_access_enabled`` flips the broker's gate in place.
         """
         b = self.config.behavior
@@ -721,6 +805,10 @@ class Autumn:
             b.fourd_push_on_turn = push_on_turn
         if pull_on_turn is not None:
             b.fourd_pull_on_turn = pull_on_turn
+        if auto_annotate is not None:
+            b.fourd_auto_annotate = auto_annotate
+        if auto_consolidate is not None:
+            b.fourd_auto_consolidate = auto_consolidate
         if mom1_access_enabled is not None:
             b.mom1_access_enabled = mom1_access_enabled
             self.mom1_access.enabled = mom1_access_enabled
@@ -728,6 +816,8 @@ class Autumn:
             "fourd_memory_enabled": b.fourd_memory_enabled,
             "fourd_push_on_turn": b.fourd_push_on_turn,
             "fourd_pull_on_turn": b.fourd_pull_on_turn,
+            "fourd_auto_annotate": b.fourd_auto_annotate,
+            "fourd_auto_consolidate": b.fourd_auto_consolidate,
             "mom1_access_enabled": b.mom1_access_enabled,
         }
 

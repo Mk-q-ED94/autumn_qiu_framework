@@ -136,6 +136,8 @@ class BehaviorConfig:
     fourd_memory_enabled: bool = True  # Rank recall/evict by 4D activation score (degrades to importance×timestamp for un-annotated entries)
     fourd_push_on_turn: bool = True  # Push-activate CONSTRAIN/REMIND memories at turn start (a no-op until such memories exist)
     fourd_pull_on_turn: bool = True  # Pull recent Mom1 cross-turn context into the executor prompt (the read half; no-op when Mom1 is empty)
+    fourd_auto_annotate: bool = True  # After each turn, ask A4 to infer 4D dimensions for the just-written Mom1 entry (no-op without A4)
+    fourd_auto_consolidate: bool = True  # Consolidate Mom1 when history nears the limit (no-op without A4 or below threshold)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
@@ -175,6 +177,12 @@ class BehaviorConfig:
             ),
             fourd_pull_on_turn=_to_bool(
                 env("FOURD_PULL_ON_TURN"), cls.fourd_pull_on_turn,
+            ),
+            fourd_auto_annotate=_to_bool(
+                env("FOURD_AUTO_ANNOTATE"), cls.fourd_auto_annotate,
+            ),
+            fourd_auto_consolidate=_to_bool(
+                env("FOURD_AUTO_CONSOLIDATE"), cls.fourd_auto_consolidate,
             ),
             mom1_access_enabled=_to_bool(
                 env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled
