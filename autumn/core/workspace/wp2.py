@@ -328,8 +328,15 @@ class WP2Tas(WorkspaceBase):
             instructions=instructions,
             max_steps=self._agent_max_steps,
         )
+        # When the framework already assembled cross-turn context for this turn
+        # (turn_context = Mom1 recall + push, injected into the system prompt
+        # above), skip the agent's own-zone history block so the executor doesn't
+        # see the same recent conversation twice under a duplicate header.
         result = await agent.run(
-            task_input, memory=self.memory, steps=steps, supervisor=supervisor,
+            task_input,
+            memory=None if turn_context else self.memory,
+            steps=steps,
+            supervisor=supervisor,
         )
         return result, agent.total_prompt_tokens, agent.total_completion_tokens
 

@@ -259,32 +259,32 @@ async def test_end_session_tolerates_backend_without_clear_session(tmp_path):
 
 def test_configure_4d_propagates_memory_flag_to_all_zones(tmp_path):
     autumn = Autumn(_config(tmp_path))
-    # default off
-    assert autumn.mom1.fourd_enabled is False
-    assert autumn.shared.fourd_enabled is False
+    # on by default in 0.3.x
+    assert autumn.mom1.fourd_enabled is True
+    assert autumn.shared.fourd_enabled is True
 
-    state = autumn.configure_4d(memory_enabled=True)
-    assert state["fourd_memory_enabled"] is True
+    state = autumn.configure_4d(memory_enabled=False)
+    assert state["fourd_memory_enabled"] is False
     for zone in (autumn.mom1, autumn.mom2, autumn.mom3, autumn.shared):
-        assert zone.fourd_enabled is True
-    assert autumn.config.behavior.fourd_memory_enabled is True
-    # projects manager + any future project zone inherit it
-    assert autumn.project_zone("p").fourd_enabled is True
+        assert zone.fourd_enabled is False
+    assert autumn.config.behavior.fourd_memory_enabled is False
+    # projects manager + any future project zone inherit the flip too
+    assert autumn.project_zone("p").fourd_enabled is False
 
 
 def test_configure_4d_propagates_to_cached_project_zones(tmp_path):
     autumn = Autumn(_config(tmp_path))
     zone = autumn.project_zone("alpha")  # cached before the flip
-    assert zone.fourd_enabled is False
-    autumn.configure_4d(memory_enabled=True)
-    assert zone.fourd_enabled is True  # the already-cached zone was updated
+    assert zone.fourd_enabled is True
+    autumn.configure_4d(memory_enabled=False)
+    assert zone.fourd_enabled is False  # the already-cached zone was updated
 
 
 def test_configure_4d_push_flag_is_live(tmp_path):
     autumn = Autumn(_config(tmp_path))
-    assert autumn.config.behavior.fourd_push_on_turn is False
-    autumn.configure_4d(push_on_turn=True)
     assert autumn.config.behavior.fourd_push_on_turn is True
+    autumn.configure_4d(push_on_turn=False)
+    assert autumn.config.behavior.fourd_push_on_turn is False
 
 
 def test_configure_4d_toggles_mom1_broker_gate(tmp_path):

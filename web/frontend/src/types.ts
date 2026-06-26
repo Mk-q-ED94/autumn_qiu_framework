@@ -75,7 +75,76 @@ export type MemoryEntry = unknown; // raw from backend
 export interface FourDStatus {
   fourd_memory_enabled: boolean;
   fourd_push_on_turn: boolean;
+  fourd_pull_on_turn: boolean;
   mom1_access_enabled: boolean;
+}
+
+/** One push-activated memory in a dry-run preview (POST /memory/push/preview). */
+export interface PushPreviewEntry {
+  id: string;
+  text: string;
+  mode: string;
+  intent: string;
+  cues: string[];
+  score: number;
+}
+
+export interface PushPreview {
+  fired: PushPreviewEntry[];
+  fragment: string;
+  /** Whether push is actually active on live turns (vs. just previewable). */
+  enabled: boolean;
+}
+
+/** State of the codebase-memory token-saving layer (GET/POST /config/codebase-memory). */
+export interface CodebaseMemoryStatus {
+  enabled: boolean;
+  connected: boolean;
+  indexed: boolean;
+  repo: string;
+  tool_count: number;
+  error?: string | null;
+}
+
+/** One adjudicated Mom1 access request (GET /memory/audit/access_log). */
+export interface AccessLogEntry {
+  id: string;
+  timestamp: number;
+  action: string;
+  requester: string;
+  query: string;
+  reason: string;
+  decision_reason: string;
+  redact: boolean;
+  entry_ids: string[];
+  mediated_by?: string | null;
+}
+
+export interface AccessLog {
+  entries: AccessLogEntry[];
+  total: number;
+}
+
+/** Cooperative-workflow toggles for POST /config/apply (all optional). */
+export interface CooperativeBehavior {
+  cooperative_workflow?: boolean;
+  a1_task_planning?: boolean;
+  a1_supervision?: boolean;
+  archive_executions?: boolean;
+  a4_delegate_to_a1?: boolean;
+  a4_knowledge_terr?: boolean;
+}
+
+export interface AnnotateResult {
+  status: string;
+  entry_id: string;
+  found: boolean;
+}
+
+export interface AutoAnnotateResult {
+  status: string;
+  annotated: number;
+  scanned: number;
 }
 
 // ── Server config ─────────────────────────────────────────────────────────────

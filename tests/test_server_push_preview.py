@@ -14,9 +14,10 @@ from autumn.core.workspace.wp4 import WP4Mem  # noqa: E402
 
 
 class _Behavior:
-    def __init__(self, mem=False, push=False, mom1=True):
+    def __init__(self, mem=False, push=False, mom1=True, pull=True):
         self.fourd_memory_enabled = mem
         self.fourd_push_on_turn = push
+        self.fourd_pull_on_turn = pull
         self.mom1_access_enabled = mom1
 
 
@@ -66,6 +67,7 @@ def test_status_reports_flags(client_factory):
     assert body == {
         "fourd_memory_enabled": True,
         "fourd_push_on_turn": True,
+        "fourd_pull_on_turn": True,
         "mom1_access_enabled": False,
     }
 
@@ -75,6 +77,7 @@ def test_status_defaults_when_no_config(client_factory):
     body = client.get("/memory/4d/status").json()
     assert body["fourd_memory_enabled"] is False
     assert body["fourd_push_on_turn"] is False
+    assert body["fourd_pull_on_turn"] is True
     assert body["mom1_access_enabled"] is True
 
 
@@ -160,17 +163,21 @@ def _autumn_with_configure():
         def __init__(self):
             self.config = _Config(behavior)
             self.calls = []
-        def configure_4d(self, *, memory_enabled=None, push_on_turn=None, mom1_access_enabled=None):
-            self.calls.append((memory_enabled, push_on_turn, mom1_access_enabled))
+        def configure_4d(self, *, memory_enabled=None, push_on_turn=None,
+                         pull_on_turn=None, mom1_access_enabled=None):
+            self.calls.append((memory_enabled, push_on_turn, pull_on_turn, mom1_access_enabled))
             if memory_enabled is not None:
                 behavior.fourd_memory_enabled = memory_enabled
             if push_on_turn is not None:
                 behavior.fourd_push_on_turn = push_on_turn
+            if pull_on_turn is not None:
+                behavior.fourd_pull_on_turn = pull_on_turn
             if mom1_access_enabled is not None:
                 behavior.mom1_access_enabled = mom1_access_enabled
             return {
                 "fourd_memory_enabled": behavior.fourd_memory_enabled,
                 "fourd_push_on_turn": behavior.fourd_push_on_turn,
+                "fourd_pull_on_turn": behavior.fourd_pull_on_turn,
                 "mom1_access_enabled": behavior.mom1_access_enabled,
             }
         async def close(self): pass
@@ -191,7 +198,7 @@ def test_config_applies_and_returns_state():
         assert body["fourd_memory_enabled"] is True
         assert body["fourd_push_on_turn"] is True
         assert body["mom1_access_enabled"] is True  # untouched
-        assert autumn.calls == [(True, True, None)]
+        assert autumn.calls == [(True, True, None, None)]
 
 
 def test_config_partial_update():
@@ -201,7 +208,7 @@ def test_config_partial_update():
         app.state.autumn = autumn
         r = client.post("/memory/4d/config", json={"mom1_access_enabled": False})
         assert r.json()["mom1_access_enabled"] is False
-        assert autumn.calls == [(None, None, False)]
+        assert autumn.calls == [(None, None, None, False)]
 
 
 def test_config_not_supported_501():

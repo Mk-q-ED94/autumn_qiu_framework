@@ -40,16 +40,35 @@ def _strip_check_marker(checked: str) -> str:
     return checked[idx + 3:] if idx != -1 else checked
 
 
+def _check_issues(checked: str) -> str:
+    """Extract the issues text from a ``[CHECK_FAILED(...): <issues>]...`` string."""
+    start = checked.find(": ")
+    end = checked.find("]")
+    return checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
+
+
 def _check_detail(ok: bool, checked: str, passed_label: str, failed_label: str) -> tuple[str, str]:
-    """Return (clean_output, stage_detail) from a checker.validate result."""
+    """Return (clean_output, stage_detail) from a checker.validate result.
+
+    Always advisory-free: this clean output is what gets stored to memory and
+    handed to any downstream stage. The user-facing ``[质量提示]`` advisory is
+    surfaced separately at the final boundary (see :func:`_check_advisory` /
+    :meth:`_wp1_check`) so it never pollutes an intermediate task form, the
+    archived record, or the recalled conversation log.
+    """
     if ok:
         return checked, passed_label
     clean = _strip_check_marker(checked)
-    # Extract the issues text from between ": " and "]"
-    start = checked.find(": ")
-    end = checked.find("]")
-    issues = checked[start + 2:end] if start != -1 and end != -1 and end > start else "未通过"
-    return clean, f"{failed_label}: {issues}"
+    return clean, f"{failed_label}: {_check_issues(checked)}"
+
+
+def _check_advisory(ok: bool, checked: str) -> str:
+    """The user-facing advisory suffix for a failed check (``""`` when ok).
+
+    Returned separately from the output so it can be appended to the
+    WorkflowRun/streamed text the user sees without ever entering durable memory.
+    """
+    return "" if ok else f"{_ADVISORY_PREFIX}{_check_issues(checked)}"
 
 _PLAN_TASK_SYSTEM = """\
 You are A1, the orchestrating coordinator in the Autumn framework.
@@ -243,10 +262,22 @@ class WP1Tot(WorkspaceBase):
         push_context: str = "",
         push_count: int = 0,
         push_ms: float | None = None,
+        recall_count: int = 0,
+        recall_ms: float | None = None,
     ) -> WorkflowRun:
         stages: list[WorkflowStage] = []
 
-        if push_context:
+        if recall_count:
+            stages.append(WorkflowStage(
+                id="wp4.recall",
+                title="记忆召回",
+                detail=f"召回 {recall_count} 条历史上下文",
+                workspace="WP4",
+                kind="push",
+                duration_ms=recall_ms,
+            ))
+
+        if push_count:
             stages.append(WorkflowStage(
                 id="wp4.push",
                 title="4D 记忆推入",
@@ -291,17 +322,20 @@ class WP1Tot(WorkspaceBase):
                 prompt_tokens=wp2_prompt, completion_tokens=wp2_completion,
             ))
             t = time.perf_counter()
-            final, check_detail = await self._wp1_check(result)
+            final, advisory, check_detail = await self._wp1_check(result)
             stages.append(_make_stage(
                 "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
             ))
             chosen_route = None
         else:
             task_type = None  # task_type is not applicable for missions
-            final, chosen_route = await self._route_mission_with_trace(
+            final, advisory, chosen_route = await self._route_mission_with_trace(
                 user_input, stages, mission_route=mission_route, push_context=push_context,
             )
 
+        # Store/archive the CLEAN output; the [质量提示] advisory is appended only
+        # to the user-facing answer below, so it never re-enters memory (and thus
+        # the next turn's recall / the judge's context).
         await self.memory.append_history({
             "ts": time.time(),
             "input": user_input,
@@ -316,7 +350,7 @@ class WP1Tot(WorkspaceBase):
         if archive_stage is not None:
             stages.append(archive_stage)
         return WorkflowRun(
-            output=final,
+            output=final + advisory,
             input_type=input_type,
             route=chosen_route,
             stages=stages,
@@ -329,7 +363,8 @@ class WP1Tot(WorkspaceBase):
         stages: list[WorkflowStage],
         mission_route: MissionRoute | Literal["auto"] | None = None,
         push_context: str = "",
-    ) -> tuple[str, MissionRoute]:
+    ) -> tuple[str, str, MissionRoute]:
+        """Return (clean_final, advisory, route) — advisory is user-facing only."""
         t = time.perf_counter()
         if self.interaction:
             chosen = await self.interaction.ask(
@@ -355,11 +390,11 @@ class WP1Tot(WorkspaceBase):
                 "wp3.direct", "A3 直接回答", "WP3 已生成 mission 回答", "WP3", t, self.wp3.api,
             ))
             t = time.perf_counter()
-            final, check_detail = await self._wp1_check(result)
+            final, advisory, check_detail = await self._wp1_check(result)
             stages.append(_make_stage(
                 "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
             ))
-            return final, route
+            return final, advisory, route
 
         t = time.perf_counter()
         task_form = await self.wp3.convert_to_task(mission_input, turn_context=push_context)
@@ -396,11 +431,11 @@ class WP1Tot(WorkspaceBase):
             prompt_tokens=wp2_prompt, completion_tokens=wp2_completion,
         ))
         t = time.perf_counter()
-        final, check_detail = await self._wp1_check(result)
+        final, advisory, check_detail = await self._wp1_check(result)
         stages.append(_make_stage(
             "wp1.final_check", "A1 最终检查", check_detail, "WP1", t, self.api,
         ))
-        return final, route
+        return final, advisory, route
 
     async def classify_intent(
         self,
@@ -550,11 +585,17 @@ class WP1Tot(WorkspaceBase):
             duration_ms=_duration_ms(started),
         )
 
-    async def _wp1_check(self, output: str) -> tuple[str, str]:
+    async def _wp1_check(self, output: str) -> tuple[str, str, str]:
+        """Return (clean_output, advisory, stage_detail).
+
+        ``clean_output`` is stored/archived and is what downstream sees;
+        ``advisory`` is appended only to the user-facing answer.
+        """
         if not self.checker:
-            return output, "WP1 已完成最终质量检查"
+            return output, "", "WP1 已完成最终质量检查"
         ok, checked = await self.checker.validate(output, self.memory)
-        return _check_detail(ok, checked, "WP1 质量检查通过", "WP1 质量检查发现问题（已尽力修正）")
+        clean, detail = _check_detail(ok, checked, "WP1 质量检查通过", "WP1 质量检查发现问题（已尽力修正）")
+        return clean, _check_advisory(ok, checked), detail
 
     # ── streaming ─────────────────────────────────────────────────────────────
 
@@ -586,6 +627,8 @@ class WP1Tot(WorkspaceBase):
         push_context: str = "",
         push_count: int = 0,
         push_ms: float | None = None,
+        recall_count: int = 0,
+        recall_ms: float | None = None,
     ) -> AsyncIterator[str | WorkflowRun]:
         """Stream chunks and finish with the ``WorkflowRun`` for the same turn.
 
@@ -605,6 +648,8 @@ class WP1Tot(WorkspaceBase):
                 push_context=push_context,
                 push_count=push_count,
                 push_ms=push_ms,
+                recall_count=recall_count,
+                recall_ms=recall_ms,
             )
             for i in range(0, len(run.output), chunk_size):
                 yield run.output[i:i + chunk_size]
@@ -615,7 +660,17 @@ class WP1Tot(WorkspaceBase):
         stages: list[WorkflowStage] = []
         tool_stages: list[WorkflowStage] = []
 
-        if push_context:
+        if recall_count:
+            stages.append(WorkflowStage(
+                id="wp4.recall",
+                title="记忆召回",
+                detail=f"召回 {recall_count} 条历史上下文",
+                workspace="WP4",
+                kind="push",
+                duration_ms=recall_ms,
+            ))
+
+        if push_count:
             stages.append(WorkflowStage(
                 id="wp4.push",
                 title="4D 记忆推入",

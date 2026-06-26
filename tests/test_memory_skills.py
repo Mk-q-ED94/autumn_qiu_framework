@@ -52,6 +52,57 @@ async def test_recall_missing_returns_message():
     assert "no memory found" in result
 
 
+async def test_recall_reinforces_recalled_entries():
+    """Recalling an entry closes the 4D use-feedback loop: the skill touches the
+    utility ledger of everything recall returned (synthetic ids ignored)."""
+    from autumn.core.memory.base import MemoryEntry
+
+    calls: list[list[str]] = []
+
+    class _SpyMem:
+        has_vector = False
+
+        async def recall(self, query, k=5):
+            return [MemoryEntry(id="h7", content="useful fact", timestamp=1.0, tags=["history"])]
+
+        async def reinforce(self, ids, reward=0.0):
+            calls.append(list(ids))
+            return len(ids)
+
+    recall = make_memory_skills(_SpyMem())[0]
+    await recall.execute(query="anything")
+    assert calls and "h7" in calls[0]
+
+
+async def test_recall_skill_skips_reinforcing_push_entries():
+    """Recalling a CONSTRAIN/REMIND memory must NOT reinforce it: touching its
+    use-ledger stamps last_used, the same clock Trigger.every uses to throttle
+    push, so it could suppress the reminder's next scheduled firing."""
+    from autumn.core.memory.base import MemoryEntry
+    from autumn.core.memory.dimensions import Use, UseMode
+
+    reinforced: list[str] = []
+
+    class _SpyMem:
+        has_vector = False
+
+        async def recall(self, query, k=5):
+            return [
+                MemoryEntry(id="fact1", content="a fact", timestamp=1.0, tags=["history"]),
+                MemoryEntry(id="rule1", content="a rule", timestamp=1.0, tags=["history"],
+                            use=Use(mode=UseMode.CONSTRAIN)),
+            ]
+
+        async def reinforce(self, ids, reward=0.0):
+            reinforced.extend(ids)
+            return len(ids)
+
+    recall = make_memory_skills(_SpyMem())[0]
+    await recall.execute(query="x")
+    assert "fact1" in reinforced       # ordinary recalled entry gains utility
+    assert "rule1" not in reinforced   # push-eligible entry's cooldown clock untouched
+
+
 async def test_recall_after_remember():
     mem = _make_memory()
     recall, remember, _, _ = _skills(mem)
