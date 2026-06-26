@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import * as client from "../api/client";
 import { DEFAULT_OLLAMA_URL } from "../types";
-import type { FourDStatus, Protocol, Settings, SlotConfig } from "../types";
+import type { FourDStatus, Protocol, ServerMetrics, Settings, SlotConfig } from "../types";
 import { OllamaManager } from "./OllamaManager";
 
 type Tab = "server" | "models" | "advanced";
@@ -9,6 +9,64 @@ type Tab = "server" | "models" | "advanced";
 interface Props {
   settings: Settings;
   onChange: (s: Settings) => void;
+}
+
+// ── /metrics widget ───────────────────────────────────────────────────────────
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)} K`;
+  return String(n);
+}
+
+function fmtUptime(s: number): string {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function MetricsWidget({ settings }: { settings: Settings }) {
+  const [data, setData] = useState<ServerMetrics | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    client
+      .getMetrics(settings)
+      .then((m) => alive && setData(m))
+      .catch(() => alive && setErr("无法获取服务器指标"));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (err) return <div className="field__hint field__hint--error">{err}</div>;
+  if (!data) return <div className="field__hint">指标加载中…</div>;
+
+  const cells: Array<{ label: string; value: string; danger?: boolean }> = [
+    { label: "累计运行", value: String(data.runs) },
+    { label: "错误数", value: String(data.errors), danger: data.errors > 0 },
+    { label: "输入 Token", value: fmtTokens(data.prompt_tokens) },
+    { label: "输出 Token", value: fmtTokens(data.completion_tokens) },
+    { label: "运行时长", value: fmtUptime(data.uptime_seconds) },
+  ];
+
+  return (
+    <div className="about-card__metrics">
+      {cells.map((c) => (
+        <div key={c.label} className="about-metrics-cell">
+          <div className="about-metrics-cell__label">{c.label}</div>
+          <div className={`about-metrics-cell__value${c.danger ? " about-metrics-cell__value--error" : ""}`}>
+            {c.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ── 4D memory runtime flags ───────────────────────────────────────────────────
@@ -425,13 +483,14 @@ export function SettingsPanel({ settings, onChange }: Props) {
             <div className="settings-section">
               <div className="settings-section__title">关于</div>
               <div className="about-card">
-                <div className="about-card__title">秋 / Autumn 0.3.0</div>
+                <div className="about-card__title">Qcowork 0.3.4</div>
                 <div className="about-card__body">
                   多模型协作工作流框架。A1 组长分类、规划并监督，A2 执行任务，A3 处理 Mission，A4 管理 4D 记忆（Mom1/2/3 + shared）。
                   <br />
                   <br />
                   Cloudflare 部署：前端 Pages + Worker BFF + Python Container。
                 </div>
+                <MetricsWidget settings={settings} />
               </div>
             </div>
           </>

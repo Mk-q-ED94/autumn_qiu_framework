@@ -5,7 +5,7 @@ import SwiftUI
 /// Selected: section-accent tinted background + accent-coloured text/icon.
 /// Hovered:  `surfaceHover` fill, neutral text.
 /// Default:  transparent.
-struct AutumnNavItem: View {
+struct QcoworkNavItem: View {
     let section: AppSection
     let isSelected: Bool
     let action: () -> Void
@@ -14,37 +14,37 @@ struct AutumnNavItem: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Autumn.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.sm) {
                 Image(systemName: section.systemImage)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(iconColor)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(section.title)
-                        .font(Autumn.typography.bodyMedium)
+                        .font(Qcowork.typography.bodyMedium)
                         .foregroundStyle(labelColor)
                     Text(section.subtitle)
-                        .font(Autumn.typography.caption)
+                        .font(Qcowork.typography.caption)
                         .foregroundStyle(sublabelColor)
                 }
                 Spacer()
             }
-            .padding(.horizontal, Autumn.spacing.md)
-            .padding(.vertical, Autumn.spacing.sm)
+            .padding(.horizontal, Qcowork.spacing.md)
+            .padding(.vertical, Qcowork.spacing.sm)
             .background(
-                RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
                     .fill(backgroundFill)
             )
         }
         .buttonStyle(.plain)
-        .onHover { h in withAnimation(Autumn.motion.soft) { isHovered = h } }
+        .onHover { h in withAnimation(Qcowork.motion.soft) { isHovered = h } }
     }
 
-    private var accent: Color { Autumn.colors.section(section) }
+    private var accent: Color { Qcowork.colors.section(section) }
 
     private var backgroundFill: Color {
         if isSelected { return accent.opacity(0.13) }
-        if isHovered  { return Autumn.colors.surfaceHover }
+        if isHovered  { return Qcowork.colors.surfaceHover }
         return .clear
     }
 

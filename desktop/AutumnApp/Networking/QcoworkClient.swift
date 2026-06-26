@@ -1,6 +1,6 @@
 import Foundation
 
-enum AutumnClientError: LocalizedError {
+enum QcoworkClientError: LocalizedError {
     case invalidURL
     case badStatus(Int)
     case serverError(String)
@@ -14,7 +14,7 @@ enum AutumnClientError: LocalizedError {
     }
 }
 
-final class AutumnClient {
+final class QcoworkClient {
     let baseURL: URL
 
     init(baseURL: URL) {
@@ -60,6 +60,14 @@ final class AutumnClient {
             return nil
         }
         return try? JSONDecoder().decode(HealthResponse.self, from: data)
+    }
+
+    func fetchMetrics() async -> MetricsResponse? {
+        let request = URLRequest(url: baseURL.appendingPathComponent("metrics"))
+        guard let (data, response) = try? await Self.session.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200
+        else { return nil }
+        return try? JSONDecoder().decode(MetricsResponse.self, from: data)
     }
 
     func fetchModels(apiKey: String, baseURL: String, apiProtocol: String) async throws -> [String] {
@@ -196,7 +204,7 @@ final class AutumnClient {
                     }
                     components.queryItems = queryItems
                     guard let url = components.url else {
-                        throw AutumnClientError.invalidURL
+                        throw QcoworkClientError.invalidURL
                     }
 
                     var request = URLRequest(url: url)
@@ -219,7 +227,7 @@ final class AutumnClient {
                         else { continue }
 
                         if let err = event.error {
-                            throw AutumnClientError.serverError(err)
+                            throw QcoworkClientError.serverError(err)
                         }
                         if let chunk = event.chunk {
                             continuation.yield(.chunk(chunk))
@@ -507,7 +515,7 @@ final class AutumnClient {
             URLQueryItem(name: "limit", value: "\(limit)"),
             URLQueryItem(name: "offset", value: "\(offset)"),
         ]
-        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        guard let url = components.url else { throw QcoworkClientError.invalidURL }
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
 
@@ -573,7 +581,7 @@ final class AutumnClient {
             resolvingAgainstBaseURL: false
         )!
         components.queryItems = [URLQueryItem(name: "scope", value: scope)]
-        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        guard let url = components.url else { throw QcoworkClientError.invalidURL }
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
 
@@ -719,7 +727,7 @@ final class AutumnClient {
             URLQueryItem(name: "name", value: name),
             URLQueryItem(name: "base_url", value: targetBaseURL),
         ]
-        guard let url = components.url else { throw AutumnClientError.invalidURL }
+        guard let url = components.url else { throw QcoworkClientError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.timeoutInterval = 60
@@ -744,7 +752,7 @@ final class AutumnClient {
                         URLQueryItem(name: "base_url", value: targetBaseURL),
                     ]
                     guard let url = components.url else {
-                        throw AutumnClientError.invalidURL
+                        throw QcoworkClientError.invalidURL
                     }
                     var request = URLRequest(url: url)
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -764,7 +772,7 @@ final class AutumnClient {
                         guard let data = payload.data(using: .utf8) else { continue }
                         let event = try JSONDecoder().decode(OllamaPullEvent.self, from: data)
                         if let error = event.error {
-                            throw AutumnClientError.serverError(error)
+                            throw QcoworkClientError.serverError(error)
                         }
                         continuation.yield(event)
                     }
@@ -779,12 +787,12 @@ final class AutumnClient {
 
     private static func requireOK(_ response: URLResponse, data: Data = Data()) throws {
         guard let http = response as? HTTPURLResponse else {
-            throw AutumnClientError.badStatus(-1)
+            throw QcoworkClientError.badStatus(-1)
         }
         guard (200..<300).contains(http.statusCode) else {
             let decoded = try? JSONDecoder().decode([String: String].self, from: data)
             let detail = decoded?["detail"].flatMap { $0.isEmpty ? nil : $0 }
-            throw AutumnClientError.serverError(friendlyMessage(http.statusCode, detail: detail))
+            throw QcoworkClientError.serverError(friendlyMessage(http.statusCode, detail: detail))
         }
     }
 

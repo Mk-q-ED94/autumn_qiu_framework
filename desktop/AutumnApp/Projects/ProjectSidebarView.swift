@@ -67,9 +67,9 @@ struct ProjectSidebarView: View {
     // ── header ───────────────────────────────────────────────────────────────
 
     private var header: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             Text("项目与对话")
-                .font(Autumn.typography.captionStrong)
+                .font(Qcowork.typography.captionStrong)
                 .foregroundStyle(.secondary)
             Spacer()
             Button(action: { editorMode = .create }) {
@@ -86,8 +86,8 @@ struct ProjectSidebarView: View {
             .buttonStyle(.plain)
             .help("新建对话 (⌘N)")
         }
-        .padding(.horizontal, Autumn.spacing.md)
-        .padding(.vertical, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.md)
+        .padding(.vertical, Qcowork.spacing.sm)
     }
 
     // ── body content ─────────────────────────────────────────────────────────
@@ -100,8 +100,8 @@ struct ProjectSidebarView: View {
                 }
                 unfiledSection
             }
-            .padding(.horizontal, Autumn.spacing.xs)
-            .padding(.vertical, Autumn.spacing.xs)
+            .padding(.horizontal, Qcowork.spacing.xs)
+            .padding(.vertical, Qcowork.spacing.xs)
         }
     }
 
@@ -109,7 +109,7 @@ struct ProjectSidebarView: View {
     private func projectSection(_ project: Project) -> some View {
         let isExpanded = Binding<Bool>(
             get: { projects.isExpanded(project.id) },
-            set: { projects.setExpanded(project.id, $0) }
+            set: { setProjectExpanded(project.id, $0) }
         )
         let projectConversations = store.conversations(in: project.id)
 
@@ -120,10 +120,10 @@ struct ProjectSidebarView: View {
             Button {
                 selectedConversationID = store.newConversation(projectID: project.id)
             } label: {
-                HStack(spacing: Autumn.spacing.xs) {
+                HStack(spacing: Qcowork.spacing.xs) {
                     Image(systemName: "plus.circle")
                     Text("在此项目新建对话")
-                        .font(Autumn.typography.caption)
+                        .font(Qcowork.typography.caption)
                 }
                 .foregroundStyle(.secondary)
             }
@@ -157,24 +157,24 @@ struct ProjectSidebarView: View {
     }
 
     private func projectHeader(project: Project, count: Int, isDropTarget: Bool = false) -> some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             Image(systemName: ProjectPalette.icon(for: project.colorTag))
                 .foregroundStyle(isDropTarget ? Color.accentColor : ProjectPalette.color(for: project.colorTag))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 Text(project.name)
-                    .font(Autumn.typography.bodyMedium)
+                    .font(Qcowork.typography.bodyMedium)
                     .lineLimit(1)
                 if !project.trimmedInstructions.isEmpty {
                     Text(project.trimmedInstructions)
-                        .font(Autumn.typography.caption)
+                        .font(Qcowork.typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
             Spacer()
             Text("\(count)")
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
@@ -184,12 +184,12 @@ struct ProjectSidebarView: View {
         let unfiled = store.unfiledConversations
         let isExpanded = Binding<Bool>(
             get: { projects.unfiledExpanded },
-            set: { projects.unfiledExpanded = $0 }
+            set: { setUnfiledExpanded($0) }
         )
         return DisclosureGroup(isExpanded: isExpanded) {
             if unfiled.isEmpty {
                 Text("空")
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.vertical, 2)
             } else {
@@ -198,15 +198,15 @@ struct ProjectSidebarView: View {
                 }
             }
         } label: {
-            HStack(spacing: Autumn.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.sm) {
                 Image(systemName: "tray")
                     .foregroundStyle(unfiledDropTargeted ? Color.accentColor : Color.secondary)
                     .frame(width: 18)
                 Text("未分组")
-                    .font(Autumn.typography.bodyMedium)
+                    .font(Qcowork.typography.bodyMedium)
                 Spacer()
                 Text("\(unfiled.count)")
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 2)
@@ -229,6 +229,7 @@ struct ProjectSidebarView: View {
         ConversationRowContent(
             conversation: conversation,
             isEditing: isEditing,
+            isSelected: isSelected,
             draftTitle: $draftTitle,
             onCommitRename: {
                 store.rename(conversation.id, to: draftTitle)
@@ -236,11 +237,6 @@ struct ProjectSidebarView: View {
             },
             onCancelRename: { renamingConversationID = nil },
             onStartFirstMessage: { selectedConversationID = conversation.id }
-        )
-        .padding(.horizontal, Autumn.spacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                .fill(isSelected ? Autumn.colors.clay.opacity(0.12) : .clear)
         )
         .contentShape(Rectangle())
         .onTapGesture { selectedConversationID = conversation.id }
@@ -277,13 +273,13 @@ struct ProjectSidebarView: View {
     }
 
     private var skeletons: some View {
-        VStack(spacing: Autumn.spacing.sm) {
+        VStack(spacing: Qcowork.spacing.sm) {
             ForEach(0..<5, id: \.self) { _ in
                 SidebarSkeletonRow()
             }
         }
-        .padding(.horizontal, Autumn.spacing.md)
-        .padding(.top, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.md)
+        .padding(.top, Qcowork.spacing.sm)
     }
 
     private func handleEditorSubmit(
@@ -304,6 +300,18 @@ struct ProjectSidebarView: View {
         }
         editorMode = nil
     }
+
+    private func setProjectExpanded(_ id: UUID, _ value: Bool) {
+        DispatchQueue.main.async {
+            projects.setExpanded(id, value)
+        }
+    }
+
+    private func setUnfiledExpanded(_ value: Bool) {
+        DispatchQueue.main.async {
+            projects.unfiledExpanded = value
+        }
+    }
 }
 /// Sheet presentation wrapper so ``editorMode`` can be Identifiable.
 private struct EditorPresentation: Identifiable {
@@ -320,18 +328,20 @@ private struct EditorPresentation: Identifiable {
 private struct ConversationRowContent: View {
     let conversation: Conversation
     let isEditing: Bool
+    let isSelected: Bool
     @Binding var draftTitle: String
     let onCommitRename: () -> Void
     let onCancelRename: () -> Void
     let onStartFirstMessage: () -> Void
     @FocusState private var focused: Bool
+    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if isEditing {
                 TextField("标题", text: $draftTitle, onCommit: onCommitRename)
                     .textFieldStyle(.plain)
-                    .font(Autumn.typography.callout)
+                    .font(Qcowork.typography.callout)
                     .autumnInputSurface(isFocused: focused)
                     .focused($focused)
                     .onAppear { focused = true }
@@ -339,28 +349,51 @@ private struct ConversationRowContent: View {
                     .onExitCommand(perform: onCancelRename)
             } else {
                 Text(conversation.title)
-                    .font(Autumn.typography.callout)
+                    .font(Qcowork.typography.callout)
                     .lineLimit(1)
             }
 
             Text(subtitle)
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
             if conversation.messages.isEmpty && !isEditing {
                 Button("发送第一条消息", action: onStartFirstMessage)
                     .buttonStyle(.plain)
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                     .foregroundStyle(.tint)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, Qcowork.spacing.sm)
+        .padding(.vertical, Qcowork.spacing.xs)
+        .frame(maxWidth: .infinity, minHeight: Qcowork.sizing.sidebarRowMinHeight, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                .fill(rowFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                .stroke(isSelected ? Qcowork.colors.clay.opacity(0.18) : .clear,
+                        lineWidth: Qcowork.stroke.hairline)
+        )
+        .onHover { isHovered = $0 }
+        .animation(Qcowork.motion.soft, value: isHovered)
+        .animation(Qcowork.motion.soft, value: isSelected)
+    }
+
+    private var rowFill: Color {
+        if isSelected { return Qcowork.colors.clay.opacity(0.12) }
+        if isHovered { return Qcowork.colors.surfaceHover }
+        return .clear
     }
 
     private var subtitle: String {
         let messageCount = conversation.messages.count
         if messageCount == 0 { return "空对话" }
+        if abs(conversation.updatedAt.timeIntervalSinceNow) < 60 {
+            return "\(messageCount) 条 · 刚刚"
+        }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let when = formatter.localizedString(for: conversation.updatedAt, relativeTo: Date())
@@ -372,7 +405,7 @@ private struct SidebarSkeletonRow: View {
     @State private var pulse = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
             Capsule()
                 .fill(Color.secondary.opacity(pulse ? 0.18 : 0.08))
                 .frame(width: 120, height: 10)
@@ -381,9 +414,9 @@ private struct SidebarSkeletonRow: View {
                 .frame(width: 72, height: 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, Autumn.spacing.sm)
+        .padding(.vertical, Qcowork.spacing.sm)
         .onAppear {
-            withAnimation(Autumn.motion.pulse) { pulse = true }
+            withAnimation(Qcowork.motion.pulse) { pulse = true }
         }
     }
 }

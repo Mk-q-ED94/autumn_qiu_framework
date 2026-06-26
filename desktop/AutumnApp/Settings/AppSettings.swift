@@ -42,27 +42,27 @@ final class AppSettings: ObservableObject {
     /// the user connects a platform.
     @Published var integrationCredentials: [String: String] { didSet { _schedulePersist() } }
 
-    private static let serverURLKey  = "AutumnDesktop.serverURL"
-    private static let serverAPIKeyKey = "AutumnDesktop.serverAPIKey"
-    private static let routeModeKey  = "AutumnDesktop.routeMode"
-    private static let a1APIKeyKey   = "AutumnDesktop.a1APIKey"
-    private static let a1BaseURLKey  = "AutumnDesktop.a1BaseURL"
-    private static let a1ProtocolKey = "AutumnDesktop.a1Protocol"
-    private static let a1ModelKey    = "AutumnDesktop.a1Model"
-    private static let a2APIKeyKey   = "AutumnDesktop.a2APIKey"
-    private static let a2BaseURLKey  = "AutumnDesktop.a2BaseURL"
-    private static let a2ProtocolKey = "AutumnDesktop.a2Protocol"
-    private static let a2ModelKey    = "AutumnDesktop.a2Model"
-    private static let a3APIKeyKey   = "AutumnDesktop.a3APIKey"
-    private static let a3BaseURLKey  = "AutumnDesktop.a3BaseURL"
-    private static let a3ProtocolKey = "AutumnDesktop.a3Protocol"
-    private static let a3ModelKey    = "AutumnDesktop.a3Model"
-    private static let a4EnabledKey  = "AutumnDesktop.a4Enabled"
-    private static let a4APIKeyKey   = "AutumnDesktop.a4APIKey"
-    private static let a4BaseURLKey  = "AutumnDesktop.a4BaseURL"
-    private static let a4ProtocolKey = "AutumnDesktop.a4Protocol"
-    private static let a4ModelKey    = "AutumnDesktop.a4Model"
-    private static let integrationCredentialsKey = "AutumnDesktop.integrationCredentials"
+    private static let serverURLKey  = "QcoworkDesktop.serverURL"
+    private static let serverAPIKeyKey = "QcoworkDesktop.serverAPIKey"
+    private static let routeModeKey  = "QcoworkDesktop.routeMode"
+    private static let a1APIKeyKey   = "QcoworkDesktop.a1APIKey"
+    private static let a1BaseURLKey  = "QcoworkDesktop.a1BaseURL"
+    private static let a1ProtocolKey = "QcoworkDesktop.a1Protocol"
+    private static let a1ModelKey    = "QcoworkDesktop.a1Model"
+    private static let a2APIKeyKey   = "QcoworkDesktop.a2APIKey"
+    private static let a2BaseURLKey  = "QcoworkDesktop.a2BaseURL"
+    private static let a2ProtocolKey = "QcoworkDesktop.a2Protocol"
+    private static let a2ModelKey    = "QcoworkDesktop.a2Model"
+    private static let a3APIKeyKey   = "QcoworkDesktop.a3APIKey"
+    private static let a3BaseURLKey  = "QcoworkDesktop.a3BaseURL"
+    private static let a3ProtocolKey = "QcoworkDesktop.a3Protocol"
+    private static let a3ModelKey    = "QcoworkDesktop.a3Model"
+    private static let a4EnabledKey  = "QcoworkDesktop.a4Enabled"
+    private static let a4APIKeyKey   = "QcoworkDesktop.a4APIKey"
+    private static let a4BaseURLKey  = "QcoworkDesktop.a4BaseURL"
+    private static let a4ProtocolKey = "QcoworkDesktop.a4Protocol"
+    private static let a4ModelKey    = "QcoworkDesktop.a4Model"
+    private static let integrationCredentialsKey = "QcoworkDesktop.integrationCredentials"
     private static let defaultServerURL  = "http://127.0.0.1:8765"
     private static let openAIBaseURL     = "https://api.openai.com"
     private static let anthropicBaseURL  = "https://api.anthropic.com"
@@ -102,7 +102,7 @@ final class AppSettings: ObservableObject {
     /// carries it. Called on load and whenever the key changes.
     private func _syncAPIKey() {
         let trimmed = serverAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        AutumnClient.apiKey = trimmed.isEmpty ? nil : trimmed
+        QcoworkClient.apiKey = trimmed.isEmpty ? nil : trimmed
     }
 
     // ── platform-integration credentials ───────────────────────────────────────
@@ -316,7 +316,7 @@ enum ModelConnectionState: String, Equatable {
         }
     }
 
-    var tone: AutumnBadge.Tone {
+    var tone: QcoworkBadge.Tone {
         switch self {
         case .unconfigured: return .neutral
         case .connecting:   return .warning

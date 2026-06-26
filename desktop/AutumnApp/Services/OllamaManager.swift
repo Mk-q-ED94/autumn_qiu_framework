@@ -267,7 +267,7 @@ final class OllamaManager: ObservableObject {
         } else {
             logDirectory = fileManager
                 .urls(for: .libraryDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Logs/AutumnDesktop")
+                .appendingPathComponent("Logs/QcoworkDesktop")
         }
         try fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
 
@@ -279,7 +279,7 @@ final class OllamaManager: ObservableObject {
     }
 
     private static func repositoryRoot() -> URL? {
-        if let rawValue = Bundle.main.object(forInfoDictionaryKey: "AutumnRepositoryRoot") as? String {
+        if let rawValue = Bundle.main.object(forInfoDictionaryKey: "QcoworkRepositoryRoot") as? String {
             let expanded = (rawValue as NSString).expandingTildeInPath
             let candidate = URL(fileURLWithPath: expanded).standardizedFileURL
             if isRepositoryRoot(candidate) {

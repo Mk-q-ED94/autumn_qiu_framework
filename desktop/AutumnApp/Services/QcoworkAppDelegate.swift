@@ -5,7 +5,7 @@ import AppKit
 import OSLog
 
 @MainActor
-final class AutumnAppDelegate: NSObject, NSApplicationDelegate {
+final class QcoworkAppDelegate: NSObject, NSApplicationDelegate {
     static var settings: AppSettings?
     static var localServer: LocalServerManager?
     static var ollamaManager: OllamaManager?
@@ -15,6 +15,7 @@ final class AutumnAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("Application did finish launching")
         Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
             guard
                 let settings = Self.settings,
                 let localServer = Self.localServer,

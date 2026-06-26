@@ -246,3 +246,11 @@ export interface HealthStatus {
   configured: boolean;
   last_error?: string;
 }
+
+export interface ServerMetrics {
+  runs: number;
+  errors: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  uptime_seconds: number;
+}

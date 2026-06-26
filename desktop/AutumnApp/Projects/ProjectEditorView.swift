@@ -60,10 +60,10 @@ struct ProjectEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
             header
             ScrollView {
-                VStack(alignment: .leading, spacing: Autumn.spacing.lg) {
+                VStack(alignment: .leading, spacing: Qcowork.spacing.lg) {
                     basicsSection
                     if projectIDString != nil {
                         metadataSection
@@ -73,7 +73,7 @@ struct ProjectEditorView: View {
             }
             actionRow
         }
-        .padding(Autumn.spacing.lg)
+        .padding(Qcowork.spacing.lg)
         .frame(minWidth: 620, minHeight: 680)
         .onAppear { nameFocused = true }
         .task(id: projectIDString) {
@@ -83,18 +83,18 @@ struct ProjectEditorView: View {
     }
 
     private var header: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             Image(systemName: ProjectPalette.icon(for: colorTag))
                 .foregroundStyle(ProjectPalette.color(for: colorTag))
                 .imageScale(.large)
             Text(mode.isCreating ? "新建项目" : "编辑项目")
-                .font(Autumn.typography.title)
+                .font(Qcowork.typography.title)
             Spacer()
         }
     }
 
     private var colorPicker: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             ForEach(ProjectPalette.allTags, id: \.self) { tag in
                 Button {
                     colorTag = tag
@@ -121,10 +121,10 @@ struct ProjectEditorView: View {
     }
 
     private var basicsSection: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("项目名称")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 TextField("例如：客户支持机器人", text: $name)
                     .textFieldStyle(.plain)
                     .autumnInputSurface(isFocused: nameFocused)
@@ -132,40 +132,40 @@ struct ProjectEditorView: View {
                     .onSubmit(submit)
             }
 
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("项目指令")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 Text("项目内的所有对话发送给 A1/A2/A3 时，将在用户输入前附带这段指令。")
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 TextEditor(text: $instructions)
-                    .font(Autumn.typography.body)
+                    .font(Qcowork.typography.body)
                     .frame(minHeight: 130)
-                    .padding(Autumn.spacing.xs)
+                    .padding(Qcowork.spacing.xs)
                     .background(
-                        RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                            .fill(Autumn.colors.surfaceElevated)
+                        RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                            .fill(Qcowork.colors.surfaceElevated)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                        RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
                             .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
                     )
             }
 
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("颜色")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 colorPicker
             }
         }
     }
 
     private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
             HStack {
                 Label("项目元数据", systemImage: "folder.badge.gearshape")
-                    .font(Autumn.typography.headline)
+                    .font(Qcowork.typography.headline)
                 Spacer()
                 if isLoadingMetadata {
                     ProgressView().controlSize(.small)
@@ -180,7 +180,7 @@ struct ProjectEditorView: View {
                 }
             }
 
-            HStack(spacing: Autumn.spacing.sm) {
+            HStack(spacing: Qcowork.spacing.sm) {
                 TextField("项目类型", text: $projectType)
                     .textFieldStyle(.roundedBorder)
                 Button {
@@ -195,61 +195,61 @@ struct ProjectEditorView: View {
                 .disabled(isSavingMetadata)
             }
 
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("项目简介")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 TextEditor(text: $projectDescription)
-                    .font(Autumn.typography.body)
+                    .font(Qcowork.typography.body)
                     .frame(minHeight: 90)
-                    .padding(Autumn.spacing.xs)
+                    .padding(Qcowork.spacing.xs)
                     .background(
-                        RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                            .fill(Autumn.colors.surfaceElevated)
+                        RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                            .fill(Qcowork.colors.surfaceElevated)
                     )
             }
 
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("目标")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 TextField("总目标", text: $masterGoal)
                     .textFieldStyle(.roundedBorder)
                 TextEditor(text: $longTermGoals)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .frame(minHeight: 54)
-                    .padding(Autumn.spacing.xs)
-                    .background(RoundedRectangle(cornerRadius: Autumn.radius.sm).fill(Autumn.colors.surfaceElevated))
+                    .padding(Qcowork.spacing.xs)
+                    .background(RoundedRectangle(cornerRadius: Qcowork.radius.sm).fill(Qcowork.colors.surfaceElevated))
                     .overlay(alignment: .topLeading) {
                         if longTermGoals.isEmpty {
                             Text("长期目标，每行一个")
-                                .font(Autumn.typography.caption)
+                                .font(Qcowork.typography.caption)
                                 .foregroundStyle(.tertiary)
-                                .padding(Autumn.spacing.xs + 2)
+                                .padding(Qcowork.spacing.xs + 2)
                                 .allowsHitTesting(false)
                         }
                     }
                 TextEditor(text: $shortTermGoals)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .frame(minHeight: 54)
-                    .padding(Autumn.spacing.xs)
-                    .background(RoundedRectangle(cornerRadius: Autumn.radius.sm).fill(Autumn.colors.surfaceElevated))
+                    .padding(Qcowork.spacing.xs)
+                    .background(RoundedRectangle(cornerRadius: Qcowork.radius.sm).fill(Qcowork.colors.surfaceElevated))
                     .overlay(alignment: .topLeading) {
                         if shortTermGoals.isEmpty {
                             Text("短期目标，每行一个")
-                                .font(Autumn.typography.caption)
+                                .font(Qcowork.typography.caption)
                                 .foregroundStyle(.tertiary)
-                                .padding(Autumn.spacing.xs + 2)
+                                .padding(Qcowork.spacing.xs + 2)
                                 .allowsHitTesting(false)
                         }
                     }
             }
 
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("与 A1 讨论")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 TextField("向 A1 说明项目想法、目标或约束", text: $metadataInput, axis: .vertical)
                     .lineLimit(2...4)
                     .textFieldStyle(.roundedBorder)
-                HStack(spacing: Autumn.spacing.sm) {
+                HStack(spacing: Qcowork.spacing.sm) {
                     metadataActionButton("生成简介", icon: "text.quote", action: .description)
                     metadataActionButton("生成目标", icon: "target", action: .goals)
                     metadataActionButton("推断环境", icon: "sparkles", action: .environment)
@@ -261,12 +261,12 @@ struct ProjectEditorView: View {
 
             if let metadataMessage {
                 Text(metadataMessage)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.top, Autumn.spacing.sm)
+        .padding(.top, Qcowork.spacing.sm)
     }
 
     private func metadataActionButton(_ title: String, icon: String, action: MetadataAction) -> some View {
@@ -286,9 +286,9 @@ struct ProjectEditorView: View {
     private var environmentSummary: some View {
         let chips = environmentChips
         if !chips.isEmpty {
-            VStack(alignment: .leading, spacing: Autumn.spacing.xs) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xs) {
                 Text("项目环境")
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 FlowChips(values: chips)
             }
         }
@@ -330,9 +330,9 @@ struct ProjectEditorView: View {
         return nil
     }
 
-    private var client: AutumnClient? {
+    private var client: QcoworkClient? {
         guard let url = URL(string: settings.serverURL) else { return nil }
-        return AutumnClient(baseURL: url)
+        return QcoworkClient(baseURL: url)
     }
 
     private func loadMetadata() async {
@@ -457,11 +457,11 @@ private struct FlowChips: View {
     let values: [String]
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: Autumn.spacing.xs)],
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: Qcowork.spacing.xs)],
                   alignment: .leading,
-                  spacing: Autumn.spacing.xs) {
+                  spacing: Qcowork.spacing.xs) {
             ForEach(values, id: \.self) { value in
-                AutumnBadge(value, tone: .info)
+                QcoworkBadge(value, tone: .info)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

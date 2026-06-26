@@ -204,7 +204,7 @@ export function ChatView({ conversation, settings, onUpdateConversation, onError
       <div className="messages-list">
         {conversation.messages.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state__icon">秋</div>
+            <div className="empty-state__icon"><img src="/icon.png" alt="Qcowork" /></div>
             <div className="empty-state__title">开始协作</div>
             <div className="empty-state__sub">
               输入任何问题或任务。WP1 会自动分类，WP2/WP3 协同处理后返回结果，过程在下方流水线条带中展示。

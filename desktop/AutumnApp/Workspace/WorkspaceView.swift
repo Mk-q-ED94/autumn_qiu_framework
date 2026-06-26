@@ -6,7 +6,7 @@ struct WorkspaceView: View {
     @EnvironmentObject private var store: ConversationStore
     @EnvironmentObject private var projects: ProjectStore
 
-    @SceneStorage("AutumnDesktop.inspectorVisible") private var inspectorVisible: Bool = true
+    @SceneStorage("QcoworkDesktop.inspectorVisible") private var inspectorVisible: Bool = true
     @Binding var selectedConversationID: UUID?
     @State private var inspectorMode: WorkspaceInspectorMode = .run
     @State private var inspectorTrace: WorkflowTrace?
@@ -34,7 +34,7 @@ struct WorkspaceView: View {
                 if inspectorVisible {
                     Rectangle()
                         .fill(Color.primary.opacity(0.08))
-                        .frame(width: Autumn.stroke.hairline)
+                        .frame(width: Qcowork.stroke.hairline)
                         .transition(.opacity)
 
                     WorkspaceInspectorView(
@@ -43,7 +43,7 @@ struct WorkspaceView: View {
                         settings: settings,
                         localServer: localServer
                     )
-                    .frame(width: Autumn.sizing.inspectorWidth)
+                    .frame(width: Qcowork.sizing.inspectorWidth)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -72,13 +72,13 @@ struct WorkspaceView: View {
     }
 
     private func toggleInspector() {
-        withAnimation(Autumn.motion.snappy) {
+        withAnimation(Qcowork.motion.snappy) {
             inspectorVisible.toggle()
         }
     }
 
     private func showRunInspector() {
-        withAnimation(Autumn.motion.snappy) {
+        withAnimation(Qcowork.motion.snappy) {
             inspectorMode = .run
             inspectorVisible = true
         }
@@ -93,9 +93,9 @@ private struct WorkspaceTopBar: View {
     let toggleInspector: () -> Void
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             Text(title)
-                .font(Autumn.typography.headline)
+                .font(Qcowork.typography.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -103,18 +103,18 @@ private struct WorkspaceTopBar: View {
             Button(action: toggleInspector) {
                 Image(systemName: "sidebar.right")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isInspectorVisible ? Autumn.colors.clay : .secondary)
+                    .foregroundStyle(isInspectorVisible ? Qcowork.colors.clay : .secondary)
             }
             .buttonStyle(.plain)
             .help("切换检视面板 (⌘⇧I)")
         }
-        .padding(.horizontal, Autumn.spacing.lg)
-        .padding(.vertical, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.lg)
+        .padding(.vertical, Qcowork.spacing.sm)
         .background(Color.primary.opacity(0.035))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
-                .frame(height: Autumn.stroke.hairline)
+                .frame(height: Qcowork.stroke.hairline)
         }
     }
 }

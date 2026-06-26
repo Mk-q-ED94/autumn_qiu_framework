@@ -71,12 +71,11 @@ final class ChatViewModel: ObservableObject {
         intentOverride = nil
         taskOverride = nil
         routeOverride = nil
-        settings.activeRouteOverride = nil
     }
 
-    private var client: AutumnClient? {
+    private var client: QcoworkClient? {
         guard let url = URL(string: settings.serverURL) else { return nil }
-        return AutumnClient(baseURL: url)
+        return QcoworkClient(baseURL: url)
     }
 
     var effectiveRoute: MissionRouteMode {
@@ -127,7 +126,7 @@ final class ChatViewModel: ObservableObject {
 
     func setRouteOverride(_ route: MissionRouteMode?) {
         routeOverride = route
-        settings.activeRouteOverride = route?.rawValue
+        syncActiveRouteOverride()
         scheduleIntentPreview(delay: 0)
     }
 
@@ -135,8 +134,14 @@ final class ChatViewModel: ObservableObject {
         intentOverride = nil
         taskOverride = nil
         routeOverride = nil
-        settings.activeRouteOverride = nil
+        syncActiveRouteOverride()
         scheduleIntentPreview(delay: 0)
+    }
+
+    func syncActiveRouteOverride() {
+        let rawValue = routeOverride?.rawValue
+        guard settings.activeRouteOverride != rawValue else { return }
+        settings.activeRouteOverride = rawValue
     }
 
     func submitOrStop() {
@@ -167,7 +172,7 @@ final class ChatViewModel: ObservableObject {
         intentTask?.cancel()
         errors.removeAll()
 
-        withAnimation(Autumn.motion.snappy) {
+        withAnimation(Qcowork.motion.snappy) {
             messages.append(ChatMessage(role: .user, text: text))
             messages.append(ChatMessage(
                 role: .assistant,
@@ -222,7 +227,7 @@ final class ChatViewModel: ObservableObject {
             } else {
                 resolved = "(empty response)"
             }
-            withAnimation(Autumn.motion.smooth) {
+            withAnimation(Qcowork.motion.smooth) {
                 messages[assistantIndex].text = resolved
                 if let trace = finalTrace {
                     messages[assistantIndex].trace = trace
@@ -258,7 +263,7 @@ final class ChatViewModel: ObservableObject {
         runTask?.cancel()
         runTask = nil
         isRunning = false
-        withAnimation(Autumn.motion.smooth) {
+        withAnimation(Qcowork.motion.smooth) {
             messages.removeAll()
             errors.removeAll()
         }
@@ -296,7 +301,7 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func refreshIntentPreview(text: String, client: AutumnClient) async {
+    private func refreshIntentPreview(text: String, client: QcoworkClient) async {
         isPreviewingIntent = true
         defer { isPreviewingIntent = false }
         do {
@@ -424,7 +429,7 @@ final class ChatViewModel: ObservableObject {
 
     private func pushError(_ message: String) {
         let error = ChatError(message: message)
-        withAnimation(Autumn.motion.smooth) {
+        withAnimation(Qcowork.motion.smooth) {
             errors.append(error)
         }
         Task { [weak self] in
@@ -436,7 +441,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     func dismissError(_ id: UUID) {
-        withAnimation(Autumn.motion.smooth) {
+        withAnimation(Qcowork.motion.smooth) {
             errors.removeAll { $0.id == id }
         }
     }

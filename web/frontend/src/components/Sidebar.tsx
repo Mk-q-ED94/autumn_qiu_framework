@@ -36,8 +36,8 @@ export function Sidebar({
     <aside className="sidebar">
       {/* Header */}
       <div className="sidebar__header">
-        <div className="sidebar__logo">秋</div>
-        <span className="sidebar__title">Autumn</span>
+        <img src="/icon.png" className="sidebar__logo" alt="Qcowork" />
+        <span className="sidebar__title">Qcowork</span>
         <button className="sidebar__close" onClick={onClose} aria-label="关闭导航">×</button>
         <div
           className="sidebar__health"

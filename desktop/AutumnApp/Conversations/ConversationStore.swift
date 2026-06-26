@@ -7,7 +7,7 @@ final class ConversationStore: ObservableObject {
     @Published private(set) var conversations: [Conversation] = []
     @Published private(set) var isLoading: Bool = true
 
-    private static let storageKey = "AutumnDesktop.conversations.v1"
+    private static let storageKey = "QcoworkDesktop.conversations.v1"
     private static let maxKeptConversations = 60
 
     init() {

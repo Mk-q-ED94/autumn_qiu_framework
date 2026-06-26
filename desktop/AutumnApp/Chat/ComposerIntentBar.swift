@@ -27,14 +27,14 @@ struct ComposerIntentBar: View {
     @State private var popoverVisible: Bool = false
 
     var body: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             pillButton
 
             if let confidence = preview?.confidence, hasInput {
                 ConfidenceChip(value: confidence)
             }
 
-            Spacer(minLength: Autumn.spacing.xs)
+            Spacer(minLength: Qcowork.spacing.xs)
 
             Text(reasoningText)
                 .font(.system(size: 11))
@@ -57,13 +57,13 @@ struct ComposerIntentBar: View {
                 .help("清除手动覆盖，恢复自动判定")
             }
         }
-        .padding(.horizontal, Autumn.spacing.md)
+        .padding(.horizontal, Qcowork.spacing.md)
         .padding(.vertical, 6)
         .background(barBackground)
         .overlay(
             Rectangle()
                 .fill(Color.secondary.opacity(0.10))
-                .frame(height: Autumn.stroke.hairline),
+                .frame(height: Qcowork.stroke.hairline),
             alignment: .top
         )
     }
@@ -76,7 +76,7 @@ struct ComposerIntentBar: View {
                 Image(systemName: pillIcon)
                     .font(.system(size: 10, weight: .bold))
                 Text(pillLabel)
-                    .font(Autumn.typography.captionStrong)
+                    .font(Qcowork.typography.captionStrong)
                 if hasOverride {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 8, weight: .bold))
@@ -140,12 +140,12 @@ struct ComposerIntentBar: View {
 
     private var pillColor: Color {
         if let confidence = preview?.confidence, hasInput, confidence < 0.7 {
-            return Autumn.colors.warning
+            return Qcowork.colors.warning
         }
         switch inputKind {
-        case .task:    return Autumn.colors.warning
-        case .mission: return Autumn.colors.info
-        case .none:    return Autumn.colors.accent
+        case .task:    return Qcowork.colors.warning
+        case .mission: return Qcowork.colors.info
+        case .none:    return Qcowork.colors.accent
         }
     }
 
@@ -163,7 +163,7 @@ struct ComposerIntentBar: View {
 
     private var barBackground: AnyShapeStyle {
         if let confidence = preview?.confidence, hasInput, confidence < 0.7 {
-            return AnyShapeStyle(Autumn.colors.warning.opacity(0.06))
+            return AnyShapeStyle(Qcowork.colors.warning.opacity(0.06))
         }
         return AnyShapeStyle(Material.bar)
     }
@@ -185,9 +185,9 @@ private struct ConfidenceChip: View {
     }
 
     private var color: Color {
-        if value < 0.5 { return Autumn.colors.danger }
-        if value < 0.7 { return Autumn.colors.warning }
-        return Autumn.colors.success
+        if value < 0.5 { return Qcowork.colors.danger }
+        if value < 0.7 { return Qcowork.colors.warning }
+        return Qcowork.colors.success
     }
 }
 
@@ -203,21 +203,21 @@ private struct ComposerIntentPopover: View {
     let setRoute: (MissionRouteMode?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
             HStack(alignment: .firstTextBaseline) {
                 Text("本次意图")
-                    .font(Autumn.typography.headline)
+                    .font(Qcowork.typography.headline)
                 Spacer()
                 if let confidence {
                     Text(String(format: "A1 置信 %.0f%%", confidence * 100))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(confidence < 0.7 ? Autumn.colors.warning : .secondary)
+                        .foregroundStyle(confidence < 0.7 ? Qcowork.colors.warning : .secondary)
                 }
             }
 
             if let reasoning, !reasoning.isEmpty {
                 Text(reasoning)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -244,7 +244,7 @@ private struct ComposerIntentPopover: View {
                 }
             }
         }
-        .padding(Autumn.spacing.lg)
+        .padding(Qcowork.spacing.lg)
         .frame(width: 300)
     }
 

@@ -56,7 +56,7 @@ enum FourDUseMode: String, CaseIterable, Identifiable {
         }
     }
 
-    var tone: AutumnBadge.Tone {
+    var tone: QcoworkBadge.Tone {
         switch self {
         case .constrain: return .danger
         case .remind:    return .warning
@@ -97,7 +97,7 @@ enum MemoryKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var tone: AutumnBadge.Tone {
+    var tone: QcoworkBadge.Tone {
         switch self {
         case .episode:    return .neutral
         case .atomicFact: return .info

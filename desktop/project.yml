@@ -1,6 +1,6 @@
-name: AutumnDesktop
+name: QcoworkDesktop
 options:
-  bundleIdPrefix: com.autumn
+  bundleIdPrefix: com.qcowork
   createIntermediateGroups: true
   deploymentTarget:
     macOS: "14.0"
@@ -15,7 +15,7 @@ settings:
     CLANG_WARN_DOCUMENTATION_COMMENTS: NO
 
 targets:
-  AutumnDesktop:
+  QcoworkDesktop:
     type: application
     platform: macOS
     sources:
@@ -35,8 +35,8 @@ targets:
     info:
       path: AutumnApp/Resources/Info.plist
       properties:
-        AutumnRepositoryRoot: "$(SRCROOT)/.."
-        CFBundleDisplayName: Autumn
+        QcoworkRepositoryRoot: "$(SRCROOT)/.."
+        CFBundleDisplayName: Qcowork
         CFBundleShortVersionString: "0.3.4"
         CFBundleVersion: "1"
         NSPrincipalClass: NSApplication
@@ -44,7 +44,7 @@ targets:
           NSAllowsLocalNetworking: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.autumn.desktop
+        PRODUCT_BUNDLE_IDENTIFIER: com.qcowork.desktop
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_DEBUG_DYLIB: NO

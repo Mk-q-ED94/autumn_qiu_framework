@@ -4,7 +4,7 @@ import SwiftUI
 /// next line when they run out of width. Used for tag/cue chip collections
 /// where a comma-joined string would truncate or read poorly.
 struct FlowLayout: Layout {
-    var spacing: CGFloat = Autumn.spacing.xs
+    var spacing: CGFloat = Qcowork.spacing.xs
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = computeRows(proposal: proposal, subviews: subviews)

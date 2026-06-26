@@ -24,6 +24,7 @@ struct SettingsView: View {
     @State private var pullingOllamaModel: String?
     @State private var ollamaPullProgress: String?
     @State private var ollamaError: String?
+    @State private var serverMetrics: MetricsResponse? = nil
 
     // 4D memory runtime switches (read from / written to the server live).
     @State private var fourdMemoryEnabled = false
@@ -96,6 +97,7 @@ struct SettingsView: View {
             Task { await loadFourD() }
             Task { await loadCodebaseMemory() }
             Task { await loadIntegrations() }
+            Task { await loadMetrics() }
             for slot in ModelSlot.allCases {
                 scheduleModelRefresh(slot, delay: 0)
             }
@@ -138,19 +140,19 @@ struct SettingsView: View {
     // ── tab bar ───────────────────────────────────────────────────────────────
 
     private var tabBar: some View {
-        HStack(spacing: Autumn.spacing.xs) {
+        HStack(spacing: Qcowork.spacing.xs) {
             ForEach(SettingsTab.allCases) { tab in
                 TabPill(
                     title: tab.title,
                     icon: tab.icon,
                     isSelected: selectedTab == tab,
-                    action: { withAnimation(Autumn.motion.snappy) { selectedTab = tab } }
+                    action: { withAnimation(Qcowork.motion.snappy) { selectedTab = tab } }
                 )
             }
             Spacer()
         }
-        .padding(.horizontal, Autumn.spacing.lg)
-        .padding(.vertical, Autumn.spacing.sm)
+        .padding(.horizontal, Qcowork.spacing.lg)
+        .padding(.vertical, Qcowork.spacing.sm)
         .background(.bar)
     }
 
@@ -170,7 +172,7 @@ struct SettingsView: View {
     private var serverTab: some View {
         SettingsScroll {
             SettingsSection(
-                title: "Autumn 服务器",
+                title: "Qcowork 服务器",
                 footer: "默认本地服务器地址为 http://127.0.0.1:8765。应用启动时会自动拉起捆绑的本地服务。"
             ) {
                 LabeledContent("本地服务", value: localServer.statusText)
@@ -259,7 +261,7 @@ struct SettingsView: View {
                     } else if manualApplyRequired {
                         Text("API key 已更新，确认后才切换服务器配置")
                             .font(.caption)
-                            .foregroundStyle(Autumn.colors.warning)
+                            .foregroundStyle(Qcowork.colors.warning)
                     } else if hasCompleteConfiguration {
                         Text("可用配置会在验证后自动同步到本地服务")
                             .font(.caption)
@@ -343,7 +345,7 @@ struct SettingsView: View {
                     title: "4D 激活排序",
                     detail: "回忆、归并和淘汰时按 use / scope / trigger / retention 参与排序。",
                     icon: "brain",
-                    tint: Autumn.colors.memory,
+                    tint: Qcowork.colors.memory,
                     isOn: fourdMemoryBinding,
                     isApplying: fourdApplying
                 )
@@ -351,7 +353,7 @@ struct SettingsView: View {
                     title: "回合推送",
                     detail: "每轮开始前自动注入 CONSTRAIN / REMIND 记忆片段。",
                     icon: "bolt.fill",
-                    tint: Autumn.colors.warning,
+                    tint: Qcowork.colors.warning,
                     isOn: fourdPushBinding,
                     isApplying: fourdApplying
                 )
@@ -359,18 +361,18 @@ struct SettingsView: View {
                     title: "Mom1 访问治理",
                     detail: "Mom2/Mom3 读取 Mom1 前由 A1 裁决，并写入 WP4 审计日志。",
                     icon: "checkmark.shield.fill",
-                    tint: Autumn.colors.teal,
+                    tint: Qcowork.colors.teal,
                     isOn: mom1AccessBinding,
                     isApplying: fourdApplying
                 )
-                HStack(spacing: Autumn.spacing.sm) {
+                HStack(spacing: Qcowork.spacing.sm) {
                     if fourdApplying {
                         ProgressView().controlSize(.small)
                     }
                     if let fourdError {
                         Label(fourdError, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(Autumn.colors.danger)
+                            .foregroundStyle(Qcowork.colors.danger)
                             .lineLimit(1)
                     } else if fourdLoaded {
                         Label("已同步到运行中的服务", systemImage: "checkmark.circle")
@@ -385,7 +387,7 @@ struct SettingsView: View {
 
             SettingsSection(
                 title: "记忆分区",
-                footer: "每个分区可以挂载不同后端（DictBackend / VectorBackend / 自定义），通过 Autumn.add_memory_skills(area) 暴露 recall / remember 给模型调用。"
+                footer: "每个分区可以挂载不同后端（DictBackend / VectorBackend / 自定义），通过 Qcowork.add_memory_skills(area) 暴露 recall / remember 给模型调用。"
             ) {
                 MemoryAreaCard(
                     code: "Mom1",
@@ -412,10 +414,10 @@ struct SettingsView: View {
         SettingsScroll {
             SettingsSection(
                 title: "平台集成",
-                footer: "填入平台令牌后点击连接，Autumn 会在服务器侧启动对应的 MCP 服务。当你的请求涉及读写该平台内容（如 GitHub 的 issues、PR、仓库文件）时，agent 会自行调用这些工具，无需每次手动提供凭据。令牌仅保存在本地与运行中的服务器进程，状态接口不会回传明文。需要服务器主机安装 npx / uvx。"
+                footer: "填入平台令牌后点击连接，Qcowork 会在服务器侧启动对应的 MCP 服务。当你的请求涉及读写该平台内容（如 GitHub 的 issues、PR、仓库文件）时，agent 会自行调用这些工具，无需每次手动提供凭据。令牌仅保存在本地与运行中的服务器进程，状态接口不会回传明文。需要服务器主机安装 npx / uvx。"
             ) {
                 if integrationCatalog.isEmpty {
-                    HStack(spacing: Autumn.spacing.sm) {
+                    HStack(spacing: Qcowork.spacing.sm) {
                         if !integrationsLoaded {
                             ProgressView().controlSize(.small)
                         } else {
@@ -472,18 +474,18 @@ struct SettingsView: View {
                     title: "代码库记忆引擎",
                     detail: codebaseMemoryDetail,
                     icon: "point.3.connected.trianglepath.dotted",
-                    tint: Autumn.colors.slate,
+                    tint: Qcowork.colors.slate,
                     isOn: codebaseMemoryBinding,
                     isApplying: codebaseMemoryApplying
                 )
-                HStack(spacing: Autumn.spacing.sm) {
+                HStack(spacing: Qcowork.spacing.sm) {
                     if codebaseMemoryApplying {
                         ProgressView().controlSize(.small)
                     }
                     if let codebaseMemoryError {
                         Label(codebaseMemoryError, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(Autumn.colors.danger)
+                            .foregroundStyle(Qcowork.colors.danger)
                             .lineLimit(2)
                     } else if codebaseMemoryConnected {
                         Label(
@@ -505,11 +507,19 @@ struct SettingsView: View {
 
             SettingsSection(title: "关于") {
                 LabeledContent("版本", value: appVersion)
-                Text("秋 / Autumn — 多模型协作工作流框架。")
+                Text("秋 / Qcowork — 多模型协作工作流框架。")
                     .font(.callout)
                 Text("A1 负责工作流协调与项目元数据讨论；A4/WP4 专注记忆管理和归并。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let m = serverMetrics {
+                    Divider()
+                    LabeledContent("累计运行", value: "\(m.runs) 次")
+                    LabeledContent("错误数", value: "\(m.errors) 次")
+                    LabeledContent("输入 Token", value: fmtMetricTokens(m.promptTokens))
+                    LabeledContent("输出 Token", value: fmtMetricTokens(m.completionTokens))
+                    LabeledContent("运行时长", value: fmtMetricUptime(m.uptimeSeconds))
+                }
             }
         }
     }
@@ -528,11 +538,11 @@ struct SettingsView: View {
                     Text(configured ? "已连接" : "已连接（服务器未配置 API key）")
                 }
                 .font(.caption)
-                .foregroundStyle(configured ? Autumn.colors.success : Autumn.colors.warning)
+                .foregroundStyle(configured ? Qcowork.colors.success : Qcowork.colors.warning)
                 if let err = serverLastError {
                     Text(err)
                         .font(.caption2)
-                        .foregroundStyle(Autumn.colors.danger)
+                        .foregroundStyle(Qcowork.colors.danger)
                 }
             }
         case .failed(let msg):
@@ -557,6 +567,20 @@ struct SettingsView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 
+    private func fmtMetricTokens(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000) }
+        if n >= 1_000 { return "\(n / 1_000) K" }
+        return "\(n)"
+    }
+
+    private func fmtMetricUptime(_ s: Double) -> String {
+        let total = Int(s)
+        let d = total / 86400; let h = (total % 86400) / 3600; let m = (total % 3600) / 60
+        if d > 0 { return "\(d)d \(h)h" }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+
     private var fourdMemoryBinding: Binding<Bool> {
         Binding(
             get: { fourdMemoryEnabled },
@@ -578,6 +602,11 @@ struct SettingsView: View {
         )
     }
 
+    private func loadMetrics() async {
+        guard let url = URL(string: settings.serverURL) else { return }
+        serverMetrics = await QcoworkClient(baseURL: url).fetchMetrics()
+    }
+
     private func checkConnection() async {
         guard let url = URL(string: settings.serverURL) else {
             connectionState = .failed("URL 无效")
@@ -586,7 +615,7 @@ struct SettingsView: View {
         isChecking = true
         defer { isChecking = false }
 
-        let client = AutumnClient(baseURL: url)
+        let client = QcoworkClient(baseURL: url)
         if let health = await client.health() {
             serverLastError = health.lastError.flatMap { $0.isEmpty ? nil : $0 }
             connectionState = .ok(configured: health.configured)
@@ -605,7 +634,7 @@ struct SettingsView: View {
             return
         }
         do {
-            let status = try await AutumnClient(baseURL: url).fetch4DStatus()
+            let status = try await QcoworkClient(baseURL: url).fetch4DStatus()
             // Assign the @State directly (not via the toggles' bindings) so syncing
             // from the server does not trigger an apply round-trip.
             fourdMemoryEnabled = status.fourdMemoryEnabled
@@ -627,7 +656,7 @@ struct SettingsView: View {
         fourdApplying = true
         defer { fourdApplying = false }
         do {
-            let status = try await AutumnClient(baseURL: url).update4DConfig(
+            let status = try await QcoworkClient(baseURL: url).update4DConfig(
                 memoryEnabled: fourdMemoryEnabled,
                 pushOnTurn: fourdPushOnTurn,
                 mom1AccessEnabled: mom1AccessEnabled
@@ -663,7 +692,7 @@ struct SettingsView: View {
             return
         }
         do {
-            let status = try await AutumnClient(baseURL: url).fetchCodebaseMemoryStatus()
+            let status = try await QcoworkClient(baseURL: url).fetchCodebaseMemoryStatus()
             codebaseMemoryEnabled = status.enabled
             codebaseMemoryConnected = status.connected
             codebaseMemoryIndexed = status.indexed
@@ -685,7 +714,7 @@ struct SettingsView: View {
         defer { codebaseMemoryApplying = false }
         do {
             let repo = codebaseMemoryRepo.trimmingCharacters(in: .whitespacesAndNewlines)
-            let status = try await AutumnClient(baseURL: url).updateCodebaseMemory(
+            let status = try await QcoworkClient(baseURL: url).updateCodebaseMemory(
                 enabled: codebaseMemoryEnabled,
                 repo: repo.isEmpty ? nil : repo
             )
@@ -704,7 +733,7 @@ struct SettingsView: View {
 
     private func loadIntegrations() async {
         guard let url = URL(string: settings.serverURL) else { return }
-        let client = AutumnClient(baseURL: url)
+        let client = QcoworkClient(baseURL: url)
         if let catalog = try? await client.integrationCatalog() {
             integrationCatalog = catalog
         }
@@ -712,7 +741,7 @@ struct SettingsView: View {
         integrationsLoaded = true
     }
 
-    private func refreshIntegrationStatus(client: AutumnClient) async {
+    private func refreshIntegrationStatus(client: QcoworkClient) async {
         if let statuses = try? await client.integrationStatus() {
             integrationStatuses = Dictionary(statuses.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         }
@@ -723,7 +752,7 @@ struct SettingsView: View {
         integrationErrors[entry.id] = nil
         integrationBusy.insert(entry.id)
         defer { integrationBusy.remove(entry.id) }
-        let client = AutumnClient(baseURL: url)
+        let client = QcoworkClient(baseURL: url)
         do {
             let status = try await client.connectIntegration(
                 id: entry.id,
@@ -742,7 +771,7 @@ struct SettingsView: View {
         integrationErrors[entry.id] = nil
         integrationBusy.insert(entry.id)
         defer { integrationBusy.remove(entry.id) }
-        let client = AutumnClient(baseURL: url)
+        let client = QcoworkClient(baseURL: url)
         do {
             let status = try await client.disconnectIntegration(id: entry.id)
             integrationStatuses[entry.id] = status
@@ -862,7 +891,7 @@ struct SettingsView: View {
         modelErrors[slot] = nil
 
         do {
-            let client = AutumnClient(baseURL: url)
+            let client = QcoworkClient(baseURL: url)
             let models = try await client.fetchModels(
                 apiKey: config.apiKey,
                 baseURL: config.baseURL,
@@ -902,7 +931,7 @@ struct SettingsView: View {
         defer { isApplying = false }
 
         do {
-            let client = AutumnClient(baseURL: url)
+            let client = QcoworkClient(baseURL: url)
             let response = try await client.applyConfiguration(settings.applyConfigRequest())
             connectionState = .ok(configured: response.configured)
             lastAppliedFingerprint = configurationFingerprint
@@ -1010,7 +1039,7 @@ struct SettingsView: View {
             return fallbackOllamaRecommended
         }
         do {
-            return try await AutumnClient(baseURL: url).ollamaRecommendedModels()
+            return try await QcoworkClient(baseURL: url).ollamaRecommendedModels()
         } catch {
             return fallbackOllamaRecommended
         }
@@ -1062,7 +1091,7 @@ struct SettingsView: View {
     private func ollamaUnavailableMessage(_ status: OllamaStatus) -> String {
         let base = status.baseURL.isEmpty ? settings.a4BaseURL : status.baseURL
         let raw = status.error?.isEmpty == false ? "\n\(status.error ?? "")" : ""
-        return "无法连接本机 Ollama（\(base)）。Autumn Desktop 已尝试后台启动 Ollama；请确认 Ollama.app 或 `ollama serve` 正在运行。\(raw)"
+        return "无法连接本机 Ollama（\(base)）。Qcowork Desktop 已尝试后台启动 Ollama；请确认 Ollama.app 或 `ollama serve` 正在运行。\(raw)"
     }
 
     private func ollamaManagementError(_ error: Error, baseURL: String) -> String {
@@ -1106,12 +1135,12 @@ private struct SettingsScroll<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Autumn.spacing.xl) {
+            VStack(alignment: .leading, spacing: Qcowork.spacing.xl) {
                 content()
             }
             .frame(maxWidth: 980, alignment: .topLeading)
-            .padding(.horizontal, Autumn.spacing.xxl)
-            .padding(.vertical, Autumn.spacing.xl)
+            .padding(.horizontal, Qcowork.spacing.xxl)
+            .padding(.vertical, Qcowork.spacing.xl)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollContentBackground(.hidden)
@@ -1135,23 +1164,23 @@ private struct SettingsSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
             Text(title)
-                .font(Autumn.typography.headline)
-                .padding(.horizontal, Autumn.spacing.sm)
+                .font(Qcowork.typography.headline)
+                .padding(.horizontal, Qcowork.spacing.sm)
 
-            AutumnCard(padding: Autumn.spacing.md) {
-                VStack(alignment: .leading, spacing: Autumn.spacing.md) {
+            QcoworkCard(padding: Qcowork.spacing.md) {
+                VStack(alignment: .leading, spacing: Qcowork.spacing.md) {
                     content()
                 }
             }
 
             if let footer, !footer.isEmpty {
                 Text(footer)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Autumn.spacing.sm)
+                    .padding(.horizontal, Qcowork.spacing.sm)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1168,9 +1197,9 @@ private struct SettingsFieldRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Autumn.spacing.md) {
+        HStack(alignment: .firstTextBaseline, spacing: Qcowork.spacing.md) {
             Text(title)
-                .font(Autumn.typography.callout.weight(.medium))
+                .font(Qcowork.typography.callout.weight(.medium))
                 .foregroundStyle(.primary)
                 .frame(width: 230, alignment: .leading)
             content()
@@ -1193,15 +1222,15 @@ private struct TabPill: View {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
                 Text(title)
-                    .font(Autumn.typography.captionMedium)
+                    .font(Qcowork.typography.captionMedium)
             }
             .foregroundStyle(isSelected ? Color.white : .primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
             .background(
                 Capsule().fill(isSelected
-                               ? AnyShapeStyle(Autumn.colors.brandGradient)
-                               : AnyShapeStyle(Autumn.colors.surfaceElevated))
+                               ? AnyShapeStyle(Qcowork.colors.brandGradient)
+                               : AnyShapeStyle(Qcowork.colors.surfaceElevated))
             )
         }
         .buttonStyle(.plain)
@@ -1219,26 +1248,26 @@ private struct FourDRuntimeRow: View {
     let isApplying: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: Autumn.spacing.sm) {
+        HStack(alignment: .center, spacing: Qcowork.spacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 26, height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
+                    RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
                         .fill(tint.opacity(0.12))
                 )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(Autumn.typography.captionMedium)
+                    .font(Qcowork.typography.captionMedium)
                 Text(detail)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: Autumn.spacing.md)
+            Spacer(minLength: Qcowork.spacing.md)
 
             Toggle("", isOn: $isOn)
                 .labelsHidden()
@@ -1267,7 +1296,7 @@ private struct IntegrationRow: View {
     private var connected: Bool { status?.connected == true }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Autumn.spacing.sm) {
+        VStack(alignment: .leading, spacing: Qcowork.spacing.sm) {
             header
             ForEach(entry.fields) { field in
                 fieldEditor(field)
@@ -1276,12 +1305,12 @@ private struct IntegrationRow: View {
             if let msg = displayedError, !msg.isEmpty {
                 Label(msg, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(Autumn.colors.danger)
+                    .foregroundStyle(Qcowork.colors.danger)
                     .lineLimit(2)
             }
             actions
         }
-        .padding(.vertical, Autumn.spacing.xs)
+        .padding(.vertical, Qcowork.spacing.xs)
         .onAppear { writeEnabled = status?.writeEnabled ?? false }
         .onChange(of: status?.writeEnabled) { _, newValue in
             writeEnabled = newValue ?? false
@@ -1292,7 +1321,7 @@ private struct IntegrationRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Toggle(isOn: $writeEnabled) {
                 Text("允许写操作（创建 / 编辑 / 删除 / 发送）")
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
             }
             #if os(macOS)
             .toggleStyle(.switch)
@@ -1301,38 +1330,38 @@ private struct IntegrationRow: View {
             Text(writeEnabled
                  ? "Agent 可在该平台上修改你的真实账户内容，连接后立即生效。"
                  : "默认只读：Agent 仅能读取，无法修改你的账户。开启后需（重新）连接才生效。")
-                .font(Autumn.typography.caption)
+                .font(Qcowork.typography.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var header: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             Image(systemName: iconName)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(connected ? Autumn.colors.success : Autumn.colors.muted)
+                .foregroundStyle(connected ? Qcowork.colors.success : Qcowork.colors.muted)
                 .frame(width: 26, height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: Autumn.radius.sm, style: .continuous)
-                        .fill((connected ? Autumn.colors.success : Autumn.colors.muted).opacity(0.12))
+                    RoundedRectangle(cornerRadius: Qcowork.radius.sm, style: .continuous)
+                        .fill((connected ? Qcowork.colors.success : Qcowork.colors.muted).opacity(0.12))
                 )
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.name).font(Autumn.typography.bodyMedium)
+                Text(entry.name).font(Qcowork.typography.bodyMedium)
                 Text(entry.description)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if connected {
                 VStack(alignment: .trailing, spacing: 3) {
-                    AutumnBadge("已连接 · \(status?.toolCount ?? 0) 工具",
+                    QcoworkBadge("已连接 · \(status?.toolCount ?? 0) 工具",
                                 icon: "checkmark.circle.fill", tone: .success)
                     if status?.writeEnabled == true {
-                        AutumnBadge("可写", icon: "pencil", tone: .warning)
+                        QcoworkBadge("可写", icon: "pencil", tone: .warning)
                     } else {
-                        AutumnBadge(blockedBadgeText, icon: "lock.fill", tone: .neutral)
+                        QcoworkBadge(blockedBadgeText, icon: "lock.fill", tone: .neutral)
                     }
                 }
             }
@@ -1360,7 +1389,7 @@ private struct IntegrationRow: View {
     }
 
     private var actions: some View {
-        HStack(spacing: Autumn.spacing.sm) {
+        HStack(spacing: Qcowork.spacing.sm) {
             if connected {
                 Button(role: .destructive, action: onDisconnect) {
                     Text("断开")
@@ -1419,21 +1448,21 @@ private struct MemoryAreaCard: View {
     let description: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: Autumn.spacing.sm) {
+        HStack(alignment: .top, spacing: Qcowork.spacing.sm) {
             Text(code)
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                 .foregroundStyle(.tint)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(
-                    RoundedRectangle(cornerRadius: Autumn.radius.xs, style: .continuous)
-                        .fill(Autumn.colors.flame.opacity(0.13))
+                    RoundedRectangle(cornerRadius: Qcowork.radius.xs, style: .continuous)
+                        .fill(Qcowork.colors.flame.opacity(0.13))
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(Autumn.typography.captionMedium)
+                    .font(Qcowork.typography.captionMedium)
                 Text(description)
-                    .font(Autumn.typography.caption)
+                    .font(Qcowork.typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1485,7 +1514,7 @@ private struct ModelConfigRow: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .help("快速填入常见服务商")
-                AutumnBadge(state.title, tone: state.tone)
+                QcoworkBadge(state.title, tone: state.tone)
                 if state == .connecting {
                     ProgressView()
                         .controlSize(.small)
