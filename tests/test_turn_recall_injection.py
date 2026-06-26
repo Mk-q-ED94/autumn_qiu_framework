@@ -112,6 +112,47 @@ async def test_recall_reaches_wp2_prompt_and_trace_end_to_end(tmp_path):
     assert "1" in recall_stages[0].detail
 
 
+async def test_wp2_agent_skips_own_history_when_turn_context_present(monkeypatch):
+    """With framework recall supplied via turn_context, the WP2 agent must not
+    also inject its own Mom2 history — otherwise the executor sees the recent
+    conversation twice under a duplicate header."""
+    from autumn.core.components.tool import Tool, ToolParameter
+    from autumn.core.memory.backends import DictBackend
+    from autumn.core.memory.base import MemoryArea
+    from autumn.core.workspace import wp2 as wp2mod
+    from autumn.core.workspace.wp2 import WP2Tas
+
+    seen: dict = {}
+
+    class _StubAgent:
+        def __init__(self, **kw):
+            self.total_prompt_tokens = 0
+            self.total_completion_tokens = 0
+
+        async def run(self, task_input, memory=None, steps=None, supervisor=None):
+            seen["memory"] = memory
+            return "done"
+
+    monkeypatch.setattr(wp2mod, "Agent", _StubAgent)
+
+    class _API:
+        last_usage = None
+
+        async def complete(self, *a, **k):
+            return "x"
+
+    tool = Tool("t", "d", lambda x: x, [ToolParameter("x", "string", "d")])
+    area = MemoryArea("wp2", DictBackend())
+    wp2 = WP2Tas(_API(), area, tool_provider=lambda: ([tool], []))
+
+    await wp2.process_with_trace("do it", turn_context="Recent context...:\n- a\n  → b")
+    assert seen["memory"] is None  # suppressed — framework already supplied recall
+
+    seen.clear()
+    await wp2.process_with_trace("do it")
+    assert seen["memory"] is area  # no turn_context → agent injects its own history
+
+
 async def test_failed_check_advisory_not_stored_to_mom1(tmp_path):
     """A failed-check advisory reaches the user (run.output) but is NOT written to
     Mom1, so it can never leak into the next turn's recall or the judge context."""

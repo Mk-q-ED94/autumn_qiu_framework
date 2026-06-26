@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from ..components.skill import Skill
 from ..components.tool import ToolParameter
+from .dimensions import UseMode
 
 if TYPE_CHECKING:
     from ..api.base import ModelAPIInterface
@@ -84,10 +85,15 @@ def _build_memory_skills(
             # Close the 4D use-feedback loop: recalling an entry IS a use of it,
             # so touch its utility ledger. Entries that keep proving useful gain
             # utility and rank higher in future recall / survive eviction longer.
-            # reinforce ignores the synthetic kv:/vector ids, so the whole result
-            # set is safe to pass. Best-effort — a write hiccup must not fail recall.
+            # Skip CONSTRAIN/REMIND (push-eligible) entries: use.touch also stamps
+            # last_used, which is the clock Trigger.every uses to throttle push, so
+            # reinforcing a recalled reminder could suppress its next scheduled
+            # firing. reinforce ignores synthetic kv:/vector ids. Best-effort — a
+            # write hiccup must not fail recall.
             try:
-                await memory.reinforce([e.id for e in entries])
+                ids = [e.id for e in entries if e.use.mode not in (UseMode.CONSTRAIN, UseMode.REMIND)]
+                if ids:
+                    await memory.reinforce(ids)
             except Exception:
                 pass
 
