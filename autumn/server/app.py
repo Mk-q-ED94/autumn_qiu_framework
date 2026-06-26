@@ -369,6 +369,7 @@ class FourDStatusResponse(BaseModel):
     fourd_pull_on_turn: bool = True
     fourd_auto_annotate: bool = True
     fourd_auto_consolidate: bool = True
+    fourd_auto_evolve: bool = False
     mom1_access_enabled: bool
 
 
@@ -380,6 +381,7 @@ class FourDConfigRequest(BaseModel):
     fourd_pull_on_turn: bool | None = None
     fourd_auto_annotate: bool | None = None
     fourd_auto_consolidate: bool | None = None
+    fourd_auto_evolve: bool | None = None
     mom1_access_enabled: bool | None = None
 
 
@@ -1601,6 +1603,7 @@ def create_app() -> FastAPI:
             fourd_pull_on_turn=bool(getattr(b, "fourd_pull_on_turn", True)),
             fourd_auto_annotate=bool(getattr(b, "fourd_auto_annotate", True)),
             fourd_auto_consolidate=bool(getattr(b, "fourd_auto_consolidate", True)),
+            fourd_auto_evolve=bool(getattr(b, "fourd_auto_evolve", False)),
             mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
         )
 
@@ -1623,6 +1626,7 @@ def create_app() -> FastAPI:
             pull_on_turn=req.fourd_pull_on_turn,
             auto_annotate=req.fourd_auto_annotate,
             auto_consolidate=req.fourd_auto_consolidate,
+            auto_evolve=req.fourd_auto_evolve,
             mom1_access_enabled=req.mom1_access_enabled,
         )
         return FourDStatusResponse(**result)

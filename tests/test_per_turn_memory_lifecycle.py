@@ -121,9 +121,9 @@ async def test_auto_annotate_fires_and_returns_stage(tmp_path):
     async with Autumn(_cfg(tmp_path)) as autumn:
         autumn.wp4.api = _A4API()
         await autumn.mom1.append_history({"input": "q", "output": "a"})
-        stage = await autumn._auto_annotate_turn()
+        stage = await autumn._auto_annotate_turn("mom1")
     assert stage is not None
-    assert stage.id == "wp4.annotate"
+    assert stage.id == "wp4.annotate.mom1"
     assert stage.workspace == "WP4"
     assert "1" in stage.detail
 
@@ -137,9 +137,9 @@ async def test_auto_annotate_stage_in_run_trace(tmp_path):
         autumn.wp4.api = _A4API()
         run = await autumn.process_with_trace("do something", input_type=InputType.TASK)
 
-    annotate_stages = [s for s in run.stages if s.id == "wp4.annotate"]
-    assert len(annotate_stages) == 1
-    assert annotate_stages[0].workspace == "WP4"
+    annotate_stages = [s for s in run.stages if s.id.startswith("wp4.annotate")]
+    assert len(annotate_stages) >= 1
+    assert all(s.workspace == "WP4" for s in annotate_stages)
 
 
 async def test_auto_annotate_cue_persists_on_entry(tmp_path):
@@ -258,3 +258,158 @@ async def test_configure_4d_toggles_auto_consolidate(tmp_path):
     async with Autumn(_cfg(tmp_path)) as autumn:
         result = autumn.configure_4d(auto_consolidate=False)
     assert result["fourd_auto_consolidate"] is False
+
+
+async def test_configure_4d_toggles_auto_evolve(tmp_path):
+    """configure_4d can enable/disable fourd_auto_evolve at runtime."""
+    async with Autumn(_cfg(tmp_path)) as autumn:
+        result = autumn.configure_4d(auto_evolve=True)
+    assert result["fourd_auto_evolve"] is True
+
+
+async def test_configure_4d_returns_auto_evolve_in_dict(tmp_path):
+    """configure_4d always returns fourd_auto_evolve (default False)."""
+    async with Autumn(_cfg(tmp_path)) as autumn:
+        result = autumn.configure_4d()
+    assert "fourd_auto_evolve" in result
+    assert result["fourd_auto_evolve"] is False  # default off
+
+
+# ── shared zone annotation ─────────────────────────────────────────────────────
+
+def _cfg_with_archive(tmp_path) -> AutumnConfig:
+    """Config with archive_executions=True so shared zone gets written."""
+    m = ModelConfig(api_key="k", base_url="http://x", model="m", protocol=Protocol.OPENAI)
+    cfg = AutumnConfig(
+        a1=m, a2=m, a3=m, a4=m,
+        behavior=BehaviorConfig(
+            fourd_auto_annotate=True,
+            fourd_auto_consolidate=False,
+            archive_executions=True,
+        ),
+    )
+    cfg.storage.db_path = str(tmp_path / "mem.db")
+    return cfg
+
+
+async def test_shared_zone_annotated_when_archive_on(tmp_path):
+    """When archive_on, _auto_annotate_turn('shared') is called after the turn.
+
+    We patch _auto_annotate_turn to intercept calls and verify it receives
+    'shared' as well as 'mom1'.
+    """
+    cfg = _cfg_with_archive(tmp_path)
+    async with Autumn(cfg) as autumn:
+        _wire_basic(autumn)
+        autumn.wp4.api = _A4API()
+
+        called_areas: list[str] = []
+        original = autumn._auto_annotate_turn
+
+        async def _tracking(area="mom1"):
+            called_areas.append(area)
+            return await original(area)
+
+        autumn._auto_annotate_turn = _tracking
+        await autumn.process_with_trace("test", input_type=InputType.TASK)
+
+    assert "mom1" in called_areas
+    assert "shared" in called_areas
+
+
+async def test_shared_zone_not_annotated_when_archive_off(tmp_path):
+    """When archive_executions=False, only mom1 is annotated."""
+    cfg = _cfg(tmp_path)  # archive_executions=False
+    async with Autumn(cfg) as autumn:
+        _wire_basic(autumn)
+        autumn.wp4.api = _A4API()
+
+        called_areas: list[str] = []
+        original = autumn._auto_annotate_turn
+
+        async def _tracking(area="mom1"):
+            called_areas.append(area)
+            return await original(area)
+
+        autumn._auto_annotate_turn = _tracking
+        await autumn.process_with_trace("test", input_type=InputType.TASK)
+
+    assert "mom1" in called_areas
+    assert "shared" not in called_areas
+
+
+# ── _auto_evolve_turn ─────────────────────────────────────────────────────────
+
+def _cfg_evolve(tmp_path, history_limit: int = 10) -> AutumnConfig:
+    m = ModelConfig(api_key="k", base_url="http://x", model="m", protocol=Protocol.OPENAI)
+    cfg = AutumnConfig(
+        a1=m, a2=m, a3=m, a4=m,
+        behavior=BehaviorConfig(
+            fourd_auto_evolve=True,
+            fourd_auto_annotate=False,
+            fourd_auto_consolidate=False,
+            archive_executions=False,
+            history_limit=history_limit,
+        ),
+    )
+    cfg.storage.db_path = str(tmp_path / "mem.db")
+    return cfg
+
+
+async def test_auto_evolve_skipped_without_a4(tmp_path):
+    """No evolve stage when A4 is absent."""
+    m = ModelConfig(api_key="k", base_url="http://x", model="m", protocol=Protocol.OPENAI)
+    cfg = AutumnConfig(
+        a1=m, a2=m, a3=m, a4=None,
+        behavior=BehaviorConfig(fourd_auto_evolve=True, archive_executions=False),
+    )
+    cfg.storage.db_path = str(tmp_path / "mem.db")
+    async with Autumn(cfg) as autumn:
+        stage = await autumn._auto_evolve_turn()
+    assert stage is None
+
+
+async def test_auto_evolve_skipped_when_flag_off(tmp_path):
+    """No evolve stage when the flag is disabled."""
+    cfg = _cfg_evolve(tmp_path)
+    cfg.behavior.fourd_auto_evolve = False
+    async with Autumn(cfg) as autumn:
+        autumn.wp4.api = _CapturingAPI("[]")
+        for i in range(10):
+            await autumn.mom1.append_history({"input": f"q{i}", "output": f"a{i}"})
+        stage = await autumn._auto_evolve_turn()
+    assert stage is None
+
+
+async def test_auto_evolve_skipped_below_threshold(tmp_path):
+    """No evolve stage when Mom1 history is below 95% of history_limit."""
+    cfg = _cfg_evolve(tmp_path, history_limit=50)
+    async with Autumn(cfg) as autumn:
+        autumn.wp4.api = _CapturingAPI("[]")
+        # 5 entries, limit=50 → 5/50 = 10% < 95% → no evolve
+        for i in range(5):
+            await autumn.mom1.append_history({"input": f"q{i}", "output": f"a{i}"})
+        stage = await autumn._auto_evolve_turn()
+    assert stage is None
+
+
+async def test_auto_evolve_stage_in_run_trace(tmp_path):
+    """wp4.evolve stage appears in the run trace when the hook fires."""
+    cfg = _cfg_evolve(tmp_path)
+    async with Autumn(cfg) as autumn:
+        _wire_basic(autumn)
+        autumn.wp4.api = _CapturingAPI("ok")
+
+        # Patch to always fire.
+        from autumn.core.types import WorkflowStage as _WS
+        async def _always_evolve():
+            return _WS(id="wp4.evolve", title="A4 自进化",
+                       detail="从 Mom1 历史提炼出 2 条固定技能", workspace="WP4",
+                       kind="stage", duration_ms=1.0)
+        autumn._auto_evolve_turn = _always_evolve
+
+        run = await autumn.process_with_trace("work", input_type=InputType.TASK)
+
+    evolve_stages = [s for s in run.stages if s.id == "wp4.evolve"]
+    assert len(evolve_stages) == 1
+    assert evolve_stages[0].workspace == "WP4"

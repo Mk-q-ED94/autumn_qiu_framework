@@ -77,6 +77,7 @@ const FOURD_ROWS: Array<{ key: keyof FourDStatus; label: string; hint: string }>
   { key: "fourd_pull_on_turn", label: "回合开始召回", hint: "每轮把 Mom1 跨轮对话上下文拉入执行器" },
   { key: "fourd_auto_annotate", label: "自动标注维度", hint: "每轮后由 A4 自动为新写入的 Mom1 条目标注 aim/use/trigger 维度（需要 A4）" },
   { key: "fourd_auto_consolidate", label: "自动整合记忆", hint: "Mom1 接近上限时由 A4 自动整合为摘要条目（需要 A4）" },
+  { key: "fourd_auto_evolve", label: "自动自进化", hint: "会话记忆充足时由 A4 将高频有用模式提炼为固定技能（默认关闭，属有意为之）" },
   { key: "mom1_access_enabled", label: "Mom1 受控访问", hint: "允许 Mom2 / Mom3 经 A1 裁决读取 Mom1" },
 ];
 
