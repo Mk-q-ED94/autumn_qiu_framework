@@ -112,6 +112,31 @@ async def test_recall_reaches_wp2_prompt_and_trace_end_to_end(tmp_path):
     assert "1" in recall_stages[0].detail
 
 
+async def test_failed_check_advisory_not_stored_to_mom1(tmp_path):
+    """A failed-check advisory reaches the user (run.output) but is NOT written to
+    Mom1, so it can never leak into the next turn's recall or the judge context."""
+    from autumn.core.components.checker import Checker
+
+    cfg = _cfg(tmp_path)
+    cfg.behavior.archive_executions = False
+    async with Autumn(cfg) as autumn:
+        _wire(autumn)
+        autumn.wp2.api = _CapturingAPI("a sufficiently long answer to pass the rule check")
+
+        class _FlagAPI:
+            last_usage = None
+
+            async def complete(self, messages, **kw):
+                return '{"ok": false, "issues": "too terse"}'
+
+        autumn.wp1.checker = Checker("wp1", _FlagAPI(), retries=1)
+        run = await autumn.process_with_trace("do the thing", input_type=InputType.TASK)
+
+    assert "[质量提示]" in run.output  # the user sees the advisory
+    history = await autumn.mom1.get_history()
+    assert "[质量提示]" not in history[-1].content["output"]  # but it is not in durable memory
+
+
 async def test_recall_and_push_both_fire_on_one_real_turn(tmp_path):
     """The 'effect, not wiring' guarantee for the memory pipeline: a single real
     turn surfaces BOTH halves of 4D memory — prior conversation (pull) and an

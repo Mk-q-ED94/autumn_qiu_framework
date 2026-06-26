@@ -122,25 +122,30 @@ async def test_checker_honours_fenced_passing_verdict():
     assert result == "a long enough output string"
 
 
-def test_wp1_check_detail_surfaces_advisory_on_failure():
-    # A failed buffered-path check must reach the user, not be silently stripped.
-    from autumn.core.workspace.wp1 import _ADVISORY_PREFIX, _check_detail
+def test_wp1_check_detail_is_advisory_free_on_failure():
+    # _check_detail must return CLEAN output (no advisory) so it is safe to store
+    # to memory and feed to downstream stages; the advisory is a separate suffix.
+    from autumn.core.workspace.wp1 import _ADVISORY_PREFIX, _check_advisory, _check_detail
 
     checked = "[CHECK_FAILED(wp1): missing sources]\n\nThe answer body."
     output, detail = _check_detail(False, checked, "passed", "failed")
-    assert output.startswith("The answer body.")
-    assert _ADVISORY_PREFIX in output
-    assert output.endswith("missing sources")
+    assert output == "The answer body."
+    assert _ADVISORY_PREFIX not in output
     assert "missing sources" in detail
+
+    advisory = _check_advisory(False, checked)
+    assert _ADVISORY_PREFIX in advisory
+    assert advisory.endswith("missing sources")
 
 
 def test_wp1_check_detail_passes_clean_output_unchanged():
-    from autumn.core.workspace.wp1 import _ADVISORY_PREFIX, _check_detail
+    from autumn.core.workspace.wp1 import _ADVISORY_PREFIX, _check_advisory, _check_detail
 
     output, detail = _check_detail(True, "The answer body.", "passed", "failed")
     assert output == "The answer body."
     assert _ADVISORY_PREFIX not in output
     assert detail == "passed"
+    assert _check_advisory(True, "The answer body.") == ""
 
 
 async def test_checker_retries_allow_correction():
