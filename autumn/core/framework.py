@@ -388,13 +388,14 @@ class Autumn:
             "recall_ms": recall_ms,
         }
 
-    async def _auto_annotate_turn(self) -> "WorkflowStage | None":
-        """Best-effort: annotate the most-recent Mom1 entry via A4.
+    async def _auto_annotate_turn(self, area: str = "mom1") -> "WorkflowStage | None":
+        """Best-effort: annotate the most-recent entry in *area* via A4.
 
-        Runs after each turn write so entries accumulate 4D dimensions on the
-        default path without manual HTTP calls. Gated on A4 slot and the
-        ``fourd_auto_annotate`` flag (default: on). Returns a trace stage when
-        annotation fires, ``None`` otherwise — never raises.
+        Called after each turn write for ``mom1`` and, when the execution archive
+        is on, for ``shared`` — so CONSTRAIN/REMIND execution summaries written by
+        A4 become push-eligible immediately rather than sitting forever unannotated.
+        Gated on A4 slot and ``fourd_auto_annotate`` (default: on). Returns a trace
+        stage when annotation fires, ``None`` otherwise — never raises.
         """
         if not self.config.behavior.fourd_auto_annotate:
             return None
@@ -402,16 +403,52 @@ class Autumn:
             return None
         started = time.perf_counter()
         try:
-            result = await self.wp4.annotate_recent(area="mom1", n=1, only_unannotated=True)
+            result = await self.wp4.annotate_recent(area=area, n=1, only_unannotated=True)
         except Exception:
             return None
         annotated = result.get("annotated", 0)
         if not annotated:
             return None
         return WorkflowStage(
-            id="wp4.annotate",
+            id=f"wp4.annotate.{area}",
             title="A4 自动标注",
-            detail=f"已为 {annotated} 条 Mom1 记忆标注 4D 维度",
+            detail=f"已为 {annotated} 条 {area} 记忆标注 4D 维度",
+            workspace="WP4",
+            kind="stage",
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
+
+    async def _auto_evolve_turn(self) -> "WorkflowStage | None":
+        """Best-effort: distil recurring high-utility Mom1 patterns into pinned skills.
+
+        RFC 4D-memory P3-A. Runs when Mom1 is ≥ 95 % full (enough history for
+        pattern mining) and the flag is on (default **off** — self-evolution is
+        intentionally opt-in: it pins facts permanently and users should decide
+        when their session has enough signal). Gated on A4 slot. Returns a trace
+        stage when skills are distilled, ``None`` otherwise — never raises.
+        """
+        if not self.config.behavior.fourd_auto_evolve:
+            return None
+        if not self.wp4.has_model:
+            return None
+        limit = self.config.behavior.history_limit
+        try:
+            history = await self.mom1.get_history()
+            if len(history) < max(10, int(limit * 0.95)):
+                return None
+        except Exception:
+            return None
+        started = time.perf_counter()
+        try:
+            skills = await self.wp4.evolve(area="mom1")
+        except Exception:
+            return None
+        if not skills:
+            return None
+        return WorkflowStage(
+            id="wp4.evolve",
+            title="A4 自进化",
+            detail=f"从 Mom1 历史提炼出 {len(skills)} 条固定技能",
             workspace="WP4",
             kind="stage",
             duration_ms=round((time.perf_counter() - started) * 1000, 1),
@@ -489,12 +526,19 @@ class Autumn:
             task_type=task_type,
             **ctx,
         )
-        # Per-turn memory lifecycle: annotate the newly-written Mom1 entry, then
-        # consolidate if approaching the history limit. Both are best-effort (A4-gated)
-        # and never interfere with the turn output — they only enrich future turns.
+        # Per-turn memory lifecycle — all best-effort (A4-gated), never raises,
+        # and never alters the turn output; they only enrich future turns:
+        # 1. Annotate the just-written Mom1 entry with 4D dimensions.
+        # 2. Annotate the shared-zone execution summary (when archive is on),
+        #    so CONSTRAIN/REMIND summaries become push-eligible immediately.
+        # 3. Consolidate Mom1 when it approaches history_limit.
+        # 4. Evolve recurring patterns into pinned skills (opt-in; default off).
+        b = self.config.behavior
         for stage in (
-            await self._auto_annotate_turn(),
+            await self._auto_annotate_turn("mom1"),
+            await self._auto_annotate_turn("shared") if b.archive_on else None,
             await self._auto_consolidate_turn(),
+            await self._auto_evolve_turn(),
         ):
             if stage is not None:
                 run.stages.append(stage)
@@ -561,10 +605,13 @@ class Autumn:
             **ctx,
         ):
             if isinstance(event, WorkflowRun):
-                # Per-turn memory lifecycle hooks (same as process_with_trace).
+                # Per-turn memory lifecycle hooks (mirrors process_with_trace).
+                b = self.config.behavior
                 for stage in (
-                    await self._auto_annotate_turn(),
+                    await self._auto_annotate_turn("mom1"),
+                    await self._auto_annotate_turn("shared") if b.archive_on else None,
                     await self._auto_consolidate_turn(),
+                    await self._auto_evolve_turn(),
                 ):
                     if stage is not None:
                         event.stages.append(stage)
@@ -782,6 +829,7 @@ class Autumn:
         pull_on_turn: bool | None = None,
         auto_annotate: bool | None = None,
         auto_consolidate: bool | None = None,
+        auto_evolve: bool | None = None,
         mom1_access_enabled: bool | None = None,
     ) -> dict[str, bool]:
         """Flip the 4D-memory switches at runtime; returns the resulting state.
@@ -809,6 +857,8 @@ class Autumn:
             b.fourd_auto_annotate = auto_annotate
         if auto_consolidate is not None:
             b.fourd_auto_consolidate = auto_consolidate
+        if auto_evolve is not None:
+            b.fourd_auto_evolve = auto_evolve
         if mom1_access_enabled is not None:
             b.mom1_access_enabled = mom1_access_enabled
             self.mom1_access.enabled = mom1_access_enabled
@@ -818,6 +868,7 @@ class Autumn:
             "fourd_pull_on_turn": b.fourd_pull_on_turn,
             "fourd_auto_annotate": b.fourd_auto_annotate,
             "fourd_auto_consolidate": b.fourd_auto_consolidate,
+            "fourd_auto_evolve": b.fourd_auto_evolve,
             "mom1_access_enabled": b.mom1_access_enabled,
         }
 

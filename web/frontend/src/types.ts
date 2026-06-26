@@ -78,6 +78,7 @@ export interface FourDStatus {
   fourd_pull_on_turn: boolean;
   fourd_auto_annotate: boolean;
   fourd_auto_consolidate: boolean;
+  fourd_auto_evolve: boolean;
   mom1_access_enabled: boolean;
 }
 

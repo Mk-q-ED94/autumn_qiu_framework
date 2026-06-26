@@ -138,6 +138,7 @@ class BehaviorConfig:
     fourd_pull_on_turn: bool = True  # Pull recent Mom1 cross-turn context into the executor prompt (the read half; no-op when Mom1 is empty)
     fourd_auto_annotate: bool = True  # After each turn, ask A4 to infer 4D dimensions for the just-written Mom1 entry (no-op without A4)
     fourd_auto_consolidate: bool = True  # Consolidate Mom1 when history nears the limit (no-op without A4 or below threshold)
+    fourd_auto_evolve: bool = False  # Distil recurring high-utility memories into pinned skills via A4 when near history_limit (off by default — needs sufficient history and is intentionally user-opt-in)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
@@ -183,6 +184,9 @@ class BehaviorConfig:
             ),
             fourd_auto_consolidate=_to_bool(
                 env("FOURD_AUTO_CONSOLIDATE"), cls.fourd_auto_consolidate,
+            ),
+            fourd_auto_evolve=_to_bool(
+                env("FOURD_AUTO_EVOLVE"), cls.fourd_auto_evolve,
             ),
             mom1_access_enabled=_to_bool(
                 env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled
