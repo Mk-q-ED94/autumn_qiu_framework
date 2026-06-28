@@ -961,6 +961,40 @@ class MemoryArea:
                 pass
         return summary
 
+    @staticmethod
+    def _consumed_fact_sources(history: list[MemoryEntry]) -> set[str]:
+        """Ids of raw entries already distilled into an ``atomic_fact`` (P2-A).
+
+        Each fact records its sources in ``meta["from"]``; the union of those is
+        the set of turns extraction has already consumed. Mirrors how
+        :meth:`evolve` derives ``already_evolved`` to stay idempotent on re-runs.
+        """
+        consumed: set[str] = set()
+        for e in history:
+            if KIND_ATOMIC_FACT in e.tags:
+                consumed.update(e.meta.get("from", []) or [])
+        return consumed
+
+    async def pending_fact_sources(self, keep_recent: int = 0) -> list[MemoryEntry]:
+        """Non-derived turns not yet distilled into an atomic fact (P2-A).
+
+        A raw turn is *pending* until its id appears in some ``atomic_fact``'s
+        ``meta["from"]``. Lets a caller batch auto-extraction — only fire once
+        enough new turns have accrued — without spending an A4 call to find out.
+        ``keep_recent`` leaves that many newest entries out.
+        """
+        history = await self.get_history()
+        consumed = self._consumed_fact_sources(history)
+        pending = [
+            e for e in history
+            if not (set(e.tags) & DERIVED_KINDS) and e.id not in consumed
+        ]
+        if keep_recent and keep_recent < len(pending):
+            pending = pending[:-keep_recent]
+        elif keep_recent:
+            pending = []
+        return pending
+
     async def extract_facts(
         self,
         api: ModelAPIInterface,
@@ -968,6 +1002,7 @@ class MemoryArea:
         max_chars: int = 4000,
         max_facts: int = 20,
         system_prompt: str | None = None,
+        skip_consumed: bool = False,
     ) -> list[MemoryEntry]:
         """Extract atomic facts from history via A4 and store each as a new entry.
 
@@ -986,14 +1021,32 @@ class MemoryArea:
             api: an inference model (e.g. the A4 slot) exposing ``complete``.
             keep_recent: leave this many newest entries out of the source set.
             max_chars: cap on the source text fed to the model.
-            max_facts: cap on the number of facts stored from one pass.
+            max_facts: cap on the number of facts stored from one pass (legacy
+                path only — see ``skip_consumed``).
             system_prompt: optional override for the extraction prompt (P1-C slot).
+            skip_consumed: also drop raw turns already distilled into an existing
+                atomic fact, so repeated passes only mine genuinely new turns
+                (re-run-safe). Default ``False`` keeps the legacy behaviour where
+                a manual pass re-extracts every non-derived turn. Under
+                ``skip_consumed`` only the turns that actually fit this pass's
+                prompt window (``max_chars``) are examined and marked consumed —
+                turns truncated out stay *pending* and are mined on a later pass,
+                never silently dropped — and every fact distilled from that window
+                is stored (``max_facts`` is a legacy-path cap only), so a fact is
+                never dropped while its source turn is marked consumed. A turn the
+                model declines to distil (chatter) is still marked consumed: each
+                turn is offered to extraction once; it remains recallable in the
+                zone, only re-distillation is forgone.
 
         """
         from .prompts import ATOMIC_FACT_SYSTEM, atomic_fact_instruction
 
         history = await self.get_history()
-        candidates = [e for e in history if not (set(e.tags) & DERIVED_KINDS)]
+        consumed = self._consumed_fact_sources(history) if skip_consumed else set()
+        candidates = [
+            e for e in history
+            if not (set(e.tags) & DERIVED_KINDS) and e.id not in consumed
+        ]
         if keep_recent and keep_recent < len(candidates):
             candidates = candidates[:-keep_recent]
         elif keep_recent:
@@ -1001,7 +1054,25 @@ class MemoryArea:
         if not candidates:
             return []
 
-        joined = "\n".join(f"- {e.text}" for e in candidates)[:max_chars]
+        if skip_consumed:
+            # Examine only the prefix that fits the prompt window, and consume
+            # exactly those — so turns truncated out of this pass remain pending
+            # for the next one. Always make progress on at least one turn, even a
+            # single over-long one (it is bounded by max_chars when joined).
+            examined: list[MemoryEntry] = []
+            used = 0
+            for e in candidates:
+                cost = len(e.text) + 2 + (1 if examined else 0)  # "- " prefix + "\n"
+                if examined and used + cost > max_chars:
+                    break
+                examined.append(e)
+                used += cost
+            truncate_facts = False  # window is char-bounded → keep every fact
+        else:
+            examined = candidates
+            truncate_facts = True
+
+        joined = "\n".join(f"- {e.text}" for e in examined)[:max_chars]
         if not joined.strip():
             return []
 
@@ -1011,13 +1082,15 @@ class MemoryArea:
             Message(role=Role.USER, content=atomic_fact_instruction(joined)),
         ]
         try:
-            facts = _parse_fact_array(await api.complete(messages))[:max_facts]
+            facts = _parse_fact_array(await api.complete(messages))
         except Exception:
             return []  # A4 unavailable — return empty rather than raise into caller
+        if truncate_facts:
+            facts = facts[:max_facts]
         if not facts:
             return []
 
-        source_ids = [e.id for e in candidates]
+        source_ids = [e.id for e in examined]
         now = time.time()
         created: list[MemoryEntry] = []
         for fact in facts:
@@ -1149,6 +1222,7 @@ class MemoryArea:
         scope: str = "default",
         max_chars: int = 4000,
         system_prompt: str | None = None,
+        only_new: bool = False,
     ) -> str | None:
         """Fold recent history into the profile for *scope* via A4 (P3-B).
 
@@ -1156,6 +1230,13 @@ class MemoryArea:
         to merge them into an updated profile, and stores it with rewrite
         semantics. Returns the new profile text (or None when there is nothing to
         fold in).
+
+        ``only_new`` folds only turns newer than the current profile entry, so a
+        per-turn auto-synthesis re-merges just the incremental delta instead of
+        re-summarising the whole zone each turn (returning None — and skipping the
+        A4 call — when nothing post-dates the profile). The first synthesis (no
+        profile yet) still folds everything. Default ``False`` keeps the legacy
+        whole-history behaviour for explicit callers.
         """
         from .prompts import PROFILE_SYSTEM, profile_instruction
 
@@ -1164,17 +1245,20 @@ class MemoryArea:
             e for e in history
             if not (set(e.tags) & DERIVED_KINDS) and KIND_PROFILE not in e.tags
         ]
+        # Derive the current profile from the history we already decoded rather
+        # than calling get_profile() (which would decode the whole zone again).
+        profile_tags = set(self._profile_tags(scope))
+        profile_matches = [e for e in history if profile_tags.issubset(set(e.tags))]
+        current_entry = profile_matches[-1] if profile_matches else None
+        current = current_entry.text if current_entry else ""
+        if only_new and current_entry is not None:
+            sources = [e for e in sources if e.timestamp > current_entry.timestamp]
         if not sources:
             return None
         joined = "\n".join(f"- {e.text}" for e in sources)[:max_chars]
         if not joined.strip():
             return None
 
-        # Derive the current profile from the history we already decoded rather
-        # than calling get_profile() (which would decode the whole zone again).
-        profile_tags = set(self._profile_tags(scope))
-        profile_matches = [e for e in history if profile_tags.issubset(set(e.tags))]
-        current = profile_matches[-1].text if profile_matches else ""
         from ..types import Message, Role
         messages = [
             Message(role=Role.SYSTEM, content=system_prompt or PROFILE_SYSTEM),

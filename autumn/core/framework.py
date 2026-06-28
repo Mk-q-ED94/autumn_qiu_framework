@@ -490,6 +490,85 @@ class Autumn:
             duration_ms=round((time.perf_counter() - started) * 1000, 1),
         )
 
+    async def _auto_extract_facts_turn(self, area: str = "mom1") -> "WorkflowStage | None":
+        """Best-effort: distil Mom1's raw turns into atomic facts via A4.
+
+        RFC 4D-memory P2-A. Fires once enough *un-mined raw turns* have accrued
+        (``max(3, 20 % of history_limit)`` pending) — gating on the pending count
+        rather than total history, so derived facts/summaries don't trip it and
+        the batch stays small. Runs well before consolidation (≥ 80 %) compresses
+        raw turns away, and is re-run-safe (``skip_consumed`` only mines turns not
+        yet distilled). Flag ``fourd_auto_extract_facts`` (default **off** —
+        extraction grows the store and is intentionally opt-in). Gated on the A4
+        slot. Returns a trace stage when facts are created, else ``None`` — never
+        raises.
+        """
+        if not self.config.behavior.fourd_auto_extract_facts:
+            return None
+        if not self.wp4.has_model:
+            return None
+        limit = self.config.behavior.history_limit
+        try:
+            pending = await self.mom1.pending_fact_sources()
+            if len(pending) < max(3, int(limit * 0.2)):
+                return None
+        except Exception:
+            return None
+        started = time.perf_counter()
+        try:
+            facts = await self.wp4.extract_facts(area=area, skip_consumed=True)
+        except Exception:
+            return None
+        if not facts:
+            return None
+        return WorkflowStage(
+            id="wp4.extract_facts",
+            title="A4 原子事实抽取",
+            detail=f"从 Mom1 历史抽取出 {len(facts)} 条原子事实",
+            workspace="WP4",
+            kind="stage",
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
+
+    async def _auto_synthesize_profile_turn(self, area: str = "mom1") -> "WorkflowStage | None":
+        """Best-effort: fold Mom1's new turns into a living user profile via A4.
+
+        RFC 4D-memory P3-B. Engages once Mom1 has accumulated enough history
+        (≥ 50 % of history_limit) and folds only turns newer than the current
+        profile (``only_new``), so it re-merges just the incremental delta rather
+        than re-summarising the whole zone each turn — and skips the A4 call
+        entirely when nothing post-dates the profile. Flag
+        ``fourd_auto_synthesize_profile`` (default **off** — a persistent profile
+        is intentionally opt-in). Gated on the A4 slot. Returns a trace stage when
+        the profile is updated, else ``None`` — never raises.
+        """
+        if not self.config.behavior.fourd_auto_synthesize_profile:
+            return None
+        if not self.wp4.has_model:
+            return None
+        limit = self.config.behavior.history_limit
+        try:
+            history = await self.mom1.get_history()
+            if len(history) < int(limit * 0.5):
+                return None
+        except Exception:
+            return None
+        started = time.perf_counter()
+        try:
+            profile = await self.wp4.synthesize_profile(area=area, only_new=True)
+        except Exception:
+            return None
+        if not profile:
+            return None
+        return WorkflowStage(
+            id="wp4.synthesize_profile",
+            title="A4 画像合成",
+            detail="已将 Mom1 新增对话折叠进用户画像",
+            workspace="WP4",
+            kind="stage",
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
+
     async def process(
         self,
         user_input: str,
@@ -531,12 +610,17 @@ class Autumn:
         # 1. Annotate the just-written Mom1 entry with 4D dimensions.
         # 2. Annotate the shared-zone execution summary (when archive is on),
         #    so CONSTRAIN/REMIND summaries become push-eligible immediately.
-        # 3. Consolidate Mom1 when it approaches history_limit.
-        # 4. Evolve recurring patterns into pinned skills (opt-in; default off).
+        # 3. Extract atomic facts from raw turns (opt-in; before consolidation
+        #    compresses them away).
+        # 4. Fold new turns into the living user profile (opt-in).
+        # 5. Consolidate Mom1 when it approaches history_limit.
+        # 6. Evolve recurring patterns into pinned skills (opt-in; default off).
         b = self.config.behavior
         for stage in (
             await self._auto_annotate_turn("mom1"),
             await self._auto_annotate_turn("shared") if b.archive_on else None,
+            await self._auto_extract_facts_turn(),
+            await self._auto_synthesize_profile_turn(),
             await self._auto_consolidate_turn(),
             await self._auto_evolve_turn(),
         ):
@@ -610,6 +694,8 @@ class Autumn:
                 for stage in (
                     await self._auto_annotate_turn("mom1"),
                     await self._auto_annotate_turn("shared") if b.archive_on else None,
+                    await self._auto_extract_facts_turn(),
+                    await self._auto_synthesize_profile_turn(),
                     await self._auto_consolidate_turn(),
                     await self._auto_evolve_turn(),
                 ):
@@ -830,6 +916,8 @@ class Autumn:
         auto_annotate: bool | None = None,
         auto_consolidate: bool | None = None,
         auto_evolve: bool | None = None,
+        auto_extract_facts: bool | None = None,
+        auto_synthesize_profile: bool | None = None,
         mom1_access_enabled: bool | None = None,
     ) -> dict[str, bool]:
         """Flip the 4D-memory switches at runtime; returns the resulting state.
@@ -841,8 +929,9 @@ class Autumn:
           ranking (``MemoryArea.set_fourd_enabled``), including cached project
           zones.
         - ``push_on_turn`` / ``pull_on_turn`` / ``auto_annotate`` /
-          ``auto_consolidate`` are read live each turn from ``config.behavior``,
-          so mutating them is enough.
+          ``auto_consolidate`` / ``auto_evolve`` / ``auto_extract_facts`` /
+          ``auto_synthesize_profile`` are read live each turn from
+          ``config.behavior``, so mutating them is enough.
         - ``mom1_access_enabled`` flips the broker's gate in place.
         """
         b = self.config.behavior
@@ -859,6 +948,10 @@ class Autumn:
             b.fourd_auto_consolidate = auto_consolidate
         if auto_evolve is not None:
             b.fourd_auto_evolve = auto_evolve
+        if auto_extract_facts is not None:
+            b.fourd_auto_extract_facts = auto_extract_facts
+        if auto_synthesize_profile is not None:
+            b.fourd_auto_synthesize_profile = auto_synthesize_profile
         if mom1_access_enabled is not None:
             b.mom1_access_enabled = mom1_access_enabled
             self.mom1_access.enabled = mom1_access_enabled
@@ -869,6 +962,8 @@ class Autumn:
             "fourd_auto_annotate": b.fourd_auto_annotate,
             "fourd_auto_consolidate": b.fourd_auto_consolidate,
             "fourd_auto_evolve": b.fourd_auto_evolve,
+            "fourd_auto_extract_facts": b.fourd_auto_extract_facts,
+            "fourd_auto_synthesize_profile": b.fourd_auto_synthesize_profile,
             "mom1_access_enabled": b.mom1_access_enabled,
         }
 

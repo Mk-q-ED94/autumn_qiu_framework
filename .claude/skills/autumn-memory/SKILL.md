@@ -145,6 +145,16 @@ build derived memory from episodes:
 - **synthesize_profile** → a `profile` per `scope:<id>` (rewrite semantics), the resident
   user/session model; retrieve via `recall(tags=["profile","scope:<id>"])`.
 
+**Per-turn automation.** These passes also run automatically after each turn (best-effort,
+A4-gated) when their `BehaviorConfig` flag is on — no manual HTTP call needed:
+`fourd_auto_annotate` + `fourd_auto_consolidate` (default **on**) infer 4D dimensions and
+bound Mom1 growth; `fourd_auto_extract_facts`, `fourd_auto_synthesize_profile`,
+`fourd_auto_evolve` (default **off** — they add/pin durable state, so opt-in) mine facts,
+fold the profile, and promote skills. The auto passes are re-run-safe: extraction skips
+turns already distilled (`skip_consumed`) and profile synthesis folds only turns newer than
+the current profile (`only_new`), so repeated turns never duplicate. Each firing shows as a
+`wp4.*` stage in the turn trace. Toggle live via `POST /memory/4d/config`.
+
 ---
 
 ## HTTP surface (for client / web integrations)

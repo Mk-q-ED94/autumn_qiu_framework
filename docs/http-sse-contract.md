@@ -510,15 +510,19 @@ A4 认知操作：自动为近期条目批量推断 4D 标注。
 
 ### 8.9 `GET /memory/4d/status`
 
-4D 记忆层当前状态（push 引擎开关、上次 push 时间等）。
+4D 记忆层当前状态——返回每个开关的实时值：
+`fourd_memory_enabled`、`fourd_push_on_turn`、`fourd_pull_on_turn`、
+`fourd_auto_annotate`、`fourd_auto_consolidate`、`fourd_auto_evolve`、
+`fourd_auto_extract_facts`、`fourd_auto_synthesize_profile`、`mom1_access_enabled`。
+其中 `auto_evolve` / `auto_extract_facts` / `auto_synthesize_profile` 默认关闭（需显式开启）。
 
 ---
 
 ### 8.10 `POST /memory/4d/config`
 
-切换 4D 记忆配置。
+切换 4D 记忆配置——请求体为上述任意开关的子集，省略的字段保持不变，返回切换后的完整状态。
 
-**请求体** `{ "fourd_enabled": true, "push_on_turn": false }`
+**请求体** `{ "fourd_memory_enabled": true, "fourd_push_on_turn": false }`
 
 ---
 
