@@ -117,12 +117,14 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Qcowork.spacing.md) {
                     if vm.messages.isEmpty {
-                        EmptyStateView(
-                            icon: "leaf.fill",
-                            title: "协作工作台",
-                            message: "A1 分类 · A2 执行 · A3 路由"
-                        )
-                        .frame(minHeight: 360)
+                        ChatWelcomeView { prompt in
+                            // Setting `input` triggers the composer's onChange,
+                            // which runs the intent preview — so picking a starter
+                            // shows A1's predicted route before the user sends.
+                            vm.input = prompt
+                            composerFocused = true
+                        }
+                        .frame(minHeight: 420)
                     } else {
                         ForEach(vm.messages) { message in
                             MessageRow(
@@ -343,20 +345,37 @@ private struct MessageRow: View {
     let message: ChatMessage
     let isTraceSelected: Bool
     let onSelectTrace: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Qcowork.spacing.sm) {
             if message.role == .user {
                 Spacer(minLength: Qcowork.spacing.xxl)
-                bubble
+                messageColumn
             } else {
                 Image(systemName: "leaf.fill")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.tint)
                     .padding(.top, 6)
-                bubble
+                messageColumn
                 Spacer(minLength: Qcowork.spacing.xxl)
             }
+        }
+    }
+
+    /// Bubble plus a hover-revealed action bar aligned to the message's edge.
+    private var messageColumn: some View {
+        VStack(alignment: message.role == .user ? .trailing : .leading,
+               spacing: Qcowork.spacing.micro) {
+            bubble
+            if !message.text.isEmpty && isHovered {
+                MessageActionBar(text: message.text)
+                    .padding(.horizontal, Qcowork.spacing.xs)
+                    .transition(.opacity)
+            }
+        }
+        .onHover { hovering in
+            withAnimation(Qcowork.motion.soft) { isHovered = hovering }
         }
     }
 

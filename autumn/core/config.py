@@ -139,6 +139,8 @@ class BehaviorConfig:
     fourd_auto_annotate: bool = True  # After each turn, ask A4 to infer 4D dimensions for the just-written Mom1 entry (no-op without A4)
     fourd_auto_consolidate: bool = True  # Consolidate Mom1 when history nears the limit (no-op without A4 or below threshold)
     fourd_auto_evolve: bool = False  # Distil recurring high-utility memories into pinned skills via A4 when near history_limit (off by default — needs sufficient history and is intentionally user-opt-in)
+    fourd_auto_extract_facts: bool = False  # Distil raw turns into atomic_fact entries via A4 once Mom1 is substantive (off by default — additive: it grows the store, so opt-in; re-run-safe via skip_consumed)
+    fourd_auto_synthesize_profile: bool = False  # Fold new turns into a living user profile doc via A4 once Mom1 is substantive (off by default — builds persistent state, so opt-in; incremental via only_new)
     mom1_access_enabled: bool = True  # Allow Mom2/Mom3 to request adjudicated Mom1 reads via governed channel
     lexical_recall_enabled: bool = False  # Attach a BM25/FTS5 lexical layer fused into recall (off = vector-only)
     async_index: bool = False  # Index history entries in the background (off = synchronous, blocks append)
@@ -187,6 +189,12 @@ class BehaviorConfig:
             ),
             fourd_auto_evolve=_to_bool(
                 env("FOURD_AUTO_EVOLVE"), cls.fourd_auto_evolve,
+            ),
+            fourd_auto_extract_facts=_to_bool(
+                env("FOURD_AUTO_EXTRACT_FACTS"), cls.fourd_auto_extract_facts,
+            ),
+            fourd_auto_synthesize_profile=_to_bool(
+                env("FOURD_AUTO_SYNTHESIZE_PROFILE"), cls.fourd_auto_synthesize_profile,
             ),
             mom1_access_enabled=_to_bool(
                 env("MOM1_ACCESS_ENABLED"), cls.mom1_access_enabled

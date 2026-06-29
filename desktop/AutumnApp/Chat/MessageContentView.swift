@@ -26,10 +26,9 @@ struct MessageContentView: View {
         case .text(let content):
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                Text(.init(content))
-                    .font(Qcowork.typography.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Block-level markdown (lists / headings) on top of the inline
+                // markdown SwiftUI's Text already does; plain prose is unchanged.
+                MarkdownBlockView(text: content)
             }
         case .code(let language, let code):
             CodeBlockView(language: language, code: code)

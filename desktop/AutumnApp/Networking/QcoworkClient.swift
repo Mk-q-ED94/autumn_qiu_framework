@@ -421,7 +421,15 @@ final class QcoworkClient {
     }
 
     func update4DConfig(
-        memoryEnabled: Bool, pushOnTurn: Bool, mom1AccessEnabled: Bool
+        memoryEnabled: Bool,
+        pushOnTurn: Bool,
+        pullOnTurn: Bool,
+        autoAnnotate: Bool,
+        autoConsolidate: Bool,
+        autoEvolve: Bool,
+        autoExtractFacts: Bool,
+        autoSynthesizeProfile: Bool,
+        mom1AccessEnabled: Bool
     ) async throws -> FourDStatus {
         var request = URLRequest(url: baseURL.appendingPathComponent("memory/4d/config"))
         request.httpMethod = "POST"
@@ -431,6 +439,12 @@ final class QcoworkClient {
             FourDConfigBody(
                 fourdMemoryEnabled: memoryEnabled,
                 fourdPushOnTurn: pushOnTurn,
+                fourdPullOnTurn: pullOnTurn,
+                fourdAutoAnnotate: autoAnnotate,
+                fourdAutoConsolidate: autoConsolidate,
+                fourdAutoEvolve: autoEvolve,
+                fourdAutoExtractFacts: autoExtractFacts,
+                fourdAutoSynthesizeProfile: autoSynthesizeProfile,
                 mom1AccessEnabled: mom1AccessEnabled
             )
         )

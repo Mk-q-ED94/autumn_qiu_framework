@@ -475,12 +475,16 @@ class WP4Mem(WorkspaceBase):
         area: str = "shared",
         keep_recent: int = 0,
         max_facts: int = 20,
+        skip_consumed: bool = False,
     ) -> list[MemoryEntry]:
         """Extract atomic facts from a zone's history via A4 (RFC 4D-memory P2-A).
 
         Each fact is stored back into the zone tagged ``atomic_fact`` so recall
         can hit it independently. Raises ``RuntimeError`` when no A4 model is
         configured; returns ``[]`` when there is nothing worth extracting.
+
+        ``skip_consumed`` makes a pass re-run-safe — turns already distilled into
+        an existing atomic fact are skipped — for the per-turn auto path.
         """
         if not self.has_model:
             raise RuntimeError(
@@ -488,7 +492,7 @@ class WP4Mem(WorkspaceBase):
             )
         api = self._cognitive_api(await self._zone_source_chars(area, keep_recent))
         facts = await self._resolve(area).extract_facts(
-            api, keep_recent=keep_recent, max_facts=max_facts,
+            api, keep_recent=keep_recent, max_facts=max_facts, skip_consumed=skip_consumed,
         )
         await self._log("extract_facts", area, {"facts": len(facts)})
         return facts
@@ -524,19 +528,22 @@ class WP4Mem(WorkspaceBase):
         return await self._resolve(area).get_profile(scope=scope)
 
     async def synthesize_profile(
-        self, area: str = "shared", scope: str = "default",
+        self, area: str = "shared", scope: str = "default", only_new: bool = False,
     ) -> str | None:
         """Fold a zone's recent history into the *scope* profile via A4 (P3-B).
 
         Raises ``RuntimeError`` without an A4 slot; returns ``None`` when there
-        is nothing to fold in.
+        is nothing to fold in. ``only_new`` folds only turns newer than the
+        current profile, so the per-turn auto path re-merges just the delta.
         """
         if not self.has_model:
             raise RuntimeError(
                 "Profile synthesis needs the A4 model slot; none is configured.",
             )
         api = self._cognitive_api(await self._zone_source_chars(area))
-        profile = await self._resolve(area).synthesize_profile(api, scope=scope)
+        profile = await self._resolve(area).synthesize_profile(
+            api, scope=scope, only_new=only_new,
+        )
         await self._log(
             "synthesize_profile", area, {"scope": scope, "updated": profile is not None},
         )

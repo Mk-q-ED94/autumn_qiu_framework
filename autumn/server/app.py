@@ -370,6 +370,8 @@ class FourDStatusResponse(BaseModel):
     fourd_auto_annotate: bool = True
     fourd_auto_consolidate: bool = True
     fourd_auto_evolve: bool = False
+    fourd_auto_extract_facts: bool = False
+    fourd_auto_synthesize_profile: bool = False
     mom1_access_enabled: bool
 
 
@@ -382,6 +384,8 @@ class FourDConfigRequest(BaseModel):
     fourd_auto_annotate: bool | None = None
     fourd_auto_consolidate: bool | None = None
     fourd_auto_evolve: bool | None = None
+    fourd_auto_extract_facts: bool | None = None
+    fourd_auto_synthesize_profile: bool | None = None
     mom1_access_enabled: bool | None = None
 
 
@@ -1604,6 +1608,10 @@ def create_app() -> FastAPI:
             fourd_auto_annotate=bool(getattr(b, "fourd_auto_annotate", True)),
             fourd_auto_consolidate=bool(getattr(b, "fourd_auto_consolidate", True)),
             fourd_auto_evolve=bool(getattr(b, "fourd_auto_evolve", False)),
+            fourd_auto_extract_facts=bool(getattr(b, "fourd_auto_extract_facts", False)),
+            fourd_auto_synthesize_profile=bool(
+                getattr(b, "fourd_auto_synthesize_profile", False)
+            ),
             mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
         )
 
@@ -1627,6 +1635,8 @@ def create_app() -> FastAPI:
             auto_annotate=req.fourd_auto_annotate,
             auto_consolidate=req.fourd_auto_consolidate,
             auto_evolve=req.fourd_auto_evolve,
+            auto_extract_facts=req.fourd_auto_extract_facts,
+            auto_synthesize_profile=req.fourd_auto_synthesize_profile,
             mom1_access_enabled=req.mom1_access_enabled,
         )
         return FourDStatusResponse(**result)

@@ -79,6 +79,8 @@ export interface FourDStatus {
   fourd_auto_annotate: boolean;
   fourd_auto_consolidate: boolean;
   fourd_auto_evolve: boolean;
+  fourd_auto_extract_facts: boolean;
+  fourd_auto_synthesize_profile: boolean;
   mom1_access_enabled: boolean;
 }
 
