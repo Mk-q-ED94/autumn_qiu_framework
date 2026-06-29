@@ -350,12 +350,41 @@ struct AccessLogResponse: Decodable {
 struct FourDStatus: Decodable, Equatable {
     let fourdMemoryEnabled: Bool
     let fourdPushOnTurn: Bool
+    let fourdPullOnTurn: Bool
+    let fourdAutoAnnotate: Bool
+    let fourdAutoConsolidate: Bool
+    let fourdAutoEvolve: Bool
+    let fourdAutoExtractFacts: Bool
+    let fourdAutoSynthesizeProfile: Bool
     let mom1AccessEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case fourdMemoryEnabled = "fourd_memory_enabled"
         case fourdPushOnTurn = "fourd_push_on_turn"
+        case fourdPullOnTurn = "fourd_pull_on_turn"
+        case fourdAutoAnnotate = "fourd_auto_annotate"
+        case fourdAutoConsolidate = "fourd_auto_consolidate"
+        case fourdAutoEvolve = "fourd_auto_evolve"
+        case fourdAutoExtractFacts = "fourd_auto_extract_facts"
+        case fourdAutoSynthesizeProfile = "fourd_auto_synthesize_profile"
         case mom1AccessEnabled = "mom1_access_enabled"
+    }
+
+    // Tolerate a server that predates the per-turn lifecycle flags: each missing
+    // field falls back to the framework's own default so an older backend still
+    // decodes (mirrors the server's FourDStatusResponse defaults).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fourdMemoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .fourdMemoryEnabled) ?? false
+        fourdPushOnTurn = try c.decodeIfPresent(Bool.self, forKey: .fourdPushOnTurn) ?? false
+        fourdPullOnTurn = try c.decodeIfPresent(Bool.self, forKey: .fourdPullOnTurn) ?? true
+        fourdAutoAnnotate = try c.decodeIfPresent(Bool.self, forKey: .fourdAutoAnnotate) ?? true
+        fourdAutoConsolidate = try c.decodeIfPresent(Bool.self, forKey: .fourdAutoConsolidate) ?? true
+        fourdAutoEvolve = try c.decodeIfPresent(Bool.self, forKey: .fourdAutoEvolve) ?? false
+        fourdAutoExtractFacts = try c.decodeIfPresent(Bool.self, forKey: .fourdAutoExtractFacts) ?? false
+        fourdAutoSynthesizeProfile =
+            try c.decodeIfPresent(Bool.self, forKey: .fourdAutoSynthesizeProfile) ?? false
+        mom1AccessEnabled = try c.decodeIfPresent(Bool.self, forKey: .mom1AccessEnabled) ?? true
     }
 }
 

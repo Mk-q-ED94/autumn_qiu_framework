@@ -27,8 +27,16 @@ struct SettingsView: View {
     @State private var serverMetrics: MetricsResponse? = nil
 
     // 4D memory runtime switches (read from / written to the server live).
+    // Initial values mirror the framework defaults so the UI reads sensibly
+    // before the first server sync resolves.
     @State private var fourdMemoryEnabled = false
     @State private var fourdPushOnTurn = false
+    @State private var fourdPullOnTurn = true
+    @State private var fourdAutoAnnotate = true
+    @State private var fourdAutoConsolidate = true
+    @State private var fourdAutoEvolve = false
+    @State private var fourdAutoExtractFacts = false
+    @State private var fourdAutoSynthesizeProfile = false
     @State private var mom1AccessEnabled = true
     @State private var fourdLoaded = false
     @State private var fourdApplying = false
@@ -341,30 +349,16 @@ struct SettingsView: View {
                 title: "4D 记忆引擎",
                 footer: "运行时开关会立即对当前服务器生效，不写回 .env；重启服务后回到 .env 默认值。"
             ) {
-                FourDRuntimeRow(
-                    title: "4D 激活排序",
-                    detail: "回忆、归并和淘汰时按 use / scope / trigger / retention 参与排序。",
-                    icon: "brain",
-                    tint: Qcowork.colors.memory,
-                    isOn: fourdMemoryBinding,
-                    isApplying: fourdApplying
-                )
-                FourDRuntimeRow(
-                    title: "回合推送",
-                    detail: "每轮开始前自动注入 CONSTRAIN / REMIND 记忆片段。",
-                    icon: "bolt.fill",
-                    tint: Qcowork.colors.warning,
-                    isOn: fourdPushBinding,
-                    isApplying: fourdApplying
-                )
-                FourDRuntimeRow(
-                    title: "Mom1 访问治理",
-                    detail: "Mom2/Mom3 读取 Mom1 前由 A1 裁决，并写入 WP4 审计日志。",
-                    icon: "checkmark.shield.fill",
-                    tint: Qcowork.colors.teal,
-                    isOn: mom1AccessBinding,
-                    isApplying: fourdApplying
-                )
+                ForEach(fourdToggleRows) { row in
+                    FourDRuntimeRow(
+                        title: row.id,
+                        detail: row.detail,
+                        icon: row.icon,
+                        tint: row.tint,
+                        isOn: row.binding,
+                        isApplying: fourdApplying
+                    )
+                }
                 HStack(spacing: Qcowork.spacing.sm) {
                     if fourdApplying {
                         ProgressView().controlSize(.small)
@@ -602,6 +596,97 @@ struct SettingsView: View {
         )
     }
 
+    private var fourdPullBinding: Binding<Bool> {
+        Binding(
+            get: { fourdPullOnTurn },
+            set: { fourdPullOnTurn = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var fourdAnnotateBinding: Binding<Bool> {
+        Binding(
+            get: { fourdAutoAnnotate },
+            set: { fourdAutoAnnotate = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var fourdConsolidateBinding: Binding<Bool> {
+        Binding(
+            get: { fourdAutoConsolidate },
+            set: { fourdAutoConsolidate = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var fourdEvolveBinding: Binding<Bool> {
+        Binding(
+            get: { fourdAutoEvolve },
+            set: { fourdAutoEvolve = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var fourdExtractFactsBinding: Binding<Bool> {
+        Binding(
+            get: { fourdAutoExtractFacts },
+            set: { fourdAutoExtractFacts = $0; Task { await applyFourD() } }
+        )
+    }
+
+    private var fourdSynthesizeProfileBinding: Binding<Bool> {
+        Binding(
+            get: { fourdAutoSynthesizeProfile },
+            set: { fourdAutoSynthesizeProfile = $0; Task { await applyFourD() } }
+        )
+    }
+
+    // The runtime 4D switches as a single ordered list (memory · push · pull ·
+    // the four A4 lifecycle automations · governance). Mirrors the web client's
+    // FOURD_ROWS so both surfaces read as one product. The five A4 automations
+    // carry the reserved `memory` purple; push is amber (active injection) and
+    // access is teal (governance).
+    private var fourdToggleRows: [FourDToggleDescriptor] {
+        [
+            FourDToggleDescriptor(
+                id: "4D 激活排序",
+                detail: "回忆、归并和淘汰时按 use / scope / trigger / retention 参与排序。",
+                icon: "brain", tint: Qcowork.colors.memory, binding: fourdMemoryBinding),
+            FourDToggleDescriptor(
+                id: "回合推送",
+                detail: "每轮开始前自动注入 CONSTRAIN / REMIND 记忆片段。",
+                icon: "bolt.fill", tint: Qcowork.colors.warning, binding: fourdPushBinding),
+            FourDToggleDescriptor(
+                id: "回合召回",
+                detail: "每轮把 Mom1 跨轮对话上下文拉入执行器提示。",
+                icon: "arrow.down.circle.fill", tint: Qcowork.colors.memory, binding: fourdPullBinding),
+            FourDToggleDescriptor(
+                id: "自动标注维度",
+                detail: "每轮后由 A4 为新写入的 Mom1 条目推断 aim / use / trigger 维度。",
+                icon: "tag.fill", tint: Qcowork.colors.memory, binding: fourdAnnotateBinding),
+            FourDToggleDescriptor(
+                id: "自动整合",
+                detail: "Mom1 接近上限时由 A4 把旧条目归并为摘要，回收容量。",
+                icon: "rectangle.compress.vertical", tint: Qcowork.colors.memory,
+                binding: fourdConsolidateBinding),
+            FourDToggleDescriptor(
+                id: "自动自进化",
+                detail: "记忆充足时由 A4 把高频复用的模式提炼为固定技能（默认关闭，属有意为之）。",
+                icon: "sparkles", tint: Qcowork.colors.memory, binding: fourdEvolveBinding),
+            FourDToggleDescriptor(
+                id: "自动抽取事实",
+                detail: "由 A4 把原始对话蒸馏为可独立召回的原子事实（默认关闭，仅抽取新增对话）。",
+                icon: "doc.text.magnifyingglass", tint: Qcowork.colors.memory,
+                binding: fourdExtractFactsBinding),
+            FourDToggleDescriptor(
+                id: "自动合成画像",
+                detail: "由 A4 把新增对话折叠进常驻用户画像（默认关闭，仅合并增量）。",
+                icon: "person.text.rectangle.fill", tint: Qcowork.colors.memory,
+                binding: fourdSynthesizeProfileBinding),
+            FourDToggleDescriptor(
+                id: "Mom1 访问治理",
+                detail: "Mom2/Mom3 读取 Mom1 前由 A1 裁决，并写入 WP4 审计日志。",
+                icon: "checkmark.shield.fill", tint: Qcowork.colors.teal, binding: mom1AccessBinding),
+        ]
+    }
+
     private func loadMetrics() async {
         guard let url = URL(string: settings.serverURL) else { return }
         serverMetrics = await QcoworkClient(baseURL: url).fetchMetrics()
@@ -637,9 +722,7 @@ struct SettingsView: View {
             let status = try await QcoworkClient(baseURL: url).fetch4DStatus()
             // Assign the @State directly (not via the toggles' bindings) so syncing
             // from the server does not trigger an apply round-trip.
-            fourdMemoryEnabled = status.fourdMemoryEnabled
-            fourdPushOnTurn = status.fourdPushOnTurn
-            mom1AccessEnabled = status.mom1AccessEnabled
+            applyStatus(status)
             fourdError = nil
             fourdLoaded = true
         } catch {
@@ -659,16 +742,33 @@ struct SettingsView: View {
             let status = try await QcoworkClient(baseURL: url).update4DConfig(
                 memoryEnabled: fourdMemoryEnabled,
                 pushOnTurn: fourdPushOnTurn,
+                pullOnTurn: fourdPullOnTurn,
+                autoAnnotate: fourdAutoAnnotate,
+                autoConsolidate: fourdAutoConsolidate,
+                autoEvolve: fourdAutoEvolve,
+                autoExtractFacts: fourdAutoExtractFacts,
+                autoSynthesizeProfile: fourdAutoSynthesizeProfile,
                 mom1AccessEnabled: mom1AccessEnabled
             )
-            fourdMemoryEnabled = status.fourdMemoryEnabled
-            fourdPushOnTurn = status.fourdPushOnTurn
-            mom1AccessEnabled = status.mom1AccessEnabled
+            applyStatus(status)
             fourdError = nil
             fourdLoaded = true
         } catch {
             fourdError = error.localizedDescription
         }
+    }
+
+    /// Fold a server snapshot into the local @State (no apply round-trip).
+    private func applyStatus(_ status: FourDStatus) {
+        fourdMemoryEnabled = status.fourdMemoryEnabled
+        fourdPushOnTurn = status.fourdPushOnTurn
+        fourdPullOnTurn = status.fourdPullOnTurn
+        fourdAutoAnnotate = status.fourdAutoAnnotate
+        fourdAutoConsolidate = status.fourdAutoConsolidate
+        fourdAutoEvolve = status.fourdAutoEvolve
+        fourdAutoExtractFacts = status.fourdAutoExtractFacts
+        fourdAutoSynthesizeProfile = status.fourdAutoSynthesizeProfile
+        mom1AccessEnabled = status.mom1AccessEnabled
     }
 
     // ── codebase-memory token-saving layer ──────────────────────────────────────
@@ -1238,6 +1338,16 @@ private struct TabPill: View {
 }
 
 // MARK: - 4D runtime row
+
+/// One runtime 4D toggle, described as data so the section stays a single
+/// data-driven list (mirrors the web client's FOURD_ROWS). ``id`` is the title.
+private struct FourDToggleDescriptor: Identifiable {
+    let id: String
+    let detail: String
+    let icon: String
+    let tint: Color
+    let binding: Binding<Bool>
+}
 
 private struct FourDRuntimeRow: View {
     let title: String
