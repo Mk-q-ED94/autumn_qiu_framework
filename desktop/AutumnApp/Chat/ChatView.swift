@@ -117,12 +117,14 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Qcowork.spacing.md) {
                     if vm.messages.isEmpty {
-                        EmptyStateView(
-                            icon: "leaf.fill",
-                            title: "协作工作台",
-                            message: "A1 分类 · A2 执行 · A3 路由"
-                        )
-                        .frame(minHeight: 360)
+                        ChatWelcomeView { prompt in
+                            // Setting `input` triggers the composer's onChange,
+                            // which runs the intent preview — so picking a starter
+                            // shows A1's predicted route before the user sends.
+                            vm.input = prompt
+                            composerFocused = true
+                        }
+                        .frame(minHeight: 420)
                     } else {
                         ForEach(vm.messages) { message in
                             MessageRow(
