@@ -124,10 +124,15 @@ def _capture_usage(api) -> tuple[int | None, int | None]:
     return prompt, completion
 
 
-def _classify_detail(input_type: InputType, task_type: TaskType | None) -> str:
+def _classify_detail(
+    input_type: InputType, task_type: TaskType | None, reasoning: str | None = None,
+) -> str:
     if input_type == InputType.TASK and task_type and task_type != TaskType.GENERAL:
-        return f"输入被识别为 task · {task_type.value}"
-    return f"输入被识别为 {input_type.value}"
+        base = f"输入被识别为 task · {task_type.value}"
+    else:
+        base = f"输入被识别为 {input_type.value}"
+    reason = (reasoning or "").strip()
+    return f"{base} —— {reason}" if reason else base
 
 
 _PLAN_PREFIX = re.compile(r"^\s*(?:[-*]|\d+[.)、])\s*")
@@ -292,7 +297,8 @@ class WP1Tot(WorkspaceBase):
         input_type = sel.input_type
         task_type = sel.task_type
         stages.append(_make_stage(
-            "wp1.select", "A1 分类", _classify_detail(input_type, task_type), "WP1", t, self.api,
+            "wp1.select", "A1 分类",
+            _classify_detail(input_type, task_type, sel.reasoning), "WP1", t, self.api,
         ))
 
         if input_type == InputType.TASK:
@@ -685,7 +691,8 @@ class WP1Tot(WorkspaceBase):
         input_type = sel.input_type
         task_type = sel.task_type
         stages.append(_make_stage(
-            "wp1.select", "A1 分类", _classify_detail(input_type, task_type), "WP1", t, self.api,
+            "wp1.select", "A1 分类",
+            _classify_detail(input_type, task_type, sel.reasoning), "WP1", t, self.api,
         ))
 
         interventions: list[dict] = []

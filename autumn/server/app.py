@@ -125,6 +125,8 @@ class TraceStageResponse(BaseModel):
     title: str
     detail: str
     workspace: str
+    agent: str | None = None       # acting agent slot ("A1".."A4") — collaboration identity
+    handoff_to: str | None = None  # agent this stage hands off to, if any
     items: list[str] | None = None
     status: str
     kind: str = "stage"

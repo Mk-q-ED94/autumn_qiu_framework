@@ -155,6 +155,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     let title: String
     let detail: String
     let workspace: String
+    let agent: String?       // acting agent slot ("A1".."A4") — collaboration identity
+    let handoffTo: String?   // agent this stage hands off to, if any
     let items: [String]
     let status: String
     let kind: String   // "stage" = workflow step, "tool" = an agent tool call
@@ -169,6 +171,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         title: String,
         detail: String,
         workspace: String,
+        agent: String? = nil,
+        handoffTo: String? = nil,
         items: [String] = [],
         status: String,
         kind: String = "stage",
@@ -182,6 +186,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         self.title = title
         self.detail = detail
         self.workspace = workspace
+        self.agent = agent
+        self.handoffTo = handoffTo
         self.items = items
         self.status = status
         self.kind = kind
@@ -198,6 +204,10 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
         title = try c.decode(String.self, forKey: .title)
         detail = try c.decode(String.self, forKey: .detail)
         workspace = try c.decode(String.self, forKey: .workspace)
+        // Fall back to the workspace→agent mapping if an older server omits `agent`.
+        agent = try c.decodeIfPresent(String.self, forKey: .agent)
+            ?? ["WP1": "A1", "WP2": "A2", "WP3": "A3", "WP4": "A4"][workspace]
+        handoffTo = try c.decodeIfPresent(String.self, forKey: .handoffTo)
         items = try c.decodeIfPresent([String].self, forKey: .items) ?? []
         status = try c.decode(String.self, forKey: .status)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "stage"
@@ -209,7 +219,8 @@ struct WorkflowStage: Decodable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, detail, workspace, items, status, kind
+        case id, title, detail, workspace, agent, items, status, kind
+        case handoffTo = "handoff_to"
         case durationMS = "duration_ms"
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"

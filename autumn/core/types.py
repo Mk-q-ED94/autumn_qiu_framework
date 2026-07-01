@@ -52,6 +52,18 @@ class WorkflowStage:
     source_terr: str | None = None
     cost_usd: float | None = None   # filled in when the slot has pricing configured
     items: list[str] | None = None  # structured detail, e.g. A1's execution plan
+    # Structured collaboration identity so the client can show *who* acted and
+    # *who they handed to* without parsing the (localized) title. "A1".."A4".
+    agent: str | None = None
+    handoff_to: str | None = None
+
+    def __post_init__(self):
+        # Derive the acting agent from the workspace 1:1 unless set explicitly,
+        # so every stage — wherever it's built — carries a machine-readable actor.
+        if self.agent is None:
+            self.agent = {
+                "WP1": "A1", "WP2": "A2", "WP3": "A3", "WP4": "A4",
+            }.get(self.workspace)
 
 
 @dataclass

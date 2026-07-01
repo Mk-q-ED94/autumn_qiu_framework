@@ -4,11 +4,17 @@ export type WorkspaceId = "WP1" | "WP2" | "WP3" | "WP4";
 export type StageStatus = "pending" | "active" | "completed" | "failed";
 export type StageKind = "stage" | "tool" | "agent" | "push";
 
+export type AgentId = "A1" | "A2" | "A3" | "A4";
+
 export interface WorkflowStage {
   id: string;
   title: string;
   detail: string;
   workspace: WorkspaceId;
+  /** Acting agent slot ("A1".."A4") — machine-readable collaboration identity. */
+  agent?: AgentId;
+  /** Agent this stage hands off to, if any. */
+  handoff_to?: AgentId;
   status: StageStatus;
   kind: StageKind;
   duration_ms?: number;
