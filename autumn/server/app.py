@@ -394,6 +394,7 @@ class CodebaseMemoryStatusResponse(BaseModel):
 
     enabled: bool          # behaviour flag — intent; the layer auto-starts when on
     connected: bool        # whether the code-graph MCP server is live right now
+    starting: bool = False # bring-up in progress (MCP spawn/handshake) — poll again
     indexed: bool = False  # whether the repo has been indexed into the graph yet
     repo: str = ""         # repo scoped for indexing ("" = server working directory)
     tool_count: int = 0
@@ -687,14 +688,18 @@ async def lifespan(app: FastAPI):
     app.state.integration_runtime = {}     # id -> integrations_mod.IntegrationRuntime
     app.state.integration_errors = {}      # id -> str
     app.state.integration_lock = asyncio.Lock()
-    # Codebase-memory token-saving layer: last start error (for the status endpoint)
-    # and auto-start when enabled in config.
+    # Codebase-memory token-saving layer: last start error (for the status endpoint),
+    # the in-flight background start task, and auto-start when enabled in config.
     app.state.codebase_memory_error = None
+    app.state.codebase_memory_task = None
     if app.state.autumn is not None:
         await _autostart_codebase_memory(app, app.state.autumn)
     try:
         yield
     finally:
+        task = getattr(app.state, "codebase_memory_task", None)
+        if task is not None and not task.done():
+            task.cancel()
         if app.state.autumn is not None:
             await app.state.autumn.close()
 
@@ -730,9 +735,12 @@ def _codebase_memory_status(app: FastAPI, autumn: Autumn) -> CodebaseMemoryStatu
         cb.repo if cb is not None
         else (getattr(b, "codebase_memory_repo", "") or "")
     )
+    task = getattr(app.state, "codebase_memory_task", None)
+    starting = cb is None and task is not None and not task.done()
     return CodebaseMemoryStatusResponse(
         enabled=bool(getattr(b, "codebase_memory_enabled", False)),
         connected=cb is not None,
+        starting=starting,
         indexed=bool(getattr(cb, "indexed", False)) if cb is not None else False,
         repo=repo,
         tool_count=len(getattr(autumn, "_codebase_terr_names", []) or []),
@@ -740,21 +748,42 @@ def _codebase_memory_status(app: FastAPI, autumn: Autumn) -> CodebaseMemoryStatu
     )
 
 
+def _launch_codebase_start(app: FastAPI, autumn: Autumn, repo: str | None = None) -> None:
+    """Bring the codebase-memory layer up in the background — never blocks the caller.
+
+    The MCP bring-up (``uvx``/``npx`` spawn, possibly a first-run package fetch,
+    plus the JSON-RPC handshake) can take minutes, so running it on the request
+    path made the toggle time out. Instead we launch it as a task and let the
+    client poll ``GET /config/codebase-memory`` (``starting`` → ``connected`` /
+    ``error``). Failures (missing binary, fetch error) are recorded on app.state.
+    """
+    async def _run() -> None:
+        async with app.state.integration_lock:
+            try:
+                await autumn.start_codebase_memory(repo)
+                app.state.codebase_memory_error = None
+            except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
+                app.state.codebase_memory_error = str(exc)
+            finally:
+                app.state.codebase_memory_task = None
+
+    old = getattr(app.state, "codebase_memory_task", None)
+    if old is not None and not old.done():
+        old.cancel()
+    app.state.codebase_memory_error = None
+    app.state.codebase_memory_task = asyncio.create_task(_run())
+
+
 async def _autostart_codebase_memory(app: FastAPI, autumn: Autumn) -> None:
     """On startup, bring the codebase-memory layer online when enabled in config.
 
-    Best-effort: a missing ``uvx``/``npx`` records an error on app.state for the
-    status endpoint instead of breaking startup."""
+    Backgrounded so a slow first-run MCP spawn never blocks app startup; the
+    status endpoint reports ``starting`` / ``error`` as it progresses."""
     b = getattr(getattr(autumn, "config", None), "behavior", None)
     starter = getattr(autumn, "start_codebase_memory", None)
     if starter is None or not getattr(b, "codebase_memory_enabled", False):
         return
-    async with app.state.integration_lock:
-        try:
-            await starter()
-            app.state.codebase_memory_error = None
-        except Exception as exc:  # noqa: BLE001 - connect spawns a subprocess
-            app.state.codebase_memory_error = str(exc)
+    _launch_codebase_start(app, autumn)
 
 
 def _status_entry(app: FastAPI, rid: str, name: str) -> IntegrationStatusEntry:
@@ -1446,15 +1475,24 @@ def create_app() -> FastAPI:
         repo = req.repo.strip() if req.repo is not None else None
         if repo is not None:
             b.codebase_memory_repo = repo
-        async with request.app.state.integration_lock:
-            try:
-                if req.enabled:
-                    await starter(repo)
-                else:
+        if req.enabled:
+            # Off the request path — the MCP spawn (uvx/npx, possibly a first-run
+            # fetch) can take minutes. Return immediately with `starting`; the
+            # client polls GET /config/codebase-memory until connected or error.
+            _launch_codebase_start(request.app, autumn, repo)
+        else:
+            # Cancel any in-flight start BEFORE taking the lock (the start task
+            # holds it during connect), then tear the layer down.
+            task = getattr(request.app.state, "codebase_memory_task", None)
+            if task is not None and not task.done():
+                task.cancel()
+            request.app.state.codebase_memory_task = None
+            async with request.app.state.integration_lock:
+                try:
                     await autumn.stop_codebase_memory()
-                request.app.state.codebase_memory_error = None
-            except Exception as exc:  # noqa: BLE001 - start spawns a subprocess
-                request.app.state.codebase_memory_error = str(exc)
+                    request.app.state.codebase_memory_error = None
+                except Exception as exc:  # noqa: BLE001 - disconnect spawns I/O
+                    request.app.state.codebase_memory_error = str(exc)
         return _codebase_memory_status(request.app, autumn)
 
     @app.get("/memory/{area}/history")

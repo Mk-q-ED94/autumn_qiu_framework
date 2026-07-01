@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -24,6 +25,34 @@ _PIN_THRESHOLD = 1.5  # importance >= this → never evicted
 
 def _new_id() -> str:
     return uuid.uuid4().hex
+
+
+# CJK (incl. kana / hangul) ranges — languages that don't separate words with
+# spaces, so they need character-gram matching rather than whitespace tokens.
+_CJK_RE = re.compile(r"[一-鿿぀-ヿ가-힯]")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _query_terms(text: str) -> set[str]:
+    """Cross-lingual term set for keyword matching.
+
+    Latin/digit runs become word tokens; CJK characters contribute both single
+    characters and adjacent bigrams (so "乌龙茶" ⊇ {"乌","龙","茶","乌龙","龙茶"}),
+    which is enough for a substring-overlap fallback to catch shared phrasing in
+    languages that don't use spaces. Purely lexical — no external dependency.
+    """
+    lowered = text.lower()
+    terms: set[str] = set(_WORD_RE.findall(lowered))
+    prev_cjk: str | None = None
+    for ch in lowered:
+        if _CJK_RE.match(ch):
+            terms.add(ch)
+            if prev_cjk is not None:
+                terms.add(prev_cjk + ch)
+            prev_cjk = ch
+        else:
+            prev_cjk = None
+    return terms
 
 
 @dataclass
@@ -703,6 +732,14 @@ class MemoryArea:
                 results.extend(await self._hybrid_search(query, k))
             except Exception:
                 pass
+        elif self._vector is None and self._lexical is None and len(results) < k:
+            # No search backend attached (the default). Fall back to an in-process
+            # keyword scan so recall still retrieves relevant entries instead of
+            # returning nothing — the whole point of a memory the model can query.
+            try:
+                results.extend(await self._fallback_text_search(query, k))
+            except Exception:
+                pass
         elif self._vector is not None and len(results) < k:
             try:
                 semantic = await self.search(query, k=k)
@@ -741,6 +778,42 @@ class MemoryArea:
         else:
             ranked = sorted(seen.values(), key=lambda e: (-e.importance, -e.timestamp))
         return ranked[:k]
+
+    async def _fallback_text_search(self, query: str, k: int) -> list[MemoryEntry]:
+        """Keyword-overlap scan over history for the search-less default backend.
+
+        Ranks live entries by how many query terms (cross-lingual — see
+        :func:`_query_terms`) occur in the entry text, recency breaking ties, and
+        returns the top *k* with any overlap. Real history entries (real ids /
+        dimensions), so they rank and reinforce like any other recall hit. Not a
+        substitute for BM25/vector — just enough that recall retrieves something
+        relevant instead of nothing when no index is attached.
+        """
+        terms = _query_terms(query)
+        if not terms:
+            return []
+        try:
+            history = await self.get_history()
+        except Exception:
+            return []
+        scored: list[tuple[int, MemoryEntry]] = []
+        for entry in history:
+            text = (entry.text or "").lower()
+            if not text:
+                continue
+            hits = sum(1 for term in terms if term in text)
+            if hits:
+                scored.append((hits, entry))
+        scored.sort(key=lambda pair: (-pair[0], -pair[1].timestamp))
+        top = scored[:k]
+        for hits, entry in top:
+            # Encode keyword relevance as importance so recall's final ranking
+            # (4D activation or importance×recency, both scaled by importance)
+            # surfaces higher-overlap entries first instead of collapsing to pure
+            # recency — mirrors how the vector branch maps its score onto
+            # importance. Transient: these are decoded copies, never persisted.
+            entry.importance = 1.0 + float(hits)
+        return [entry for _, entry in top]
 
     # ── pin / unpin ───────────────────────────────────────────────────────────
 
