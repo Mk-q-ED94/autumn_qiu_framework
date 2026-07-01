@@ -373,6 +373,11 @@ class FourDStatusResponse(BaseModel):
     fourd_auto_extract_facts: bool = False
     fourd_auto_synthesize_profile: bool = False
     mom1_access_enabled: bool
+    # Memory health — lets the client warn instead of silently doing nothing.
+    a4_configured: bool = False   # A4 slot set → annotate/consolidate/extract/profile/push work
+    has_vector: bool = False      # semantic recall backend attached
+    has_lexical: bool = False     # BM25/FTS lexical recall backend attached
+    memory_degraded: bool = False # 4D on but A4 missing → cognitive ops + push are inert
 
 
 class FourDConfigRequest(BaseModel):
@@ -725,6 +730,23 @@ async def _reapply_integrations(app: FastAPI, autumn: Autumn) -> None:
             errors[integration_id] = str(exc)
     app.state.integration_runtime = runtime
     app.state.integration_errors = errors
+
+
+def _memory_health(autumn: Autumn) -> dict:
+    """Whether the memory subsystem can actually do its job (for the client).
+
+    ``a4_configured`` gates every A4 cognitive op (annotate / consolidate /
+    extract / profile) and, transitively, the push engine; the vector/lexical
+    flags say which recall backend is live (else recall uses the in-process
+    keyword fallback).
+    """
+    wp4 = getattr(autumn, "wp4", None)
+    mom1 = getattr(autumn, "mom1", None)
+    return {
+        "a4_configured": bool(getattr(wp4, "has_model", False)),
+        "has_vector": bool(getattr(mom1, "has_vector", False)),
+        "has_lexical": bool(getattr(mom1, "has_lexical", False)),
+    }
 
 
 def _codebase_memory_status(app: FastAPI, autumn: Autumn) -> CodebaseMemoryStatusResponse:
@@ -1639,8 +1661,10 @@ def create_app() -> FastAPI:
         """
         autumn = _autumn_or_503(request)
         b = getattr(getattr(autumn, "config", None), "behavior", None)
+        health = _memory_health(autumn)
+        memory_enabled = bool(getattr(b, "fourd_memory_enabled", False))
         return FourDStatusResponse(
-            fourd_memory_enabled=bool(getattr(b, "fourd_memory_enabled", False)),
+            fourd_memory_enabled=memory_enabled,
             fourd_push_on_turn=bool(getattr(b, "fourd_push_on_turn", False)),
             fourd_pull_on_turn=bool(getattr(b, "fourd_pull_on_turn", True)),
             fourd_auto_annotate=bool(getattr(b, "fourd_auto_annotate", True)),
@@ -1651,6 +1675,8 @@ def create_app() -> FastAPI:
                 getattr(b, "fourd_auto_synthesize_profile", False)
             ),
             mom1_access_enabled=bool(getattr(b, "mom1_access_enabled", True)),
+            memory_degraded=memory_enabled and not health["a4_configured"],
+            **health,
         )
 
     @app.post("/memory/4d/config", response_model=FourDStatusResponse)
@@ -1677,7 +1703,13 @@ def create_app() -> FastAPI:
             auto_synthesize_profile=req.fourd_auto_synthesize_profile,
             mom1_access_enabled=req.mom1_access_enabled,
         )
-        return FourDStatusResponse(**result)
+        health = _memory_health(autumn)
+        return FourDStatusResponse(
+            **result,
+            memory_degraded=result.get("fourd_memory_enabled", False)
+            and not health["a4_configured"],
+            **health,
+        )
 
     @app.post("/memory/push/preview", response_model=PushPreviewResponse)
     async def push_preview(req: PushPreviewRequest, request: Request):

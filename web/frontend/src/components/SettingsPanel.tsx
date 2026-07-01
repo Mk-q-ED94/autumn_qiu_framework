@@ -120,6 +120,12 @@ function FourDSettings({ settings }: { settings: Settings }) {
   return (
     <div className="settings-section">
       <div className="settings-section__title">4D 记忆引擎</div>
+      {status?.memory_degraded && (
+        <div className="field__hint field__hint--error">
+          ⚠ 记忆已降级：未配置 A4 记忆模型，自动标注 / 整合 / 抽取 / 画像与回合推送均不生效
+          （召回回退为关键词匹配）。在「模型槽位」配置 A4 后恢复完整能力。
+        </div>
+      )}
       {!status && !err && <div className="field__hint">加载中…</div>}
       {err && <div className="field__hint field__hint--error">{err}</div>}
       {status &&

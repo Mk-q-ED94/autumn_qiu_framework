@@ -357,6 +357,11 @@ struct FourDStatus: Decodable, Equatable {
     let fourdAutoExtractFacts: Bool
     let fourdAutoSynthesizeProfile: Bool
     let mom1AccessEnabled: Bool
+    // Memory health — lets the client warn instead of silently doing nothing.
+    let a4Configured: Bool
+    let hasVector: Bool
+    let hasLexical: Bool
+    let memoryDegraded: Bool
 
     enum CodingKeys: String, CodingKey {
         case fourdMemoryEnabled = "fourd_memory_enabled"
@@ -368,11 +373,15 @@ struct FourDStatus: Decodable, Equatable {
         case fourdAutoExtractFacts = "fourd_auto_extract_facts"
         case fourdAutoSynthesizeProfile = "fourd_auto_synthesize_profile"
         case mom1AccessEnabled = "mom1_access_enabled"
+        case a4Configured = "a4_configured"
+        case hasVector = "has_vector"
+        case hasLexical = "has_lexical"
+        case memoryDegraded = "memory_degraded"
     }
 
-    // Tolerate a server that predates the per-turn lifecycle flags: each missing
-    // field falls back to the framework's own default so an older backend still
-    // decodes (mirrors the server's FourDStatusResponse defaults).
+    // Tolerate a server that predates the per-turn lifecycle / health fields:
+    // each missing field falls back to the framework's own default so an older
+    // backend still decodes (mirrors the server's FourDStatusResponse defaults).
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fourdMemoryEnabled = try c.decodeIfPresent(Bool.self, forKey: .fourdMemoryEnabled) ?? false
@@ -385,6 +394,10 @@ struct FourDStatus: Decodable, Equatable {
         fourdAutoSynthesizeProfile =
             try c.decodeIfPresent(Bool.self, forKey: .fourdAutoSynthesizeProfile) ?? false
         mom1AccessEnabled = try c.decodeIfPresent(Bool.self, forKey: .mom1AccessEnabled) ?? true
+        a4Configured = try c.decodeIfPresent(Bool.self, forKey: .a4Configured) ?? false
+        hasVector = try c.decodeIfPresent(Bool.self, forKey: .hasVector) ?? false
+        hasLexical = try c.decodeIfPresent(Bool.self, forKey: .hasLexical) ?? false
+        memoryDegraded = try c.decodeIfPresent(Bool.self, forKey: .memoryDegraded) ?? false
     }
 }
 
@@ -392,13 +405,14 @@ struct FourDStatus: Decodable, Equatable {
 struct CodebaseMemoryStatus: Decodable, Equatable {
     let enabled: Bool        // behaviour flag (intent; the layer auto-starts when on)
     let connected: Bool      // whether the code-graph MCP is live right now
+    let starting: Bool       // bring-up in progress (async MCP spawn) — keep polling
     let indexed: Bool        // whether the repo has been indexed into the graph yet
     let repo: String         // repo scoped for indexing ("" = server working directory)
     let toolCount: Int
     let error: String?
 
     enum CodingKeys: String, CodingKey {
-        case enabled, connected, indexed, repo, error
+        case enabled, connected, starting, indexed, repo, error
         case toolCount = "tool_count"
     }
 
@@ -406,7 +420,8 @@ struct CodebaseMemoryStatus: Decodable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decode(Bool.self, forKey: .enabled)
         connected = try c.decode(Bool.self, forKey: .connected)
-        // Tolerate an older server that predates the `indexed` field.
+        // Tolerate an older server that predates the `starting` / `indexed` fields.
+        starting = try c.decodeIfPresent(Bool.self, forKey: .starting) ?? false
         indexed = try c.decodeIfPresent(Bool.self, forKey: .indexed) ?? false
         repo = try c.decodeIfPresent(String.self, forKey: .repo) ?? ""
         toolCount = try c.decodeIfPresent(Int.self, forKey: .toolCount) ?? 0

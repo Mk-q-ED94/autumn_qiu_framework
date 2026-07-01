@@ -82,6 +82,11 @@ export interface FourDStatus {
   fourd_auto_extract_facts: boolean;
   fourd_auto_synthesize_profile: boolean;
   mom1_access_enabled: boolean;
+  /** Memory health — surface degradation instead of silently doing nothing. */
+  a4_configured: boolean;
+  has_vector: boolean;
+  has_lexical: boolean;
+  memory_degraded: boolean;
 }
 
 /** One push-activated memory in a dry-run preview (POST /memory/push/preview). */
@@ -105,6 +110,8 @@ export interface PushPreview {
 export interface CodebaseMemoryStatus {
   enabled: boolean;
   connected: boolean;
+  /** Bring-up in progress (async MCP spawn/handshake) — keep polling. */
+  starting?: boolean;
   indexed: boolean;
   repo: string;
   tool_count: number;

@@ -76,6 +76,22 @@ def test_status_reports_flags(client_factory):
     assert body["fourd_auto_synthesize_profile"] is False  # default off (opt-in)
 
 
+def test_status_reports_memory_degraded_without_a4(client_factory):
+    # The stub Autumn has no A4 model and a search-less DictBackend.
+    client, _ = client_factory(_Behavior(mem=True))
+    body = client.get("/memory/4d/status").json()
+    assert body["a4_configured"] is False
+    assert body["has_vector"] is False
+    assert body["has_lexical"] is False
+    assert body["memory_degraded"] is True  # 4D on but no A4 → cognitive ops inert
+
+
+def test_status_not_degraded_when_memory_off(client_factory):
+    client, _ = client_factory(_Behavior(mem=False))
+    body = client.get("/memory/4d/status").json()
+    assert body["memory_degraded"] is False  # nothing enabled → nothing to degrade
+
+
 def test_status_defaults_when_no_config(client_factory):
     client, _ = client_factory(behavior=None)  # no .config attribute
     body = client.get("/memory/4d/status").json()
